@@ -1,0 +1,7 @@
+/Users/samestrin/Documents/GitHub/claude-prompts/llm-tools/testdata/fixtures/sample_project/
+├── src/
+│   ├── components/
+│   ├── utils/
+│   └── main.go
+└── tests/
+    └── main_test.go

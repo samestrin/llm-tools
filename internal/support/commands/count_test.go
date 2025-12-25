@@ -1,0 +1,123 @@
+package commands
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestCountCommand(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test markdown file with checkboxes
+	mdContent := `# Test
+- [x] Done task
+- [ ] Pending task
+- [x] Another done
+`
+	mdFile := filepath.Join(tmpDir, "test.md")
+	os.WriteFile(mdFile, []byte(mdContent), 0644)
+
+	// Create test files for line counting
+	txtFile := filepath.Join(tmpDir, "lines.txt")
+	os.WriteFile(txtFile, []byte("line1\nline2\nline3\n"), 0644)
+
+	tests := []struct {
+		name     string
+		args     []string
+		expected []string
+		hasError bool
+	}{
+		{
+			name:     "count checkboxes in file",
+			args:     []string{"--mode", "checkboxes", mdFile},
+			expected: []string{"TOTAL: 3", "CHECKED: 2", "UNCHECKED: 1"},
+		},
+		{
+			name:     "count lines in file",
+			args:     []string{"--mode", "lines", txtFile},
+			expected: []string{"COUNT: 3"},
+		},
+		{
+			name:     "count files in directory",
+			args:     []string{"--mode", "files", tmpDir},
+			expected: []string{"TOTAL: 2"},
+		},
+		{
+			name:     "count files recursive",
+			args:     []string{"--mode", "files", tmpDir, "-r"},
+			expected: []string{"TOTAL:"},
+		},
+		{
+			name:     "non-existent path",
+			args:     []string{"--mode", "checkboxes", "/nonexistent/path"},
+			hasError: true,
+		},
+		{
+			name:     "invalid mode",
+			args:     []string{"--mode", "invalid", tmpDir},
+			hasError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newCountCmd()
+			buf := new(bytes.Buffer)
+			errBuf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+			cmd.SetErr(errBuf)
+			cmd.SetArgs(tt.args)
+
+			err := cmd.Execute()
+
+			if tt.hasError {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			output := buf.String()
+			for _, exp := range tt.expected {
+				if !strings.Contains(output, exp) {
+					t.Errorf("output %q should contain %q", output, exp)
+				}
+			}
+		})
+	}
+}
+
+func TestCountCheckboxesRecursive(t *testing.T) {
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "subdir")
+	os.Mkdir(subDir, 0755)
+
+	// Create markdown files in both directories
+	os.WriteFile(filepath.Join(tmpDir, "root.md"), []byte("- [x] Root task\n"), 0644)
+	os.WriteFile(filepath.Join(subDir, "sub.md"), []byte("- [ ] Sub task\n- [x] Done\n"), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--mode", "checkboxes", tmpDir, "-r"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "TOTAL: 3") {
+		t.Errorf("output %q should contain TOTAL: 3", output)
+	}
+	if !strings.Contains(output, "CHECKED: 2") {
+		t.Errorf("output %q should contain CHECKED: 2", output)
+	}
+}
