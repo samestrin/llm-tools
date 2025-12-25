@@ -335,6 +335,9 @@ func detectLLMStyle(binary string) string {
 	if strings.Contains(binary, "claude") {
 		return "claude"
 	}
+	if strings.Contains(binary, "octo") {
+		return "octo"
+	}
 	if strings.Contains(binary, "gpt") || strings.Contains(binary, "openai") {
 		return "openai"
 	}
@@ -345,12 +348,38 @@ func detectLLMStyle(binary string) string {
 	if strings.Contains(binary, "llama") {
 		return "llama"
 	}
+	// aider - AI pair programming tool
+	if strings.Contains(binary, "aider") {
+		return "aider"
+	}
+	// llm - Simon Willison's CLI tool
+	if binary == "llm" {
+		return "llm"
+	}
+	// mods - Charmbracelet's AI CLI
+	if strings.Contains(binary, "mods") {
+		return "mods"
+	}
+	// fabric - AI augmentation framework
+	if strings.Contains(binary, "fabric") {
+		return "fabric"
+	}
+	// sgpt - Shell GPT
+	if strings.Contains(binary, "sgpt") {
+		return "sgpt"
+	}
+	// GitHub Copilot CLI
+	if strings.Contains(binary, "copilot") || strings.Contains(binary, "gh-copilot") {
+		return "copilot"
+	}
 
 	return "generic"
 }
 
 func executeLLM(binary, style, prompt, instruction string, timeout int) (string, int, string) {
 	var args []string
+	var useStdin bool
+	var stdinContent string
 
 	switch style {
 	case "gemini":
@@ -368,11 +397,65 @@ func executeLLM(binary, style, prompt, instruction string, timeout int) (string,
 		if instruction != "" {
 			args = append(args, "--system", instruction)
 		}
-	default:
+	case "octo":
+		// Octo uses: octo prompt "<prompt>" [--system "<system>"]
+		args = []string{"prompt", prompt}
+		if instruction != "" {
+			args = append(args, "--system", instruction)
+		}
+	case "ollama":
+		// Ollama uses: ollama run <model> "<prompt>"
+		args = []string{"run", "llama3.2", prompt}
+	case "aider":
+		// Aider uses: aider --message "<prompt>" [--no-auto-commits]
+		args = []string{"--message", prompt, "--no-auto-commits", "--yes"}
+	case "llm":
+		// Simon Willison's llm uses: llm "<prompt>" [-s "<system>"]
 		args = []string{prompt}
+		if instruction != "" {
+			args = append(args, "-s", instruction)
+		}
+	case "mods":
+		// Charmbracelet mods uses stdin: echo "<prompt>" | mods [--role "<system>"]
+		useStdin = true
+		stdinContent = prompt
+		args = []string{}
+		if instruction != "" {
+			args = append(args, "--role", instruction)
+		}
+	case "fabric":
+		// Fabric uses stdin: echo "<prompt>" | fabric [-p "<pattern>"]
+		// Note: fabric's -p is for pattern name, not prompt
+		// For raw prompts, use stdin
+		useStdin = true
+		stdinContent = prompt
+		args = []string{}
+		if instruction != "" {
+			// Fabric doesn't have a direct system prompt flag
+			// Prepend instruction to the prompt
+			stdinContent = instruction + "\n\n" + prompt
+		}
+	case "sgpt":
+		// Shell GPT uses: sgpt "<prompt>"
+		args = []string{prompt}
+	case "copilot":
+		// GitHub Copilot CLI uses: gh copilot suggest -t shell "<prompt>"
+		// or: copilot -p "<prompt>"
+		args = []string{"-p", prompt}
+	default:
+		// Default: use -p flag (most LLM CLIs like gemini use this)
+		args = []string{"-p", prompt}
+		if instruction != "" {
+			args = append(args, "--instruction", instruction)
+		}
 	}
 
 	cmd := exec.Command(binary, args...)
+
+	// Handle stdin for tools that require it
+	if useStdin {
+		cmd.Stdin = strings.NewReader(stdinContent)
+	}
 
 	// Set timeout using a simple approach
 	done := make(chan error, 1)

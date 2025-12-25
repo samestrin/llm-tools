@@ -22,6 +22,7 @@ var (
 	multigrepNoExclude   bool
 	multigrepJSON        bool
 	multigrepDefinitions bool
+	multigrepOutputDir   string
 )
 
 type matchInfo struct {
@@ -59,6 +60,7 @@ Example:
 	cmd.Flags().BoolVar(&multigrepNoExclude, "no-exclude", false, "Don't exclude common directories")
 	cmd.Flags().BoolVar(&multigrepJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVarP(&multigrepDefinitions, "definitions", "d", false, "Show only definition matches")
+	cmd.Flags().StringVarP(&multigrepOutputDir, "output-dir", "o", "", "Write results to directory (one file per keyword)")
 
 	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("keywords")
@@ -132,6 +134,35 @@ func runMultigrep(cmd *cobra.Command, args []string) error {
 		totalMatches += r.MatchCount
 		if r.MatchCount > 0 {
 			keywordsWithMatches++
+		}
+	}
+
+	// Write output files if requested
+	if multigrepOutputDir != "" {
+		if err := os.MkdirAll(multigrepOutputDir, 0755); err != nil {
+			return fmt.Errorf("failed to create output directory: %w", err)
+		}
+
+		for keyword, r := range results {
+			// Safe filename - replace non-alphanumeric with underscore
+			safeKeyword := regexp.MustCompile(`[^\w\-]`).ReplaceAllString(keyword, "_")
+			keywordFile := filepath.Join(multigrepOutputDir, fmt.Sprintf("keyword_%s.txt", safeKeyword))
+
+			var lines []string
+			for _, m := range r.DefinitionMatches {
+				lines = append(lines, fmt.Sprintf("DEF: %s:%d: %s", m.File, m.Line, m.Content))
+			}
+			for _, m := range r.OtherMatches {
+				lines = append(lines, fmt.Sprintf("USE: %s:%d: %s", m.File, m.Line, m.Content))
+			}
+
+			content := strings.Join(lines, "\n")
+			if len(lines) > 0 {
+				content += "\n"
+			}
+			if err := os.WriteFile(keywordFile, []byte(content), 0644); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to write %s: %v\n", keywordFile, err)
+			}
 		}
 	}
 

@@ -1,0 +1,36 @@
+# Build outputs
+/build/
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test outputs
+*.test
+*.out
+coverage.out
+coverage.html
+*.prof
+
+# Dependencies
+/vendor/
+go.sum
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Planning and temporary files
+.planning/
+
+# Environment and secrets
+.env
+.env.local
+*.pem
+*.key
