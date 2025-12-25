@@ -6,7 +6,7 @@ High-performance CLI tools for LLM-assisted development workflows.
 
 This repository contains two powerful CLI tools written in Go:
 
-- **llm-support**: Multi-purpose CLI for file operations, search, and LLM integration
+- **llm-support**: 32+ commands for file operations, search, code analysis, and LLM integration
 - **llm-clarification**: Clarification tracking and management for software projects
 
 Both tools are designed to be 10-20x faster than their Python predecessors, with single-binary distribution and native concurrency.
@@ -43,72 +43,127 @@ make build
 ## llm-support Commands
 
 ### File Operations
-| Command | Description |
-|---------|-------------|
-| `listdir` | List directory contents with filtering |
-| `tree` | Display directory tree structure |
-| `catfiles` | Concatenate multiple files |
-| `hash` | Calculate file checksums (SHA256, MD5, SHA1) |
-| `stats` | Show directory/file statistics |
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `listdir` | List directory contents with filtering | `llm-support listdir src/ --sizes --dates` |
+| `tree` | Display directory tree structure | `llm-support tree src/ --depth 3` |
+| `catfiles` | Concatenate multiple files | `llm-support catfiles src/ --max-size 5` |
+| `hash` | Calculate file checksums | `llm-support hash file.txt -a sha256` |
+| `stats` | Show directory/file statistics | `llm-support stats ./project` |
 
 ### Search
-| Command | Description |
-|---------|-------------|
-| `grep` | Search file contents with regex |
-| `multigrep` | Search multiple keywords in parallel |
-| `multiexists` | Check if multiple files exist |
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `grep` | Search file contents with regex | `llm-support grep "TODO" src/ -i -n` |
+| `multigrep` | Search multiple keywords in parallel | `llm-support multigrep --path src/ --keywords "fn1,fn2"` |
+| `multiexists` | Check if multiple files exist | `llm-support multiexists config.json README.md` |
 
 ### Code Analysis
-| Command | Description |
-|---------|-------------|
-| `detect` | Detect project type and stack |
-| `discover-tests` | Find test frameworks and patterns |
-| `analyze-deps` | Extract file dependencies from markdown |
-| `partition-work` | Group tasks by file conflicts |
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `detect` | Detect project type and stack | `llm-support detect ./project` |
+| `discover-tests` | Find test frameworks and patterns | `llm-support discover-tests ./project` |
+| `analyze-deps` | Extract file dependencies from markdown | `llm-support analyze-deps plan.md` |
+| `partition-work` | Group tasks by file conflicts | `llm-support partition-work tasks.md` |
 
 ### Data Processing
-| Command | Description |
-|---------|-------------|
-| `json` | Query JSON with JSONPath |
-| `toml` | Query TOML files |
-| `markdown` | Parse and query markdown |
-| `extract` | Extract URLs, emails, IPs, etc. |
-| `transform` | Text transformations (case, trim, etc.) |
-| `count` | Count lines, words, checkboxes |
-| `encode` | Base64/URL encoding/decoding |
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `json` | Query JSON with JSONPath | `llm-support json query data.json ".users[0].name"` |
+| `toml` | Query TOML files | `llm-support toml get config.toml database.host` |
+| `markdown` | Parse and query markdown | `llm-support markdown toc README.md` |
+| `extract` | Extract URLs, emails, IPs, etc. | `llm-support extract --urls file.txt` |
+| `transform` | Text transformations | `llm-support transform upper file.txt` |
+| `count` | Count lines, words, checkboxes | `llm-support count --mode checkboxes --path plan.md` |
+| `encode` | Base64/URL encoding/decoding | `llm-support encode "hello" -e base64` |
+| `math` | Evaluate mathematical expressions | `llm-support math "2**10 + 5"` |
 
 ### LLM Integration
-| Command | Description |
-|---------|-------------|
-| `prompt` | Execute LLM prompts with templates |
-| `foreach` | Batch process files with LLM |
-| `extract-relevant` | Extract relevant content with LLM |
-| `summarize-dir` | Generate directory summaries |
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `prompt` | Execute LLM prompts with templates | `llm-support prompt --prompt "Explain this code" --llm gemini` |
+| `foreach` | Batch process files with LLM | `llm-support foreach --path src/ --template prompt.txt` |
+| `extract-relevant` | Extract relevant content with LLM | `llm-support extract-relevant --path docs/ --context "API"` |
+| `summarize-dir` | Generate directory summaries | `llm-support summarize-dir --path src/ --format outline` |
 
 ### Development
-| Command | Description |
-|---------|-------------|
-| `validate` | Validate JSON/YAML/TOML files |
-| `validate-plan` | Validate sprint plans |
-| `template` | Process text templates |
-| `diff` | Compare files |
-| `report` | Generate reports from data |
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `validate` | Validate JSON/YAML/TOML files | `llm-support validate config.json` |
+| `validate-plan` | Validate sprint plans | `llm-support validate-plan ./sprint-01/` |
+| `template` | Process text templates | `llm-support template file.txt --var name=John` |
+| `diff` | Compare files | `llm-support diff file1.txt file2.txt` |
+| `report` | Generate reports from data | `llm-support report --template report.md` |
+| `git-context` | Get git context information | `llm-support git-context` |
 
 ## llm-clarification Commands
 
-| Command | Description |
-|---------|-------------|
-| `init` | Initialize clarification tracking |
-| `add` | Add new clarification entry |
-| `list` | List all clarifications |
-| `validate` | Validate clarification file |
-| `conflicts` | Detect conflicting clarifications |
-| `normalize` | Normalize clarification entries |
-| `consolidate` | Merge duplicate entries |
-| `candidates` | Find candidate clarifications |
-| `cluster` | Group related clarifications |
-| `match` | Match clarifications to context |
-| `promote` | Promote clarification to spec |
+| Command | Description | Example |
+|---------|-------------|---------|
+| `init-tracking` | Initialize clarification tracking | `llm-clarification init-tracking -o clarifications.yaml` |
+| `add-clarification` | Add new clarification entry | `llm-clarification add-clarification -f tracking.yaml -q "Question?" -a "Answer"` |
+| `list-entries` | List all clarifications | `llm-clarification list-entries -f tracking.yaml` |
+| `validate-clarifications` | Validate clarification file | `llm-clarification validate-clarifications -f tracking.yaml` |
+| `detect-conflicts` | Detect conflicting clarifications | `llm-clarification detect-conflicts -f tracking.yaml` |
+| `normalize-clarification` | Normalize clarification entries | `llm-clarification normalize-clarification -f tracking.yaml` |
+| `suggest-consolidation` | Merge duplicate entries | `llm-clarification suggest-consolidation -f tracking.yaml` |
+| `identify-candidates` | Find candidate clarifications | `llm-clarification identify-candidates -f tracking.yaml` |
+| `cluster-clarifications` | Group related clarifications | `llm-clarification cluster-clarifications -f tracking.yaml` |
+| `match-clarification` | Match clarifications to context | `llm-clarification match-clarification -f tracking.yaml -q "Question?"` |
+| `promote-clarification` | Promote clarification to spec | `llm-clarification promote-clarification -f tracking.yaml -i ID` |
+
+## Common One-Liners
+
+```bash
+# Find all TODOs and FIXMEs
+llm-support grep "TODO|FIXME" . -i -n
+
+# Show project structure (3 levels deep)
+llm-support tree . --depth 3
+
+# Search for multiple function definitions
+llm-support multigrep --path src/ --keywords "handleSubmit,validateForm,useAuth" -d
+
+# Get first user from API response
+llm-support json query response.json ".users[0]"
+
+# Calculate percentage
+llm-support math "round(42/100 * 75, 2)"
+
+# Generate from template
+llm-support template config.tpl --var domain=example.com --var port=8080
+
+# Hash all Go files
+llm-support hash internal/**/*.go -a sha256
+
+# Count completed tasks in a sprint plan
+llm-support count --mode checkboxes --path sprint/plan.md -r
+
+# Detect project stack
+llm-support detect .
+
+# Validate all config files
+llm-support validate config.json settings.yaml
+
+# Compare directories
+llm-support diff backup/ current/
+```
+
+## MCP Integration
+
+Both tools include MCP (Model Context Protocol) servers for integration with Claude Desktop and other MCP-compatible clients.
+
+See [docs/MCP_SETUP.md](docs/MCP_SETUP.md) for setup instructions.
+
+**Available MCP Tools:**
+- `llm-support-mcp`: 12 tools for file operations, search, and analysis
+- `llm-clarification-mcp`: 8 tools for clarification tracking
 
 ## Performance
 
@@ -120,6 +175,34 @@ llm-tools achieves significant performance improvements over Python versions:
 | listdir (1000 files) | 70us | 15ms | ~200x |
 | tree (depth 5) | 88ms | 200ms | ~2x |
 | hash (1MB) | 0.4ms | 5ms | ~12x |
+| multigrep (10 keywords) | <500ms | ~2s | ~4x |
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `LLM_SUPPORT_LLM_BINARY` | Path to LLM CLI binary (default: auto-detect) |
+| `OPENAI_API_KEY` | OpenAI API key for LLM commands |
+| `OPENAI_BASE_URL` | Custom API base URL (e.g., OpenRouter) |
+| `OPENAI_MODEL` | Model to use (default: gpt-4o-mini) |
+
+### API Key Configuration
+
+For LLM-powered commands, you can configure the API key in several ways:
+
+1. Environment variable: `OPENAI_API_KEY`
+2. File: `.planning/.config/openai_api_key`
+3. Command-line: `--api-key` flag
+
+## Documentation
+
+- [Quick Reference](docs/quick-reference.md) - Command cheat sheet
+- [MCP Setup Guide](docs/MCP_SETUP.md) - Claude Desktop integration
+- [llm-support Commands](docs/llm-support-commands.md) - Detailed command reference
+- [llm-clarification Commands](docs/llm-clarification-commands.md) - Clarification system guide
+- [CHANGELOG](CHANGELOG.md) - Version history
 
 ## Development
 
@@ -162,23 +245,6 @@ make lint
 make fmt
 ```
 
-## Configuration
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `LLM_SUPPORT_LLM_BINARY` | Path to LLM CLI binary (default: auto-detect) |
-| `OPENAI_API_KEY` | OpenAI API key for LLM commands |
-
-### API Key Configuration
-
-For LLM-powered commands, you can configure the API key in several ways:
-
-1. Environment variable: `OPENAI_API_KEY`
-2. File: `.planning/.config/openai_api_key`
-3. Command-line: `--api-key` flag
-
 ## License
 
 MIT License - see LICENSE file for details.
@@ -193,6 +259,6 @@ Contributions are welcome! Please ensure:
 
 ## Acknowledgments
 
-- Original Python implementation
+- Original Python implementation in [claude-prompts](https://github.com/samestrin/claude-prompts)
 - [Cobra](https://github.com/spf13/cobra) - CLI framework
 - [ripgrep](https://github.com/BurntSushi/ripgrep) - Fast search (used by grep/multigrep)
