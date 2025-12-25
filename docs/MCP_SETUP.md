@@ -4,12 +4,12 @@
 
 This repository includes two MCP (Model Context Protocol) servers that make llm-tools commands available as native tools in Claude Desktop:
 
-1. **llm-support-mcp** - 16 tools for file operations, search, and project analysis
+1. **llm-support-mcp** - 17 tools for file operations, search, and project analysis
 2. **llm-clarification-mcp** - 8 tools for the Clarification Learning System
 
 ## What You Get
 
-### llm-support-mcp (16 tools)
+### llm-support-mcp (17 tools)
 
 **Base Tools:**
 | Tool | Description |
@@ -36,6 +36,7 @@ This repository includes two MCP (Model Context Protocol) servers that make llm-
 |------|-------------|
 | `llm_support_deps` | Extract dependencies from package manifests |
 | `llm_support_git_context` | Gather git information for LLM context |
+| `llm_support_repo_root` | Find git repository root path |
 | `llm_support_validate_plan` | Validate plan directory structure |
 | `llm_support_partition_work` | Partition work items for parallel execution |
 
@@ -183,7 +184,7 @@ Completely quit and restart Claude Desktop for the changes to take effect.
 1. Start a new conversation in Claude Desktop
 2. Type: "What tools do you have available?"
 3. Claude should list:
-   - 16 `llm_support_*` tools
+   - 17 `llm_support_*` tools
    - 8 `llm_clarify_*` tools
 
 ## Usage Examples
@@ -375,7 +376,7 @@ List entries with optional filtering.
 
 3. **Test binaries directly:**
    ```bash
-   llm-support tree .
+   llm-support tree --path .
    llm-clarification --help
    ```
 
@@ -422,7 +423,7 @@ List entries with optional filtering.
 
 | Server | Version | Tools | Notes |
 |--------|---------|-------|-------|
-| llm-support-mcp | 2.8.0 | 16 | Go Edition with advanced tools |
+| llm-support-mcp | 2.9.0 | 17 | Added repo_root tool |
 | llm-clarification-mcp | 1.0.0 | 8 | Initial release |
 
 ## See Also

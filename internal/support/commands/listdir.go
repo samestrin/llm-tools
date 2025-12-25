@@ -17,12 +17,13 @@ var (
 	listdirDates       bool
 	listdirSizes       bool
 	listdirNoGitignore bool
+	listdirPath        string
 )
 
 // newListdirCmd creates the listdir command
 func newListdirCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "listdir [path]",
+		Use:   "listdir",
 		Short: "List directory contents with optional metadata",
 		Long: `List directory contents with optional file sizes and dates.
 Respects .gitignore patterns by default.
@@ -31,9 +32,10 @@ Output format:
   [type] name [size] [date]
 
 Types: file, dir`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.NoArgs,
 		RunE: runListdir,
 	}
+	cmd.Flags().StringVar(&listdirPath, "path", ".", "Directory path to list")
 	cmd.Flags().BoolVar(&listdirDates, "dates", false, "Show modification dates")
 	cmd.Flags().BoolVar(&listdirSizes, "sizes", false, "Show file sizes")
 	cmd.Flags().BoolVar(&listdirNoGitignore, "no-gitignore", false, "Disable .gitignore filtering")
@@ -41,9 +43,9 @@ Types: file, dir`,
 }
 
 func runListdir(cmd *cobra.Command, args []string) error {
-	path, err := filepath.Abs(args[0])
+	path, err := filepath.Abs(listdirPath)
 	if err != nil {
-		return fmt.Errorf("invalid path: %s", args[0])
+		return fmt.Errorf("invalid path: %s", listdirPath)
 	}
 
 	info, err := os.Stat(path)

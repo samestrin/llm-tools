@@ -11,7 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var validatePlanJSON bool
+var (
+	validatePlanJSON bool
+	validatePlanPath string
+)
 
 // PlanValidationResult holds the validation results
 type PlanValidationResult struct {
@@ -57,7 +60,7 @@ var optionalPlanDirs = []string{
 // newValidatePlanCmd creates the validate-plan command
 func newValidatePlanCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "validate-plan <plan_path>",
+		Use:   "validate-plan",
 		Short: "Validate plan directory structure",
 		Long: `Validate that a plan directory has the required structure.
 
@@ -75,19 +78,20 @@ Optional files:
   - README.md
 
 Examples:
-  llm-support validate-plan .planning/plans/my-plan
-  llm-support validate-plan .planning/sprints/active/1.0_sprint --json`,
-		Args: cobra.ExactArgs(1),
+  llm-support validate-plan --path .planning/plans/my-plan
+  llm-support validate-plan --path .planning/sprints/active/1.0_sprint --json`,
+		Args: cobra.NoArgs,
 		RunE: runValidatePlan,
 	}
 
+	cmd.Flags().StringVar(&validatePlanPath, "path", ".", "Plan directory path to validate")
 	cmd.Flags().BoolVar(&validatePlanJSON, "json", false, "Output as JSON")
 
 	return cmd
 }
 
 func runValidatePlan(cmd *cobra.Command, args []string) error {
-	planPath := args[0]
+	planPath := validatePlanPath
 
 	// Check if path exists
 	info, err := os.Stat(planPath)

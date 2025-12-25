@@ -16,18 +16,20 @@ var (
 	treeDepth       int
 	treeSizes       bool
 	treeNoGitignore bool
+	treePath        string
 )
 
 // newTreeCmd creates the tree command
 func newTreeCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "tree [path]",
+		Use:   "tree",
 		Short: "Display directory tree structure",
 		Long: `Display directory tree structure with optional file sizes.
 Respects .gitignore patterns by default.`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.NoArgs,
 		RunE: runTree,
 	}
+	cmd.Flags().StringVar(&treePath, "path", ".", "Directory path to display")
 	cmd.Flags().IntVar(&treeDepth, "depth", 999, "Maximum depth to display")
 	cmd.Flags().BoolVar(&treeSizes, "sizes", false, "Show file sizes")
 	cmd.Flags().BoolVar(&treeNoGitignore, "no-gitignore", false, "Disable .gitignore filtering")
@@ -35,9 +37,9 @@ Respects .gitignore patterns by default.`,
 }
 
 func runTree(cmd *cobra.Command, args []string) error {
-	path, err := filepath.Abs(args[0])
+	path, err := filepath.Abs(treePath)
 	if err != nil {
-		return fmt.Errorf("invalid path: %s", args[0])
+		return fmt.Errorf("invalid path: %s", treePath)
 	}
 
 	info, err := os.Stat(path)

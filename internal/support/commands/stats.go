@@ -12,26 +12,30 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var statsNoGitignore bool
+var (
+	statsNoGitignore bool
+	statsPath        string
+)
 
 // newStatsCmd creates the stats command
 func newStatsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "stats [path]",
+		Use:   "stats",
 		Short: "Display directory statistics",
 		Long: `Display statistics about a directory including file counts,
 total size, and breakdown by file extension.`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.NoArgs,
 		RunE: runStats,
 	}
+	cmd.Flags().StringVar(&statsPath, "path", ".", "Directory path to analyze")
 	cmd.Flags().BoolVar(&statsNoGitignore, "no-gitignore", false, "Disable .gitignore filtering")
 	return cmd
 }
 
 func runStats(cmd *cobra.Command, args []string) error {
-	path, err := filepath.Abs(args[0])
+	path, err := filepath.Abs(statsPath)
 	if err != nil {
-		return fmt.Errorf("invalid path: %s", args[0])
+		return fmt.Errorf("invalid path: %s", statsPath)
 	}
 
 	info, err := os.Stat(path)

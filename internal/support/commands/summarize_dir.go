@@ -20,12 +20,13 @@ var (
 	summarizeDirMaxTokens   int
 	summarizeDirMaxLines    int
 	summarizeDirNoGitignore bool
+	summarizeDirPath        string
 )
 
 // newSummarizeDirCmd creates the summarize-dir command
 func newSummarizeDirCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "summarize-dir [path]",
+		Use:   "summarize-dir",
 		Short: "Summarize directory contents",
 		Long: `Generate a summary of directory contents.
 Useful for providing context to LLMs about a codebase.
@@ -34,9 +35,10 @@ Formats:
   tree    - Directory tree with file types
   outline - Brief outline of each file
   full    - Full content (truncated)`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.NoArgs,
 		RunE: runSummarizeDir,
 	}
+	cmd.Flags().StringVar(&summarizeDirPath, "path", ".", "Directory path to summarize")
 	cmd.Flags().StringVar(&summarizeDirFormat, "format", "tree", "Output format: tree, outline, full")
 	cmd.Flags().BoolVarP(&summarizeDirRecursive, "recursive", "r", true, "Recursive scan")
 	cmd.Flags().StringVar(&summarizeDirGlob, "glob", "", "File glob pattern")
@@ -47,9 +49,9 @@ Formats:
 }
 
 func runSummarizeDir(cmd *cobra.Command, args []string) error {
-	path, err := filepath.Abs(args[0])
+	path, err := filepath.Abs(summarizeDirPath)
 	if err != nil {
-		return fmt.Errorf("invalid path: %s", args[0])
+		return fmt.Errorf("invalid path: %s", summarizeDirPath)
 	}
 
 	info, err := os.Stat(path)

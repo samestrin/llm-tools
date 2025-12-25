@@ -20,6 +20,7 @@ var (
 	extractRelevantOutput      string
 	extractRelevantTimeout     int
 	extractRelevantJSON        bool
+	extractRelevantPath        string
 )
 
 // ExtractRelevantResult holds the extraction result
@@ -36,7 +37,7 @@ type ExtractRelevantResult struct {
 // newExtractRelevantCmd creates the extract-relevant command
 func newExtractRelevantCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "extract-relevant <path>",
+		Use:   "extract-relevant",
 		Short: "Extract relevant content using LLM API",
 		Long: `Extract relevant content from files or directories using an LLM API.
 
@@ -44,18 +45,19 @@ The command sends file content to the LLM with a context describing what
 to extract, and returns only the relevant portions.
 
 Examples:
-  llm-support extract-relevant ./src --context "API endpoint definitions"
-  llm-support extract-relevant ./docs --context "Configuration options" --concurrency 4
-  llm-support extract-relevant ./file.md --context "Code examples" -o output.md
-  llm-support extract-relevant ./src --context "Error handling patterns" --json
+  llm-support extract-relevant --path ./src --context "API endpoint definitions"
+  llm-support extract-relevant --path ./docs --context "Configuration options" --concurrency 4
+  llm-support extract-relevant --path ./file.md --context "Code examples" -o output.md
+  llm-support extract-relevant --path ./src --context "Error handling patterns" --json
 
 API Configuration:
   Set OPENAI_API_KEY environment variable or create .planning/.config/openai_api_key file.
   Optionally set OPENAI_BASE_URL and OPENAI_MODEL for custom endpoints.`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.NoArgs,
 		RunE: runExtractRelevant,
 	}
 
+	cmd.Flags().StringVar(&extractRelevantPath, "path", ".", "File or directory path to process")
 	cmd.Flags().StringVar(&extractRelevantContext, "context", "", "Context describing what content to extract (required)")
 	cmd.Flags().IntVar(&extractRelevantConcurrency, "concurrency", 2, "Number of concurrent API calls for directory processing")
 	cmd.Flags().StringVarP(&extractRelevantOutput, "output", "o", "", "Output file (default: stdout)")
@@ -69,7 +71,7 @@ API Configuration:
 
 func runExtractRelevant(cmd *cobra.Command, args []string) error {
 	startTime := time.Now()
-	targetPath := args[0]
+	targetPath := extractRelevantPath
 
 	// Validate context is provided
 	if extractRelevantContext == "" {

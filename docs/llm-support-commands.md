@@ -52,21 +52,22 @@ Complete documentation for all 32+ llm-support commands.
 List directory contents with optional file sizes and dates.
 
 ```bash
-llm-support listdir [path] [flags]
+llm-support listdir [flags]
 ```
 
 **Flags:**
 | Flag | Description |
 |------|-------------|
+| `--path` | Directory path (default: ".") |
 | `--sizes` | Show file sizes |
 | `--dates` | Show modification dates |
 | `--no-gitignore` | Include gitignored files |
 
 **Examples:**
 ```bash
-llm-support listdir src/
-llm-support listdir src/ --sizes --dates
-llm-support listdir . --no-gitignore
+llm-support listdir --path src/
+llm-support listdir --path src/ --sizes --dates
+llm-support listdir --no-gitignore
 ```
 
 **Output Format:**
@@ -81,21 +82,22 @@ llm-support listdir . --no-gitignore
 Display directory tree structure with optional file sizes.
 
 ```bash
-llm-support tree [path] [flags]
+llm-support tree [flags]
 ```
 
 **Flags:**
 | Flag | Description |
 |------|-------------|
+| `--path` | Directory path (default: ".") |
 | `--depth N` | Maximum depth to display (default: 999) |
 | `--sizes` | Show file sizes |
 | `--no-gitignore` | Include gitignored files |
 
 **Examples:**
 ```bash
-llm-support tree src/
-llm-support tree src/ --depth 3
-llm-support tree . --sizes
+llm-support tree --path src/
+llm-support tree --path src/ --depth 3
+llm-support tree --sizes
 ```
 
 ---
@@ -151,18 +153,19 @@ llm-support hash *.go -a sha256
 Display directory statistics including file counts and size breakdown by extension.
 
 ```bash
-llm-support stats [path] [flags]
+llm-support stats [flags]
 ```
 
 **Flags:**
 | Flag | Description |
 |------|-------------|
+| `--path` | Directory path (default: ".") |
 | `--no-gitignore` | Include gitignored files |
 
 **Examples:**
 ```bash
-llm-support stats ./project
-llm-support stats . --no-gitignore
+llm-support stats --path ./project
+llm-support stats --no-gitignore
 ```
 
 ---
@@ -251,12 +254,13 @@ llm-support multiexists src/ tests/ docs/
 Detect project type, language, package manager, and framework.
 
 ```bash
-llm-support detect <path> [flags]
+llm-support detect [flags]
 ```
 
 **Flags:**
 | Flag | Description |
 |------|-------------|
+| `--path` | Project path (default: ".") |
 | `--json` | Output as JSON |
 
 **Output Fields:**
@@ -270,8 +274,8 @@ llm-support detect <path> [flags]
 
 **Examples:**
 ```bash
-llm-support detect .
-llm-support detect ./project --json
+llm-support detect
+llm-support detect --path ./project --json
 ```
 
 ---
@@ -281,12 +285,13 @@ llm-support detect ./project --json
 Discover test patterns, runners, and infrastructure in a project.
 
 ```bash
-llm-support discover-tests <path> [flags]
+llm-support discover-tests [flags]
 ```
 
 **Flags:**
 | Flag | Description |
 |------|-------------|
+| `--path` | Project path (default: ".") |
 | `--json` | Output as JSON |
 
 **Output Fields:**
@@ -304,8 +309,8 @@ llm-support discover-tests <path> [flags]
 
 **Examples:**
 ```bash
-llm-support discover-tests ./project
-llm-support discover-tests . --json
+llm-support discover-tests --path ./project
+llm-support discover-tests --json
 ```
 
 ---
@@ -754,12 +759,13 @@ llm-support foreach --files file1.txt,file2.txt --template t.md --var LANG=Go --
 Extract relevant content from files or directories using an LLM API.
 
 ```bash
-llm-support extract-relevant <path> [flags]
+llm-support extract-relevant [flags]
 ```
 
 **Flags:**
 | Flag | Description |
 |------|-------------|
+| `--path` | File or directory path (default: ".") |
 | `--context` | Context describing what content to extract (required) |
 | `--concurrency N` | Number of concurrent API calls (default: 2) |
 | `-o, --output` | Output file (default: stdout) |
@@ -773,9 +779,9 @@ llm-support extract-relevant <path> [flags]
 
 **Examples:**
 ```bash
-llm-support extract-relevant ./src --context "API endpoint definitions"
-llm-support extract-relevant ./docs --context "Configuration options" --concurrency 4
-llm-support extract-relevant ./file.md --context "Code examples" -o output.md
+llm-support extract-relevant --path ./src --context "API endpoint definitions"
+llm-support extract-relevant --path ./docs --context "Configuration options" --concurrency 4
+llm-support extract-relevant --path ./file.md --context "Code examples" -o output.md
 ```
 
 ---
@@ -785,12 +791,13 @@ llm-support extract-relevant ./file.md --context "Code examples" -o output.md
 Generate a summary of directory contents for LLM context.
 
 ```bash
-llm-support summarize-dir [path] [flags]
+llm-support summarize-dir [flags]
 ```
 
 **Flags:**
 | Flag | Description |
 |------|-------------|
+| `--path` | Directory path (default: ".") |
 | `--format` | Output format: tree, outline, full (default: tree) |
 | `--glob` | File glob pattern |
 | `--lines N` | Max lines per file in outline mode (default: 10) |
@@ -800,9 +807,9 @@ llm-support summarize-dir [path] [flags]
 
 **Examples:**
 ```bash
-llm-support summarize-dir src/
-llm-support summarize-dir docs/ --format outline
-llm-support summarize-dir . --format full --max-tokens 8000
+llm-support summarize-dir --path src/
+llm-support summarize-dir --path docs/ --format outline
+llm-support summarize-dir --format full --max-tokens 8000
 ```
 
 ---
@@ -839,12 +846,13 @@ llm-support validate config.json settings.yaml data.toml
 Validate that a plan directory has the required structure.
 
 ```bash
-llm-support validate-plan <plan_path> [flags]
+llm-support validate-plan [flags]
 ```
 
 **Flags:**
 | Flag | Description |
 |------|-------------|
+| `--path` | Path to plan directory (default: current directory) |
 | `--json` | Output as JSON |
 
 **Required Structure:**
@@ -860,8 +868,8 @@ llm-support validate-plan <plan_path> [flags]
 
 **Examples:**
 ```bash
-llm-support validate-plan .planning/plans/my-plan
-llm-support validate-plan ./sprint-01/ --json
+llm-support validate-plan --path .planning/plans/my-plan
+llm-support validate-plan --path ./sprint-01/ --json
 ```
 
 ---
@@ -944,12 +952,13 @@ llm-support deps requirements.txt --json
 Gather comprehensive git repository information.
 
 ```bash
-llm-support git-context [path] [flags]
+llm-support git-context [flags]
 ```
 
 **Flags:**
 | Flag | Description |
 |------|-------------|
+| `--path` | Path to git repository (default: current directory) |
 | `--include-diff` | Include diff of uncommitted changes |
 | `--max-commits N` | Maximum number of commits to include (default: 10) |
 | `--since YYYY-MM-DD` | Only include commits since date |
@@ -958,10 +967,40 @@ llm-support git-context [path] [flags]
 **Examples:**
 ```bash
 llm-support git-context
-llm-support git-context /path/to/repo
+llm-support git-context --path /path/to/repo
 llm-support git-context --include-diff
 llm-support git-context --since 2025-12-01 --max-commits 20
 llm-support git-context --json
+```
+
+---
+
+### repo-root
+
+Find and output git repository root path.
+
+```bash
+llm-support repo-root [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--path` | Starting path to search from (default: current directory) |
+| `--validate` | Verify .git directory exists at root |
+
+**Output Format:**
+```
+ROOT: /absolute/path/to/repo
+VALID: TRUE|FALSE  (only with --validate)
+```
+
+**Examples:**
+```bash
+llm-support repo-root
+llm-support repo-root --path ./src/components
+llm-support repo-root --validate
+llm-support repo-root --path /path/to/subdir --validate
 ```
 
 ---

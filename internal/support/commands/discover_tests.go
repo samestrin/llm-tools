@@ -10,12 +10,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var discoverTestsJSON bool
+var (
+	discoverTestsJSON bool
+	discoverTestsPath string
+)
 
 // newDiscoverTestsCmd creates the discover-tests command
 func newDiscoverTestsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "discover-tests <path>",
+		Use:   "discover-tests",
 		Short: "Discover test patterns and infrastructure",
 		Long: `Discover test patterns, runners, and infrastructure in a project.
 
@@ -29,17 +32,18 @@ Output fields:
   E2E_DIR: e2e test directory
   UNIT_TEST_COUNT: number of unit test files
   E2E_TEST_COUNT: number of e2e test files`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.NoArgs,
 		RunE: runDiscoverTests,
 	}
 
+	cmd.Flags().StringVar(&discoverTestsPath, "path", ".", "Project path to analyze")
 	cmd.Flags().BoolVar(&discoverTestsJSON, "json", false, "Output as JSON")
 
 	return cmd
 }
 
 func runDiscoverTests(cmd *cobra.Command, args []string) error {
-	path, err := filepath.Abs(args[0])
+	path, err := filepath.Abs(discoverTestsPath)
 	if err != nil {
 		return fmt.Errorf("invalid path: %w", err)
 	}

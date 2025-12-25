@@ -18,6 +18,7 @@ var (
 	gitContextSince       string
 	gitContextMaxCommits  int
 	gitContextJSON        bool
+	gitContextPath        string
 )
 
 // GitContext holds the gathered git repository information
@@ -70,21 +71,22 @@ type GitRemote struct {
 // newGitContextCmd creates the git-context command
 func newGitContextCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "git-context [path]",
+		Use:   "git-context",
 		Short: "Gather git repository context information",
 		Long: `Gather comprehensive git repository information including branch,
 status, recent commits, and remotes.
 
 Examples:
   llm-support git-context
-  llm-support git-context /path/to/repo
+  llm-support git-context --path /path/to/repo
   llm-support git-context --include-diff
   llm-support git-context --since 2025-12-01 --max-commits 10
   llm-support git-context --json`,
-		Args: cobra.MaximumNArgs(1),
+		Args: cobra.NoArgs,
 		RunE: runGitContext,
 	}
 
+	cmd.Flags().StringVar(&gitContextPath, "path", ".", "Repository path")
 	cmd.Flags().BoolVar(&gitContextIncludeDiff, "include-diff", false, "Include diff of uncommitted changes")
 	cmd.Flags().StringVar(&gitContextSince, "since", "", "Only include commits since date (YYYY-MM-DD)")
 	cmd.Flags().IntVar(&gitContextMaxCommits, "max-commits", 10, "Maximum number of commits to include")
@@ -94,11 +96,8 @@ Examples:
 }
 
 func runGitContext(cmd *cobra.Command, args []string) error {
-	// Determine repository path
-	repoPath := "."
-	if len(args) > 0 {
-		repoPath = args[0]
-	}
+	// Use path from flag
+	repoPath := gitContextPath
 
 	absPath, err := filepath.Abs(repoPath)
 	if err != nil {

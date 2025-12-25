@@ -46,11 +46,11 @@ make build
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `listdir` | List directory contents with filtering | `llm-support listdir src/ --sizes --dates` |
-| `tree` | Display directory tree structure | `llm-support tree src/ --depth 3` |
+| `listdir` | List directory contents with filtering | `llm-support listdir --path src/ --sizes --dates` |
+| `tree` | Display directory tree structure | `llm-support tree --path src/ --depth 3` |
 | `catfiles` | Concatenate multiple files | `llm-support catfiles src/ --max-size 5` |
 | `hash` | Calculate file checksums | `llm-support hash file.txt -a sha256` |
-| `stats` | Show directory/file statistics | `llm-support stats ./project` |
+| `stats` | Show directory/file statistics | `llm-support stats --path ./project` |
 
 ### Search
 
@@ -64,8 +64,8 @@ make build
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `detect` | Detect project type and stack | `llm-support detect ./project` |
-| `discover-tests` | Find test frameworks and patterns | `llm-support discover-tests ./project` |
+| `detect` | Detect project type and stack | `llm-support detect --path ./project` |
+| `discover-tests` | Find test frameworks and patterns | `llm-support discover-tests --path ./project` |
 | `analyze-deps` | Extract file dependencies from markdown | `llm-support analyze-deps plan.md` |
 | `partition-work` | Group tasks by file conflicts | `llm-support partition-work tasks.md` |
 
@@ -96,11 +96,12 @@ make build
 | Command | Description | Example |
 |---------|-------------|---------|
 | `validate` | Validate JSON/YAML/TOML files | `llm-support validate config.json` |
-| `validate-plan` | Validate sprint plans | `llm-support validate-plan ./sprint-01/` |
+| `validate-plan` | Validate sprint plans | `llm-support validate-plan --path ./sprint-01/` |
 | `template` | Process text templates | `llm-support template file.txt --var name=John` |
 | `diff` | Compare files | `llm-support diff file1.txt file2.txt` |
 | `report` | Generate reports from data | `llm-support report --template report.md` |
 | `git-context` | Get git context information | `llm-support git-context` |
+| `repo-root` | Find git repository root | `llm-support repo-root --validate` |
 
 ## llm-clarification Commands
 
@@ -125,7 +126,7 @@ make build
 llm-support grep "TODO|FIXME" . -i -n
 
 # Show project structure (3 levels deep)
-llm-support tree . --depth 3
+llm-support tree --path . --depth 3
 
 # Search for multiple function definitions
 llm-support multigrep --path src/ --keywords "handleSubmit,validateForm,useAuth" -d
@@ -146,13 +147,16 @@ llm-support hash internal/**/*.go -a sha256
 llm-support count --mode checkboxes --path sprint/plan.md -r
 
 # Detect project stack
-llm-support detect .
+llm-support detect --path .
 
 # Validate all config files
 llm-support validate config.json settings.yaml
 
 # Compare directories
 llm-support diff backup/ current/
+
+# Find git repository root
+llm-support repo-root --validate
 ```
 
 ## MCP Integration

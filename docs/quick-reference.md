@@ -6,16 +6,16 @@ Fast lookup for all commands with examples.
 
 | # | Command | Description | Example |
 |---|---------|-------------|---------|
-| 1 | `listdir` | List directory with metadata | `llm-support listdir src/ --sizes --dates` |
-| 2 | `tree` | Display directory tree | `llm-support tree src/ --depth 3` |
+| 1 | `listdir` | List directory with metadata | `llm-support listdir --path src/ --sizes --dates` |
+| 2 | `tree` | Display directory tree | `llm-support tree --path src/ --depth 3` |
 | 3 | `catfiles` | Concatenate files with headers | `llm-support catfiles src/ --max-size 5` |
 | 4 | `hash` | Generate checksums | `llm-support hash file.txt -a sha256` |
-| 5 | `stats` | Show file statistics | `llm-support stats ./project` |
+| 5 | `stats` | Show file statistics | `llm-support stats --path ./project` |
 | 6 | `grep` | Search files with regex | `llm-support grep "TODO" src/ -i -n` |
 | 7 | `multigrep` | Search multiple keywords | `llm-support multigrep --path src/ --keywords "fn1,fn2"` |
 | 8 | `multiexists` | Check if files exist | `llm-support multiexists config.json README.md` |
-| 9 | `detect` | Detect project type | `llm-support detect . --json` |
-| 10 | `discover-tests` | Find test patterns | `llm-support discover-tests ./project` |
+| 9 | `detect` | Detect project type | `llm-support detect --path . --json` |
+| 10 | `discover-tests` | Find test patterns | `llm-support discover-tests --path ./project` |
 | 11 | `analyze-deps` | Extract file dependencies | `llm-support analyze-deps plan.md` |
 | 12 | `partition-work` | Group tasks by conflicts | `llm-support partition-work tasks.md` |
 | 13 | `json` | JSON operations | `llm-support json query data.json ".name"` |
@@ -29,15 +29,16 @@ Fast lookup for all commands with examples.
 | 21 | `math` | Evaluate expressions | `llm-support math "2**10 + 5"` |
 | 22 | `template` | Variable substitution | `llm-support template file.txt --var x=y` |
 | 23 | `validate` | Validate files | `llm-support validate file.json` |
-| 24 | `validate-plan` | Validate sprint plans | `llm-support validate-plan ./sprint-01/` |
+| 24 | `validate-plan` | Validate sprint plans | `llm-support validate-plan --path ./sprint-01/` |
 | 25 | `diff` | Compare files | `llm-support diff file1 file2` |
 | 26 | `prompt` | Execute LLM prompts | `llm-support prompt --prompt "Explain this"` |
 | 27 | `foreach` | Batch process with LLM | `llm-support foreach --path src/ --template p.txt` |
 | 28 | `extract-relevant` | Extract relevant content | `llm-support extract-relevant --path docs/` |
 | 29 | `summarize-dir` | Summarize directory | `llm-support summarize-dir --path src/` |
 | 30 | `git-context` | Get git context | `llm-support git-context` |
-| 31 | `report` | Generate reports | `llm-support report --template report.md` |
-| 32 | `deps` | Show dependencies | `llm-support deps package.json` |
+| 31 | `repo-root` | Find git repo root | `llm-support repo-root --validate` |
+| 32 | `report` | Generate reports | `llm-support report --template report.md` |
+| 33 | `deps` | Show dependencies | `llm-support deps package.json` |
 
 ---
 
@@ -47,35 +48,35 @@ Fast lookup for all commands with examples.
 
 ```bash
 # Basic listing
-llm-support listdir src/
+llm-support listdir --path src/
 
 # With file sizes
-llm-support listdir src/ --sizes
+llm-support listdir --path src/ --sizes
 
 # With modification dates
-llm-support listdir src/ --dates
+llm-support listdir --path src/ --dates
 
 # Both sizes and dates
-llm-support listdir src/ --sizes --dates
+llm-support listdir --path src/ --sizes --dates
 
 # Include gitignored files
-llm-support listdir src/ --no-gitignore
+llm-support listdir --path src/ --no-gitignore
 ```
 
 ### tree - Directory Tree
 
 ```bash
 # Basic tree
-llm-support tree src/
+llm-support tree --path src/
 
 # Limit depth
-llm-support tree src/ --depth 3
+llm-support tree --path src/ --depth 3
 
 # Show file sizes
-llm-support tree src/ --sizes
+llm-support tree --path src/ --sizes
 
 # Include gitignored files
-llm-support tree . --no-gitignore
+llm-support tree --path . --no-gitignore
 ```
 
 ### catfiles - Concatenate Files
@@ -114,10 +115,10 @@ llm-support hash internal/**/*.go -a sha256
 
 ```bash
 # Basic stats
-llm-support stats ./project
+llm-support stats --path ./project
 
 # Include gitignored files
-llm-support stats ./project --no-gitignore
+llm-support stats --path ./project --no-gitignore
 ```
 
 ---
@@ -186,10 +187,10 @@ llm-support multiexists src/ tests/ README.md
 
 ```bash
 # Detect project stack
-llm-support detect .
+llm-support detect --path .
 
 # JSON output
-llm-support detect . --json
+llm-support detect --path . --json
 ```
 
 **Output fields:** STACK, LANGUAGE, PACKAGE_MANAGER, FRAMEWORK, HAS_TESTS
@@ -198,10 +199,10 @@ llm-support detect . --json
 
 ```bash
 # Discover test patterns
-llm-support discover-tests ./project
+llm-support discover-tests --path ./project
 
 # JSON output
-llm-support discover-tests ./project --json
+llm-support discover-tests --path ./project --json
 ```
 
 **Output fields:** PATTERN, FRAMEWORK, TEST_RUNNER, CONFIG_FILE, SOURCE_DIR, TEST_DIR
@@ -507,8 +508,29 @@ llm-support validate config.json settings.yaml
 
 ```bash
 # Validate plan directory
-llm-support validate-plan ./sprint-01/
+llm-support validate-plan --path ./sprint-01/
+
+# JSON output
+llm-support validate-plan --path ./sprint-01/ --json
 ```
+
+### repo-root - Find Git Repository Root
+
+```bash
+# Find repo root from current directory
+llm-support repo-root
+
+# Find from specific path
+llm-support repo-root --path ./src/components
+
+# Validate .git directory exists
+llm-support repo-root --validate
+
+# Both path and validation
+llm-support repo-root --path /some/subdir --validate
+```
+
+**Output fields:** ROOT, VALID (with --validate)
 
 ---
 
@@ -550,7 +572,7 @@ llm-support validate-plan ./sprint-01/
 llm-support grep "TODO|FIXME" . -i -n
 
 # Show project structure
-llm-support tree . --depth 2
+llm-support tree --path . --depth 2
 
 # Search for multiple functions
 llm-support multigrep --path src/ --keywords "handleSubmit,validateForm" -d
@@ -571,19 +593,22 @@ llm-support json merge base.json dev.json local.json
 llm-support hash **/*.go -a sha256
 
 # Quick stats summary
-llm-support stats src/
+llm-support stats --path src/
 
 # Count completed tasks
 llm-support count --mode checkboxes --path plan.md -r
 
 # Detect project stack
-llm-support detect . --json
+llm-support detect --path . --json
 
 # Validate all config files
 llm-support validate config.json settings.yaml
 
 # Generate from template with env vars
 llm-support template deploy.tpl --env -o deploy.sh
+
+# Find git repo root
+llm-support repo-root --validate
 ```
 
 ---

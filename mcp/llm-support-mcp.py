@@ -26,10 +26,11 @@ V2.4 Tools (context & analysis):
 - llm_support_git_context: Gather git information for LLM context
 - llm_support_validate_plan: Validate plan directory structure
 - llm_support_partition_work: Partition work items for parallel execution
+- llm_support_repo_root: Find git repository root for path anchoring
 
 NOTE: Clarification Learning System tools have been moved to llm-clarification-mcp.py
 
-Version: 2.8.0 (Go Edition - uses llm-support-go binary)
+Version: 2.9.0 (Go Edition - uses llm-support-go binary)
 """
 
 import asyncio
@@ -451,7 +452,7 @@ class LLMSupportMCPServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "plan_path": {
+                            "path": {
                                 "type": "string",
                                 "description": "Path to plan directory"
                             },
@@ -460,7 +461,7 @@ class LLMSupportMCPServer:
                                 "description": "Output as JSON"
                             }
                         },
-                        "required": ["plan_path"]
+                        "required": ["path"]
                     }
                 ),
 
@@ -486,6 +487,25 @@ class LLMSupportMCPServer:
                             "json": {
                                 "type": "boolean",
                                 "description": "Output as JSON"
+                            }
+                        }
+                    }
+                ),
+
+                # 17. Repository root detection
+                Tool(
+                    name=f"{PREFIX}repo_root",
+                    description="Find git repository root for a path. Returns ROOT (absolute path) and optionally VALID (TRUE/FALSE). Use for anchoring all paths in LLM prompts.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Starting path (default: current directory)"
+                            },
+                            "validate": {
+                                "type": "boolean",
+                                "description": "Also verify .git directory exists"
                             }
                         }
                     }
@@ -559,6 +579,9 @@ class LLMSupportMCPServer:
                 elif cmd_name == "partition_work":
                     cmd.append("partition-work")
                     cmd.extend(self._build_partition_work_args(arguments))
+                elif cmd_name == "repo_root":
+                    cmd.append("repo-root")
+                    cmd.extend(self._build_repo_root_args(arguments))
                 else:
                     return [TextContent(type="text", text=f"ERROR: Unknown tool '{name}'")]
 
@@ -586,7 +609,7 @@ class LLMSupportMCPServer:
         """Build args for tree command"""
         cmd_args = []
         if "path" in args:
-            cmd_args.append(args["path"])
+            cmd_args.extend(["--path", args["path"]])
         if "depth" in args:
             cmd_args.extend(["--depth", str(args["depth"])])
         if args.get("sizes"):
@@ -659,7 +682,8 @@ class LLMSupportMCPServer:
     def _build_discover_tests_args(self, args: dict) -> list[str]:
         """Build args for discover-tests command"""
         cmd_args = []
-        cmd_args.append(args.get("path", "."))
+        if "path" in args:
+            cmd_args.extend(["--path", args["path"]])
         if args.get("json"):
             cmd_args.append("--json")
         return cmd_args
@@ -697,7 +721,8 @@ class LLMSupportMCPServer:
     def _build_detect_args(self, args: dict) -> list[str]:
         """Build args for detect command"""
         cmd_args = []
-        cmd_args.append(args.get("path", "."))
+        if "path" in args:
+            cmd_args.extend(["--path", args["path"]])
         if args.get("json"):
             cmd_args.append("--json")
         return cmd_args
@@ -719,7 +744,7 @@ class LLMSupportMCPServer:
         """Build args for summarize-dir command"""
         cmd_args = []
         if "path" in args:
-            cmd_args.append(args["path"])
+            cmd_args.extend(["--path", args["path"]])
         if "format" in args:
             cmd_args.extend(["--format", args["format"]])
         if args.get("recursive"):
@@ -748,7 +773,8 @@ class LLMSupportMCPServer:
     def _build_git_context_args(self, args: dict) -> list[str]:
         """Build args for git-context command"""
         cmd_args = []
-        cmd_args.append(args.get("path", "."))
+        if "path" in args:
+            cmd_args.extend(["--path", args["path"]])
         if args.get("include_diff"):
             cmd_args.append("--include-diff")
         if "since" in args:
@@ -762,8 +788,10 @@ class LLMSupportMCPServer:
     def _build_validate_plan_args(self, args: dict) -> list[str]:
         """Build args for validate-plan command"""
         cmd_args = []
-        if "plan_path" in args:
-            cmd_args.append(args["plan_path"])
+        # Support both "path" and legacy "plan_path" for backwards compatibility
+        path = args.get("path") or args.get("plan_path")
+        if path:
+            cmd_args.extend(["--path", path])
         if args.get("json"):
             cmd_args.append("--json")
         return cmd_args
@@ -779,6 +807,15 @@ class LLMSupportMCPServer:
             cmd_args.append("--verbose")
         if args.get("json"):
             cmd_args.append("--json")
+        return cmd_args
+
+    def _build_repo_root_args(self, args: dict) -> list[str]:
+        """Build args for repo-root command"""
+        cmd_args = []
+        if "path" in args:
+            cmd_args.extend(["--path", args["path"]])
+        if args.get("validate"):
+            cmd_args.append("--validate")
         return cmd_args
 
     async def run(self):

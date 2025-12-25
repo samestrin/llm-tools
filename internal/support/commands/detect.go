@@ -9,12 +9,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var detectJSON bool
+var (
+	detectJSON bool
+	detectPath string
+)
 
 // newDetectCmd creates the detect command
 func newDetectCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "detect <path>",
+		Use:   "detect",
 		Short: "Detect project type and technology stack",
 		Long: `Detect project type, language, package manager, and framework.
 
@@ -25,17 +28,18 @@ Output fields:
   FRAMEWORK: nextjs | remix | express | fastapi | django | flask | gin | actix | spring | rails
   HAS_TESTS: true | false
   PYTEST_AVAILABLE: true | false`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.NoArgs,
 		RunE: runDetect,
 	}
 
+	cmd.Flags().StringVar(&detectPath, "path", ".", "Project path to analyze")
 	cmd.Flags().BoolVar(&detectJSON, "json", false, "Output as JSON")
 
 	return cmd
 }
 
 func runDetect(cmd *cobra.Command, args []string) error {
-	path, err := filepath.Abs(args[0])
+	path, err := filepath.Abs(detectPath)
 	if err != nil {
 		return fmt.Errorf("invalid path: %w", err)
 	}
