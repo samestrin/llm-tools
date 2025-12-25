@@ -17,12 +17,12 @@ func TestInitTempCommand(t *testing.T) {
 	}{
 		{
 			name:     "create new temp dir",
-			args:     []string{"test-session"},
+			args:     []string{"--name", "test-session"},
 			expected: []string{"TEMP_DIR:", "STATUS: CREATED"},
 		},
 		{
 			name: "clean existing temp dir",
-			args: []string{"test-session"},
+			args: []string{"--name", "test-session"},
 			setup: func(dir string) {
 				tempDir := filepath.Join(dir, ".planning", ".temp", "test-session")
 				os.MkdirAll(tempDir, 0755)
@@ -32,7 +32,7 @@ func TestInitTempCommand(t *testing.T) {
 		},
 		{
 			name: "preserve existing temp dir",
-			args: []string{"test-session", "--preserve"},
+			args: []string{"--name", "test-session", "--preserve"},
 			setup: func(dir string) {
 				tempDir := filepath.Join(dir, ".planning", ".temp", "test-session")
 				os.MkdirAll(tempDir, 0755)

@@ -12,43 +12,52 @@ import (
 
 var (
 	countMode      string
+	countPath      string
 	countRecursive bool
 	countPattern   string
 	countStyle     string
+	// Legacy flag aliases for backwards compatibility
+	countCheckboxes bool
+	countLines      bool
+	countFiles      bool
 )
 
 // newCountCmd creates the count command
 func newCountCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "count [target]",
+		Use:   "count",
 		Short: "Count checkboxes, lines, or files",
 		Long: `Count checkboxes, lines, or files in a path.
 
-Modes:
-  checkboxes - Count [ ] and [x] checkboxes in markdown files
-  lines      - Count lines in files
-  files      - Count files matching pattern
+Modes (use --mode or legacy flags):
+  --mode checkboxes  or  --checkboxes  - Count [ ] and [x] checkboxes in markdown files
+  --mode lines       or  --lines       - Count lines in files
+  --mode files       or  --files       - Count files matching pattern
 
 Output format:
   TOTAL: N
   CHECKED: N (for checkboxes mode)
   UNCHECKED: N (for checkboxes mode)
   PERCENT: N% (for checkboxes mode)`,
-		Args: cobra.ExactArgs(1),
 		RunE: runCount,
 	}
-	cmd.Flags().StringVar(&countMode, "mode", "", "Count mode: checkboxes, lines, files (required)")
+	cmd.Flags().StringVar(&countPath, "path", "", "Path to count in (required)")
+	cmd.Flags().StringVar(&countMode, "mode", "", "Count mode: checkboxes, lines, files")
 	cmd.Flags().BoolVarP(&countRecursive, "recursive", "r", false, "Recursive search")
 	cmd.Flags().StringVar(&countPattern, "pattern", "", "Glob pattern for files mode")
 	cmd.Flags().StringVar(&countStyle, "style", "all", "Checkbox style: all, list, heading")
-	cmd.MarkFlagRequired("mode")
+	// Legacy flags for backwards compatibility with Python version
+	cmd.Flags().BoolVar(&countCheckboxes, "checkboxes", false, "Count checkboxes (legacy, use --mode checkboxes)")
+	cmd.Flags().BoolVar(&countLines, "lines", false, "Count lines (legacy, use --mode lines)")
+	cmd.Flags().BoolVar(&countFiles, "files", false, "Count files (legacy, use --mode files)")
+	cmd.MarkFlagRequired("path")
 	return cmd
 }
 
 func runCount(cmd *cobra.Command, args []string) error {
-	target, err := filepath.Abs(args[0])
+	target, err := filepath.Abs(countPath)
 	if err != nil {
-		return fmt.Errorf("invalid path: %s", args[0])
+		return fmt.Errorf("invalid path: %s", countPath)
 	}
 
 	info, err := os.Stat(target)
@@ -56,7 +65,23 @@ func runCount(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("path does not exist: %s", target)
 	}
 
-	switch countMode {
+	// Handle legacy flags
+	mode := countMode
+	if mode == "" {
+		if countCheckboxes {
+			mode = "checkboxes"
+		} else if countLines {
+			mode = "lines"
+		} else if countFiles {
+			mode = "files"
+		}
+	}
+
+	if mode == "" {
+		return fmt.Errorf("must specify --mode or one of --checkboxes, --lines, --files")
+	}
+
+	switch mode {
 	case "checkboxes":
 		return runCountCheckboxes(cmd, target, info)
 	case "lines":
@@ -64,7 +89,7 @@ func runCount(cmd *cobra.Command, args []string) error {
 	case "files":
 		return runCountFiles(cmd, target, info)
 	default:
-		return fmt.Errorf("unknown mode: %s (supported: checkboxes, lines, files)", countMode)
+		return fmt.Errorf("unknown mode: %s (supported: checkboxes, lines, files)", mode)
 	}
 }
 

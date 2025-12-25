@@ -153,12 +153,12 @@ func TestCountIntegration(t *testing.T) {
 	}{
 		{
 			name:       "count checkboxes",
-			args:       []string{"--mode", "checkboxes", tempFile},
+			args:       []string{"--path", tempFile, "--mode", "checkboxes"},
 			goldenFile: "count/checkboxes.golden",
 		},
 		{
 			name:       "count lines",
-			args:       []string{"--mode", "lines", tempFile},
+			args:       []string{"--path", tempFile, "--mode", "lines"},
 			goldenFile: "count/lines.golden",
 		},
 	}

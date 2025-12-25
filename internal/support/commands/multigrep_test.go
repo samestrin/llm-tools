@@ -43,17 +43,17 @@ func helper() {
 	}{
 		{
 			name:     "search single keyword",
-			args:     []string{tmpDir, "--keywords", "processData"},
+			args:     []string{"--path", tmpDir, "--keywords", "processData"},
 			expected: []string{"processData", "DEFINITIONS:", "main.go"},
 		},
 		{
 			name:     "search multiple keywords",
-			args:     []string{tmpDir, "--keywords", "processData,MaxRetries"},
+			args:     []string{"--path", tmpDir, "--keywords", "processData,MaxRetries"},
 			expected: []string{"processData", "MaxRetries", "KEYWORDS_SEARCHED: 2"},
 		},
 		{
 			name:     "filter by extension",
-			args:     []string{tmpDir, "--keywords", "func", "--extensions", "go"},
+			args:     []string{"--path", tmpDir, "--keywords", "func", "--extensions", "go"},
 			expected: []string{"func", ".go"},
 		},
 	}
@@ -97,7 +97,7 @@ console.log(ApiEndpoint);
 	cmd := newMultigrepCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{tmpDir, "--keywords", "ApiEndpoint"})
+	cmd.SetArgs([]string{"--path", tmpDir, "--keywords", "ApiEndpoint"})
 
 	err := cmd.Execute()
 	if err != nil {
@@ -118,7 +118,7 @@ func TestMultigrepJSON(t *testing.T) {
 	cmd := newMultigrepCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{tmpDir, "--keywords", "test", "--json"})
+	cmd.SetArgs([]string{"--path", tmpDir, "--keywords", "test", "--json"})
 
 	err := cmd.Execute()
 	if err != nil {

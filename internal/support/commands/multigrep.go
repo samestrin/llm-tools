@@ -14,6 +14,7 @@ import (
 )
 
 var (
+	multigrepPath        string
 	multigrepKeywords    string
 	multigrepExtensions  string
 	multigrepIgnoreCase  bool
@@ -40,17 +41,17 @@ type keywordResult struct {
 // newMultigrepCmd creates the multigrep command
 func newMultigrepCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "multigrep <path> --keywords <kw1,kw2,...>",
+		Use:   "multigrep",
 		Short: "Search for multiple keywords in parallel",
 		Long: `Search for multiple keywords in parallel with intelligent output management.
 Prioritizes definition matches (function, class, const declarations) over usage matches.
 
 Example:
-  llm-support multigrep ./src --keywords "useState,useEffect" --extensions "ts,tsx"`,
-		Args: cobra.ExactArgs(1),
+  llm-support multigrep --path ./src --keywords "useState,useEffect" --extensions "ts,tsx"`,
 		RunE: runMultigrep,
 	}
 
+	cmd.Flags().StringVar(&multigrepPath, "path", "", "Path to search in (required)")
 	cmd.Flags().StringVar(&multigrepKeywords, "keywords", "", "Comma-separated keywords to search (required)")
 	cmd.Flags().StringVar(&multigrepExtensions, "extensions", "", "Filter by file extensions (e.g., 'ts,tsx,js')")
 	cmd.Flags().BoolVarP(&multigrepIgnoreCase, "ignore-case", "i", false, "Case-insensitive search")
@@ -59,6 +60,7 @@ Example:
 	cmd.Flags().BoolVar(&multigrepJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVarP(&multigrepDefinitions, "definitions", "d", false, "Show only definition matches")
 
+	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("keywords")
 
 	return cmd
@@ -70,7 +72,7 @@ func runMultigrep(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no keywords provided")
 	}
 
-	path, err := filepath.Abs(args[0])
+	path, err := filepath.Abs(multigrepPath)
 	if err != nil {
 		return fmt.Errorf("invalid path: %w", err)
 	}

@@ -32,33 +32,43 @@ func TestCountCommand(t *testing.T) {
 	}{
 		{
 			name:     "count checkboxes in file",
-			args:     []string{"--mode", "checkboxes", mdFile},
+			args:     []string{"--path", mdFile, "--mode", "checkboxes"},
 			expected: []string{"TOTAL: 3", "CHECKED: 2", "UNCHECKED: 1"},
 		},
 		{
 			name:     "count lines in file",
-			args:     []string{"--mode", "lines", txtFile},
+			args:     []string{"--path", txtFile, "--mode", "lines"},
 			expected: []string{"COUNT: 3"},
 		},
 		{
 			name:     "count files in directory",
-			args:     []string{"--mode", "files", tmpDir},
+			args:     []string{"--path", tmpDir, "--mode", "files"},
 			expected: []string{"TOTAL: 2"},
 		},
 		{
 			name:     "count files recursive",
-			args:     []string{"--mode", "files", tmpDir, "-r"},
+			args:     []string{"--path", tmpDir, "--mode", "files", "-r"},
 			expected: []string{"TOTAL:"},
 		},
 		{
 			name:     "non-existent path",
-			args:     []string{"--mode", "checkboxes", "/nonexistent/path"},
+			args:     []string{"--path", "/nonexistent/path", "--mode", "checkboxes"},
 			hasError: true,
 		},
 		{
 			name:     "invalid mode",
-			args:     []string{"--mode", "invalid", tmpDir},
+			args:     []string{"--path", tmpDir, "--mode", "invalid"},
 			hasError: true,
+		},
+		{
+			name:     "legacy checkboxes flag",
+			args:     []string{"--path", mdFile, "--checkboxes"},
+			expected: []string{"TOTAL: 3", "CHECKED: 2", "UNCHECKED: 1"},
+		},
+		{
+			name:     "legacy lines flag",
+			args:     []string{"--path", txtFile, "--lines"},
+			expected: []string{"COUNT: 3"},
 		},
 	}
 
@@ -106,7 +116,7 @@ func TestCountCheckboxesRecursive(t *testing.T) {
 	cmd := newCountCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{"--mode", "checkboxes", tmpDir, "-r"})
+	cmd.SetArgs([]string{"--path", tmpDir, "--mode", "checkboxes", "-r"})
 
 	err := cmd.Execute()
 	if err != nil {

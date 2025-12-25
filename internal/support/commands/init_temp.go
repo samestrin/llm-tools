@@ -8,12 +8,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var initTempPreserve bool
+var (
+	initTempPreserve bool
+	initTempName     string
+	initTempClean    bool
+)
 
 // newInitTempCmd creates the init-temp command
 func newInitTempCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "init-temp <name>",
+		Use:   "init-temp",
 		Short: "Initialize temp directory",
 		Long: `Initialize and manage temp directories with consistent patterns.
 
@@ -28,17 +32,19 @@ Output:
   STATUS: CREATED | EXISTS
   CLEANED: N files removed (with --clean)
   EXISTING_FILES: N (with --preserve when dir exists)`,
-		Args: cobra.ExactArgs(1),
 		RunE: runInitTemp,
 	}
 
+	cmd.Flags().StringVar(&initTempName, "name", "", "Name for temp directory (required)")
 	cmd.Flags().BoolVar(&initTempPreserve, "preserve", false, "Keep existing files")
+	cmd.Flags().BoolVar(&initTempClean, "clean", true, "Remove existing files (default)")
+	cmd.MarkFlagRequired("name")
 
 	return cmd
 }
 
 func runInitTemp(cmd *cobra.Command, args []string) error {
-	name := args[0]
+	name := initTempName
 	baseTemp := filepath.Join(".planning", ".temp")
 	tempDir := filepath.Join(baseTemp, name)
 
