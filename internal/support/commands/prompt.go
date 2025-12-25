@@ -354,7 +354,7 @@ func executeLLM(binary, style, prompt, instruction string, timeout int) (string,
 
 	switch style {
 	case "gemini":
-		args = []string{prompt}
+		args = []string{"-p", prompt}
 		if instruction != "" {
 			args = append(args, "--instruction", instruction)
 		}
