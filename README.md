@@ -320,7 +320,7 @@ make fmt
 
 ## License
 
-MIT License - see LICENSE file for details.
+[MIT License](LICENSE) - see LICENSE file for details.
 
 ## Contributing
 
