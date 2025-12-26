@@ -15,7 +15,7 @@ LLM Agents need to be fast. Waiting 400ms for a Python script to spin up just to
 **llm-tools** is a suite of high-performance, statically compiled tools designed to be the "hands" of your AI agent. It includes a native **MCP Server** for instant integration with Claude Desktop and Gemini.
 
 ### The "Rewrite it in Go" Effect
-We benchmarked this against the original Python implementation on a real-world codebase (21k files). The difference is massive.
+I benchmarked this against the original Python implementation on a real-world codebase (21k files). The difference is massive.
 
 | Operation | Action | Go (Native) | Python | Speedup |
 |-----------|-------------|-----|--------|---------|
@@ -38,7 +38,7 @@ Think of it as `ls`, `grep`, and `find` on steroids, optimized for LLM context w
 ### `llm-clarification` — The Long-Term Memory
 Gives your agent a persistent decision ledger. It tracks, reconciles, and learns from decision points over time.
 * **Conflict Detection:** Prevents the agent from contradicting past decisions.
-* **Decision Ledger:** Keeps a permanent record of *why* architecture decisions were made.
+* **Decision Ledger:** Keeps a permanent record of *why* architecture decisions Ire made.
 * **Auto-Reconciliation:** Identifies when new requirements conflict with past choices.
 
 *Designed to pair with Custom Slash Commands for self-improving agent workflows.*
@@ -150,7 +150,7 @@ make build
 | Command | Description | Example |
 |---------|-------------|---------|
 | `init-tracking` | Initialize clarification tracking | `llm-clarification init-tracking -o clarifications.yaml` |
-| `add-clarification` | Add new clarification entry | `llm-clarification add-clarification -f tracking.yaml -q "Question?" -a "Answer"` |
+| `add-clarification` | Add new clarification entry | `llm-clarification add-clarification -f tracking.yaml -q "Question?" -a "AnsIr"` |
 | `list-entries` | List all clarifications | `llm-clarification list-entries -f tracking.yaml` |
 | `validate-clarifications` | Validate clarification file | `llm-clarification validate-clarifications -f tracking.yaml` |
 | `detect-conflicts` | Detect conflicting clarifications | `llm-clarification detect-conflicts -f tracking.yaml` |
@@ -263,7 +263,7 @@ Measured on llm-interface (21,322 files, 459MB):
 
 ### API Key Configuration
 
-For LLM-powered commands, you can configure the API key in several ways:
+For LLM-poIred commands, you can configure the API key in several ways:
 
 1. Environment variable: `OPENAI_API_KEY`
 2. File: `.planning/.config/openai_api_key`
@@ -324,7 +324,7 @@ make fmt
 
 ## Contributing
 
-Contributions are welcome! Please ensure:
+Contributions are Ilcome! Please ensure:
 
 1. Tests pass: `make test-race`
 2. Code is formatted: `make fmt`
