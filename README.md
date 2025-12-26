@@ -1,17 +1,45 @@
 # llm-tools
 
-High-performance CLI tools for LLM-assisted development workflows.
+> **The missing standard library for Agentic Workflows.**
+> *Native Go. Single Binary. 100x Faster than Python.*
 
-## Overview
+![Go Version](https://img.shields.io/github/go-mod/go-version/samestrin/llm-tools)
+![License](https://img.shields.io/github/license/samestrin/llm-tools)
+![Build Status](https://img.shields.io/github/actions/workflow/status/samestrin/llm-tools/go.yml)
 
-This repository contains two powerful CLI tools written in Go:
+## ⚡ Why this exists
 
-- **llm-support**: 32+ commands for file operations, search, code analysis, and LLM integration
-- **llm-clarification**: Clarification tracking and management for software projects
+LLM Agents need to be fast. Waiting 400ms for a Python script to spin up just to read a file kills the flow of an autonomous loop.
 
-Both tools feature single-binary distribution, native concurrency, and fast startup times.
+**llm-tools** is a suite of high-performance, statically compiled tools designed to be the "hands" of your AI agent. It includes a native **MCP Server** for instant integration with Claude Desktop and Gemini.
 
-## Installation
+### The "Rewrite it in Go" Effect
+We benchmarked this against the original Python implementation on a real-world codebase (21k files). The difference is massive.
+
+| Operation | Action | Go (Native) | Python | Speedup |
+|-----------|-------------|-----|--------|---------|
+| **MCP Handshake** | **Server Initialization** | **4ms** | **408ms** | **🚀 102x** |
+| Startup | CLI Help | 6ms | 113ms | **19x** |
+| Multigrep | Search 5 keywords (150k hits) | 1.47s | 20.7s | **14x** |
+| Hash | SHA256 Verification | 6ms | 65ms | **10.8x** |
+| Tree | Generate file map | 22ms | 89ms | **4x** |
+
+> *Benchmarks run on macOS Darwin (arm64), 2025-12-26.*
+
+## 🛠️ The Toolkit
+
+### `llm-support`
+The core CLI. Think of it as `ls`, `grep`, and `find` but optimized for LLM context windows.
+* **Token-Efficient Output:** Formats file trees and search results to save you tokens.
+* **Smart Parsing:** Detects project stacks, finds dependencies, and validates config files instantly.
+
+### `mcp-server`
+A zero-dependency MCP server.
+* **No Python venv required.**
+* **No pip install.**
+* Just drop the binary in your config and go.
+
+## 🚀 Quick Start
 
 ### Pre-built Binaries
 
