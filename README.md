@@ -9,7 +9,7 @@ This repository contains two powerful CLI tools written in Go:
 - **llm-support**: 32+ commands for file operations, search, code analysis, and LLM integration
 - **llm-clarification**: Clarification tracking and management for software projects
 
-Both tools are designed to be 10-20x faster than their Python predecessors, with single-binary distribution and native concurrency.
+Both tools feature single-binary distribution, native concurrency, and fast startup times.
 
 ## Installation
 
@@ -66,8 +66,8 @@ make build
 |---------|-------------|---------|
 | `detect` | Detect project type and stack | `llm-support detect --path ./project` |
 | `discover-tests` | Find test frameworks and patterns | `llm-support discover-tests --path ./project` |
-| `analyze-deps` | Extract file dependencies from markdown | `llm-support analyze-deps plan.md` |
-| `partition-work` | Group tasks by file conflicts | `llm-support partition-work tasks.md` |
+| `analyze-deps` | Extract file dependencies from markdown | `llm-support analyze-deps story.md` |
+| `partition-work` | Group tasks by file conflicts | `llm-support partition-work --stories ./user-stories/` |
 
 ### Data Processing
 
@@ -76,8 +76,8 @@ make build
 | `json` | Query JSON with JSONPath | `llm-support json query data.json ".users[0].name"` |
 | `toml` | Query TOML files | `llm-support toml get config.toml database.host` |
 | `markdown` | Parse and query markdown | `llm-support markdown toc README.md` |
-| `extract` | Extract URLs, emails, IPs, etc. | `llm-support extract --urls file.txt` |
-| `transform` | Text transformations | `llm-support transform upper file.txt` |
+| `extract` | Extract URLs, emails, IPs, etc. | `llm-support extract urls file.txt` |
+| `transform` | Text transformations | `llm-support transform case "myText" --to snake_case` |
 | `count` | Count lines, words, checkboxes | `llm-support count --mode checkboxes --path plan.md` |
 | `encode` | Base64/URL encoding/decoding | `llm-support encode "hello" -e base64` |
 | `math` | Evaluate mathematical expressions | `llm-support math "2**10 + 5"` |
@@ -87,9 +87,9 @@ make build
 | Command | Description | Example |
 |---------|-------------|---------|
 | `prompt` | Execute LLM prompts with templates | `llm-support prompt --prompt "Explain this code" --llm gemini` |
-| `foreach` | Batch process files with LLM | `llm-support foreach --path src/ --template prompt.txt` |
-| `extract-relevant` | Extract relevant content with LLM | `llm-support extract-relevant --path docs/ --context "API"` |
-| `summarize-dir` | Generate directory summaries | `llm-support summarize-dir --path src/ --format outline` |
+| `foreach` | Batch process files with LLM | `llm-support foreach --glob "src/*.go" --template review.md --output-dir ./out` |
+| `extract-relevant` | Extract relevant content with LLM | `llm-support extract-relevant docs/ --context "API endpoints"` |
+| `summarize-dir` | Generate directory summaries | `llm-support summarize-dir src/ --format outline` |
 
 ### Development
 
@@ -99,7 +99,7 @@ make build
 | `validate-plan` | Validate sprint plans | `llm-support validate-plan --path ./sprint-01/` |
 | `template` | Process text templates | `llm-support template file.txt --var name=John` |
 | `diff` | Compare files | `llm-support diff file1.txt file2.txt` |
-| `report` | Generate reports from data | `llm-support report --template report.md` |
+| `report` | Generate status reports | `llm-support report --title "Build" --status success` |
 | `git-context` | Get git context information | `llm-support git-context` |
 | `repo-root` | Find git repository root | `llm-support repo-root --validate` |
 
@@ -152,8 +152,8 @@ llm-support detect --path .
 # Validate all config files
 llm-support validate config.json settings.yaml
 
-# Compare directories
-llm-support diff backup/ current/
+# Compare two files
+llm-support diff old-config.json new-config.json
 
 # Find git repository root
 llm-support repo-root --validate
@@ -166,20 +166,18 @@ Both tools include MCP (Model Context Protocol) servers for integration with Cla
 See [docs/MCP_SETUP.md](docs/MCP_SETUP.md) for setup instructions.
 
 **Available MCP Tools:**
-- `llm-support-mcp`: 12 tools for file operations, search, and analysis
+- `llm-support-mcp`: 18 tools for file operations, search, and analysis
 - `llm-clarification-mcp`: 8 tools for clarification tracking
 
 ## Performance
 
-llm-tools achieves significant performance improvements over Python versions:
-
-| Operation | llm-tools (Go) | Python | Improvement |
-|-----------|---------------|--------|-------------|
-| Startup | ~7ms | ~200ms | ~30x |
-| listdir (1000 files) | 70us | 15ms | ~200x |
-| tree (depth 5) | 88ms | 200ms | ~2x |
-| hash (1MB) | 0.4ms | 5ms | ~12x |
-| multigrep (10 keywords) | <500ms | ~2s | ~4x |
+| Operation | Time |
+|-----------|------|
+| Startup | ~7ms |
+| listdir (1000 files) | 70μs |
+| tree (depth 5) | 88ms |
+| hash (1MB) | 0.4ms |
+| multigrep (10 keywords) | <500ms |
 
 ## Configuration
 
@@ -263,6 +261,5 @@ Contributions are welcome! Please ensure:
 
 ## Acknowledgments
 
-- Original Python implementation in [claude-prompts](https://github.com/samestrin/claude-prompts)
 - [Cobra](https://github.com/spf13/cobra) - CLI framework
 - [ripgrep](https://github.com/BurntSushi/ripgrep) - Fast search (used by grep/multigrep)

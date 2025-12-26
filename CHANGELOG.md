@@ -80,11 +80,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
-Initial release achieves significant performance improvements:
+Initial release performance metrics:
 
 | Metric | Value |
 |--------|-------|
-| Cold start | ~7ms (vs Python ~200ms) |
+| Cold start | ~7ms |
 | listdir (1000 files) | 70us |
 | tree (depth 5) | 88ms |
 | hash (1MB) | 0.4ms |
