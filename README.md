@@ -3,9 +3,10 @@
 > **The missing standard library for Agentic Workflows.**
 > *Native Go. Single Binary. 100x Faster than Python.*
 
-![Go Version](https://img.shields.io/github/go-mod/go-version/samestrin/llm-tools)
-![License](https://img.shields.io/github/license/samestrin/llm-tools)
-![Build Status](https://img.shields.io/github/actions/workflow/status/samestrin/llm-tools/go.yml)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/samestrin/llm-tools)](https://go.dev/)
+[![License](https://img.shields.io/github/license/samestrin/llm-tools)](LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/samestrin/llm-tools/test.yml?branch=main)](https://github.com/samestrin/llm-tools/actions)
+[![Release](https://img.shields.io/github/v/release/samestrin/llm-tools)](https://github.com/samestrin/llm-tools/releases/latest)
 
 ## ⚡ Why this exists
 
