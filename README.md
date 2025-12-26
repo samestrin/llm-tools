@@ -43,12 +43,17 @@ A zero-dependency MCP server.
 
 ### Pre-built Binaries
 
-Download the latest release for your platform from the [Releases](https://github.com/samestrin/llm-tools/releases) page.
+Download the latest release for your platform from the [Releases](https://github.com/samestrin/llm-tools/releases) page, or use the direct links below:
 
-Available platforms:
-- Linux (amd64, arm64)
-- macOS (amd64, arm64)
-- Windows (amd64)
+| Platform | Architecture | Download | SHA256 |
+|----------|--------------|----------|--------|
+| macOS | ARM64 (Apple Silicon) | [llm-tools-darwin-arm64.tar.gz](releases/v1.0.0/llm-tools-darwin-arm64.tar.gz) | `02ffceb4...` |
+| macOS | AMD64 (Intel) | [llm-tools-darwin-amd64.tar.gz](releases/v1.0.0/llm-tools-darwin-amd64.tar.gz) | `e66627eb...` |
+| Linux | AMD64 | [llm-tools-linux-amd64.tar.gz](releases/v1.0.0/llm-tools-linux-amd64.tar.gz) | `b7c13322...` |
+| Linux | ARM64 | [llm-tools-linux-arm64.tar.gz](releases/v1.0.0/llm-tools-linux-arm64.tar.gz) | `6612aa94...` |
+| Windows | AMD64 | [llm-tools-windows-amd64.zip](releases/v1.0.0/llm-tools-windows-amd64.zip) | `32b822a6...` |
+
+Full checksums available in [releases/v1.0.0/checksums.txt](releases/v1.0.0/checksums.txt).
 
 ### From Source
 
