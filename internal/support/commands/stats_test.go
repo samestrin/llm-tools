@@ -25,12 +25,12 @@ func TestStatsCommand(t *testing.T) {
 	}{
 		{
 			name:     "directory stats",
-			args:     []string{tmpDir, "--no-gitignore"},
+			args:     []string{"--path", tmpDir, "--no-gitignore"},
 			expected: []string{"FILES:", "DIRECTORIES:", "TOTAL_SIZE:"},
 		},
 		{
 			name:     "non-existent path",
-			args:     []string{"/nonexistent/path"},
+			args:     []string{"--path", "/nonexistent/path"},
 			hasError: true,
 		},
 	}

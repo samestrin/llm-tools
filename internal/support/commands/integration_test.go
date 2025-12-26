@@ -53,12 +53,12 @@ func TestTreeIntegration(t *testing.T) {
 	}{
 		{
 			name:       "basic tree",
-			args:       []string{fixturesDir},
+			args:       []string{"--path", fixturesDir},
 			goldenFile: "tree/basic.golden",
 		},
 		{
 			name:       "tree with depth 1",
-			args:       []string{fixturesDir, "--depth", "1"},
+			args:       []string{"--path", fixturesDir, "--depth", "1"},
 			goldenFile: "tree/depth1.golden",
 		},
 	}
@@ -105,7 +105,7 @@ func TestListdirIntegration(t *testing.T) {
 	}{
 		{
 			name:       "basic listdir",
-			args:       []string{fixturesDir},
+			args:       []string{"--path", fixturesDir},
 			goldenFile: "listdir/basic.golden",
 		},
 	}

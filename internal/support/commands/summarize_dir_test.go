@@ -24,17 +24,17 @@ func TestSummarizeDirCommand(t *testing.T) {
 	}{
 		{
 			name:     "summarize directory",
-			args:     []string{tmpDir, "--no-gitignore"},
+			args:     []string{"--path", tmpDir, "--no-gitignore"},
 			expected: []string{"README.md", "src"},
 		},
 		{
 			name:     "with format outline",
-			args:     []string{tmpDir, "--format", "outline", "--no-gitignore"},
+			args:     []string{"--path", tmpDir, "--format", "outline", "--no-gitignore"},
 			expected: []string{"README.md"},
 		},
 		{
 			name:     "non-existent path",
-			args:     []string{"/nonexistent/path"},
+			args:     []string{"--path", "/nonexistent/path"},
 			hasError: true,
 		},
 	}
