@@ -170,3 +170,190 @@ func TestBuildClusterArgs(t *testing.T) {
 		t.Errorf("buildClusterArgs() = %v, want %v", got, want)
 	}
 }
+
+func TestBuildClusterArgsWithJSON(t *testing.T) {
+	args := map[string]interface{}{
+		"questions_json": `["q1","q2"]`,
+	}
+
+	got := buildClusterArgs(args)
+	want := []string{"cluster-clarifications", "--questions-json", `["q1","q2"]`}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("buildClusterArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestBuildMatchArgsWithEntriesJSON(t *testing.T) {
+	args := map[string]interface{}{
+		"question":     "What framework?",
+		"entries_json": `[{"q":"test","a":"answer"}]`,
+	}
+
+	got := buildMatchArgs(args)
+	want := []string{"match-clarification", "--question", "What framework?", "--entries-json", `[{"q":"test","a":"answer"}]`}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("buildMatchArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestBuildValidateArgsWithTimeout(t *testing.T) {
+	args := map[string]interface{}{
+		"tracking_file": "tracking.yaml",
+		"timeout":       float64(90),
+	}
+
+	got := buildValidateArgs(args)
+	want := []string{"validate-clarifications", "tracking.yaml", "--timeout", "90"}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("buildValidateArgs() = %v, want %v", got, want)
+	}
+}
+
+func TestBuildAddArgsWithID(t *testing.T) {
+	args := map[string]interface{}{
+		"tracking_file": "tracking.yaml",
+		"question":      "Test?",
+		"answer":        "Yes",
+		"id":            "custom-id-123",
+		"check_match":   true,
+	}
+
+	got := buildAddArgs(args)
+
+	// Check for id flag
+	hasID := false
+	hasCheckMatch := false
+	for i, arg := range got {
+		if arg == "--id" && i+1 < len(got) && got[i+1] == "custom-id-123" {
+			hasID = true
+		}
+		if arg == "--check-match" {
+			hasCheckMatch = true
+		}
+	}
+	if !hasID {
+		t.Error("Expected --id flag with correct value")
+	}
+	if !hasCheckMatch {
+		t.Error("Expected --check-match flag")
+	}
+}
+
+func TestBuildArgsDispatcher(t *testing.T) {
+	tests := []struct {
+		command   string
+		args      map[string]interface{}
+		wantLen   int
+		wantFirst string
+		wantErr   bool
+	}{
+		{"match", map[string]interface{}{"question": "q"}, 3, "match-clarification", false},
+		{"cluster", map[string]interface{}{"questions_file": "f"}, 3, "cluster-clarifications", false},
+		{"detect_conflicts", map[string]interface{}{"tracking_file": "f"}, 2, "detect-conflicts", false},
+		{"validate", map[string]interface{}{"tracking_file": "f"}, 2, "validate-clarifications", false},
+		{"init", map[string]interface{}{"output": "f"}, 3, "init-tracking", false},
+		{"add", map[string]interface{}{"tracking_file": "f"}, 3, "add-clarification", false},
+		{"promote", map[string]interface{}{"tracking_file": "f"}, 3, "promote-clarification", false},
+		{"list", map[string]interface{}{"tracking_file": "f"}, 2, "list-entries", false},
+		{"unknown_command", map[string]interface{}{}, 0, "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.command, func(t *testing.T) {
+			got, err := buildArgs(tt.command, tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("buildArgs() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				if len(got) < tt.wantLen {
+					t.Errorf("buildArgs() len = %d, want >= %d", len(got), tt.wantLen)
+				}
+				if got[0] != tt.wantFirst {
+					t.Errorf("buildArgs()[0] = %s, want %s", got[0], tt.wantFirst)
+				}
+			}
+		})
+	}
+}
+
+func TestGetIntTypes(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		key     string
+		wantVal int
+		wantOK  bool
+	}{
+		{
+			name:    "float64",
+			args:    map[string]interface{}{"val": float64(42)},
+			key:     "val",
+			wantVal: 42,
+			wantOK:  true,
+		},
+		{
+			name:    "int",
+			args:    map[string]interface{}{"val": int(42)},
+			key:     "val",
+			wantVal: 42,
+			wantOK:  true,
+		},
+		{
+			name:    "int64",
+			args:    map[string]interface{}{"val": int64(42)},
+			key:     "val",
+			wantVal: 42,
+			wantOK:  true,
+		},
+		{
+			name:    "string (not int)",
+			args:    map[string]interface{}{"val": "42"},
+			key:     "val",
+			wantVal: 0,
+			wantOK:  false,
+		},
+		{
+			name:    "missing key",
+			args:    map[string]interface{}{},
+			key:     "val",
+			wantVal: 0,
+			wantOK:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotVal, gotOK := getInt(tt.args, tt.key)
+			if gotVal != tt.wantVal || gotOK != tt.wantOK {
+				t.Errorf("getInt() = (%d, %v), want (%d, %v)", gotVal, gotOK, tt.wantVal, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestGetBool(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		key  string
+		want bool
+	}{
+		{"true value", map[string]interface{}{"flag": true}, "flag", true},
+		{"false value", map[string]interface{}{"flag": false}, "flag", false},
+		{"missing key", map[string]interface{}{}, "flag", false},
+		{"wrong type", map[string]interface{}{"flag": "true"}, "flag", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getBool(tt.args, tt.key)
+			if got != tt.want {
+				t.Errorf("getBool() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

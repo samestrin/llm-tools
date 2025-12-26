@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -231,5 +232,152 @@ func TestLargeMessage(t *testing.T) {
 
 	if len(params["data"]) != 1024*1024 {
 		t.Errorf("Large data length = %d, want %d", len(params["data"]), 1024*1024)
+	}
+}
+
+// TestWriteError tests writing JSON-RPC error responses
+func TestWriteError(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      json.RawMessage
+		code    int
+		message string
+	}{
+		{
+			name:    "parse error",
+			id:      json.RawMessage(`1`),
+			code:    ParseError,
+			message: "invalid json",
+		},
+		{
+			name:    "method not found",
+			id:      json.RawMessage(`"abc"`),
+			code:    MethodNotFound,
+			message: "unknown/method",
+		},
+		{
+			name:    "invalid params",
+			id:      json.RawMessage(`null`),
+			code:    InvalidParams,
+			message: "missing field",
+		},
+		{
+			name:    "internal error",
+			id:      json.RawMessage(`42`),
+			code:    InternalError,
+			message: "unexpected failure",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			transport := NewTransport(nil, &buf)
+
+			err := transport.WriteError(tt.id, tt.code, tt.message)
+			if err != nil {
+				t.Errorf("WriteError() error = %v", err)
+				return
+			}
+
+			// Parse the output
+			var resp Response
+			if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+				t.Fatalf("Failed to parse output: %v", err)
+			}
+
+			if resp.JSONRPC != "2.0" {
+				t.Errorf("JSONRPC = %s, want 2.0", resp.JSONRPC)
+			}
+			if resp.Error == nil {
+				t.Fatal("Expected error in response")
+			}
+			if resp.Error.Code != tt.code {
+				t.Errorf("Error.Code = %d, want %d", resp.Error.Code, tt.code)
+			}
+		})
+	}
+}
+
+// TestJSONRPCError tests the JSONRPCError type
+func TestJSONRPCError(t *testing.T) {
+	rpcErr := &JSONRPCError{
+		Code:    MethodNotFound,
+		Message: "test method not found",
+	}
+
+	// Test Error() method
+	errMsg := rpcErr.Error()
+	if errMsg == "" {
+		t.Error("Expected non-empty error message")
+	}
+	if !strings.Contains(errMsg, "JSON-RPC error") {
+		t.Errorf("Error message should contain 'JSON-RPC error', got: %s", errMsg)
+	}
+}
+
+// TestIsJSONRPCError tests the IsJSONRPCError function
+func TestIsJSONRPCError(t *testing.T) {
+	rpcErr := &JSONRPCError{
+		Code:    MethodNotFound,
+		Message: "test",
+	}
+
+	// Test with JSONRPCError
+	gotErr, ok := IsJSONRPCError(rpcErr)
+	if !ok {
+		t.Error("Expected IsJSONRPCError() to return true for JSONRPCError")
+	}
+	if gotErr.Code != MethodNotFound {
+		t.Errorf("Code = %d, want %d", gotErr.Code, MethodNotFound)
+	}
+
+	// Test with regular error
+	regularErr := errors.New("regular error")
+	_, ok = IsJSONRPCError(regularErr)
+	if ok {
+		t.Error("Expected IsJSONRPCError() to return false for regular error")
+	}
+}
+
+// TestReadRequestNotification tests parsing notification (no id)
+func TestReadRequestNotification(t *testing.T) {
+	input := `{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n"
+	reader := strings.NewReader(input)
+	transport := NewTransport(reader, nil)
+
+	req, err := transport.ReadRequest()
+	if err != nil {
+		t.Fatalf("Failed to read notification: %v", err)
+	}
+
+	if req.Method != "notifications/initialized" {
+		t.Errorf("Method = %s, want notifications/initialized", req.Method)
+	}
+
+	// ID should be nil or empty for notifications
+	if len(req.ID) > 0 && string(req.ID) != "null" {
+		t.Errorf("Expected empty or null ID for notification, got %s", string(req.ID))
+	}
+}
+
+// TestWriteResponseNewline tests that responses end with newline
+func TestWriteResponseNewline(t *testing.T) {
+	var buf bytes.Buffer
+	transport := NewTransport(nil, &buf)
+
+	resp := &Response{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`1`),
+		Result:  json.RawMessage(`{}`),
+	}
+
+	if err := transport.WriteResponse(resp); err != nil {
+		t.Fatalf("WriteResponse() error = %v", err)
+	}
+
+	output := buf.String()
+	if !strings.HasSuffix(output, "\n") {
+		t.Error("Expected response to end with newline")
 	}
 }
