@@ -181,7 +181,7 @@ Measured on llm-interface (21,322 files, 459MB):
 | tree | 3 levels, 847 entries | 22ms |
 | listdir | src/ directory (45 items) | 42ms |
 | grep | "function" in src/ (1,847 matches) | 13ms |
-| multigrep | 5 keywords in src/ | 13ms |
+| multigrep | 5 keywords in src/ (804 matches) | 13ms |
 | hash | SHA256 of package.json | 6ms |
 | count | Lines in package.json | 6ms |
 
