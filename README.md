@@ -28,16 +28,24 @@ We benchmarked this against the original Python implementation on a real-world c
 
 ## 🛠️ The Toolkit
 
-### `llm-support`
-The core CLI. Think of it as `ls`, `grep`, and `find` but optimized for LLM context windows.
-* **Token-Efficient Output:** Formats file trees and search results to save you tokens.
-* **Smart Parsing:** Detects project stacks, finds dependencies, and validates config files instantly.
+### `llm-support` — The Fast Hands
+Think of it as `ls`, `grep`, and `find` on steroids, optimized for LLM context windows.
+* **Token-Efficient Output:** Formats file trees and search results to minimize token usage.
+* **Parallel Search:** `multigrep` searches 10+ keywords across 20k files in under 2 seconds.
+* **Smart Parsing:** Detects project stacks, extracts dependencies, validates configs instantly.
 
-### `mcp-server`
-A zero-dependency MCP server.
-* **No Python venv required.**
-* **No pip install.**
-* Just drop the binary in your config and go.
+### `llm-clarification` — The Long-Term Memory
+Gives your agent a persistent decision ledger. It tracks, reconciles, and learns from decision points over time.
+* **Conflict Detection:** Prevents the agent from contradicting past decisions.
+* **Decision Ledger:** Keeps a permanent record of *why* architecture decisions were made.
+* **Auto-Reconciliation:** Identifies when new requirements conflict with past choices.
+
+*Designed to pair with Custom Slash Commands for self-improving agent workflows.*
+
+### `llm-support-mcp` / `llm-clarification-mcp` — Zero-Config MCP Servers
+Drop-in MCP servers for Claude Desktop and Gemini CLI.
+* **No Python venv.** No `pip install`. No dependencies.
+* Single binary. Just add the path to your config and go.
 
 ## 🚀 Quick Start
 
@@ -217,6 +225,29 @@ Measured on llm-interface (21,322 files, 459MB):
 | multigrep | 5 keywords in 21k files (156,893 matches) | 1.47s |
 | hash | SHA256 of package.json | 6ms |
 | count | Lines in package.json | 6ms |
+
+## How It Works
+
+```mermaid
+graph TD
+    User[User Request] --> |"/implement feature X"| Agent[Claude / Gemini Agent]
+
+    subgraph "llm-tools Engine"
+        Agent --> |"multigrep, tree, detect"| Support[llm-support]
+        Agent --> |"match-clarification"| Memory[llm-clarification]
+
+        Support --> |"Files, Context"| Agent
+        Memory --> |"We decided Y for reason Z"| Agent
+    end
+
+    Agent --> |Generated Code| IDE[VS Code / Cursor]
+```
+
+**The Loop:**
+1. Agent receives a task from the user
+2. `llm-support` provides fast codebase context (files, structure, search results)
+3. `llm-clarification` recalls past decisions to maintain consistency
+4. Agent generates code with full context, writes to IDE
 
 ## Configuration
 
