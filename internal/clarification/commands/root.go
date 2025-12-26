@@ -6,7 +6,7 @@ import (
 )
 
 // Version is set at build time using ldflags
-var Version = "dev"
+var Version = "1.0.0"
 
 var rootCmd = &cobra.Command{
 	Use:     "llm-clarification",
