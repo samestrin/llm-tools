@@ -230,18 +230,28 @@ Measured on llm-interface (21,322 files, 459MB):
 ## How It Works
 
 ```mermaid
-  graph TD
-      User[User Request] --> |"/execute-sprint @.planning/sprints/active/1.0_feature-name/"| Agent[Claude CLI / Gemini CLI]
+sequenceDiagram
+    participant U as 👤 User
+    participant A as 🤖 Agent
+    participant S as ⚡ Support
+    participant M as 🧠 Memory
+    participant C as 📂 Codebase
 
-      subgraph "llm-tools Engine"
-          Agent --> |"multiexists, count, report"| Support[llm-support]
-          Agent --> |"match-clarification, add-clarification"| Memory[llm-clarification]
+    U->>A: /execute-sprint (Feature X)
+    
+    rect rgb(30, 30, 30)
+        note right of A: Context Phase
+        A->>S: multiexists, count, report
+        S-->>A: ✓ Sprint Valid (5/12 tasks)
+    end
+    
+    rect rgb(50, 20, 20)
+        note right of A: Clarification Phase
+        A->>M: match-clarification (Context)
+        M-->>A: ⚠ RECALL: "Use Jest for mocks"
+    end
 
-          Support --> |"✓ Sprint valid, 5/12 tasks remaining"| Agent
-          Memory --> |"Prior decision: 'Use Jest, mock external APIs'"| Agent
-      end
-
-      Agent --> |"TDD Implementation"| Codebase[Codebase Changes]
+    A->>C: TDD Implementation (using Jest)
 ```
 
 **The Loop:**
