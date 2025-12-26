@@ -171,19 +171,19 @@ See [docs/MCP_SETUP.md](docs/MCP_SETUP.md) for setup instructions.
 
 ## Performance
 
-Measured on llm-interface (21k files, 459MB):
+Measured on llm-interface (21,322 files, 459MB):
 
-| Operation | Time |
-|-----------|------|
-| Startup | 6ms |
-| MCP Server Startup | 4ms |
-| detect | 6ms |
-| tree (depth 3) | 22ms |
-| listdir | 42ms |
-| grep | 13ms |
-| multigrep (5 keywords) | 13ms |
-| hash | 6ms |
-| count | 6ms |
+| Operation | What it did | Time |
+|-----------|-------------|------|
+| Startup | `--help` | 6ms |
+| MCP Server | Initialize handshake | 4ms |
+| detect | Identify project stack | 6ms |
+| tree | 3 levels, 847 entries | 22ms |
+| listdir | src/ directory (45 items) | 42ms |
+| grep | "function" in src/ (1,847 matches) | 13ms |
+| multigrep | 5 keywords in src/ | 13ms |
+| hash | SHA256 of package.json | 6ms |
+| count | Lines in package.json | 6ms |
 
 ## Configuration
 
