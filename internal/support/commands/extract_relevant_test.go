@@ -14,7 +14,7 @@ func TestExtractRelevantMissingContext(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
-	cmd.SetArgs([]string{"."})
+	cmd.SetArgs([]string{"--path", "."})
 
 	err := cmd.Execute()
 	if err == nil {
@@ -32,7 +32,7 @@ func TestExtractRelevantFileNotFound(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
-	cmd.SetArgs([]string{"/nonexistent/path", "--context", "test"})
+	cmd.SetArgs([]string{"--path", "/nonexistent/path", "--context", "test"})
 
 	err := cmd.Execute()
 	if err == nil {
@@ -56,7 +56,7 @@ func TestExtractRelevantNoAPIKey(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
-	cmd.SetArgs([]string{testFile, "--context", "test"})
+	cmd.SetArgs([]string{"--path", testFile, "--context", "test"})
 
 	err := cmd.Execute()
 	if err == nil {

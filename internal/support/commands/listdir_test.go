@@ -26,27 +26,27 @@ func TestListdirCommand(t *testing.T) {
 	}{
 		{
 			name:     "list directory",
-			args:     []string{tmpDir},
+			args:     []string{"--path", tmpDir},
 			expected: []string{"file1.txt", "file2.go", "subdir"},
 		},
 		{
 			name:     "list with sizes",
-			args:     []string{tmpDir, "--sizes"},
+			args:     []string{"--path", tmpDir, "--sizes"},
 			expected: []string{"file1.txt", "7 B"},
 		},
 		{
 			name:     "list with dates",
-			args:     []string{tmpDir, "--dates"},
+			args:     []string{"--path", tmpDir, "--dates"},
 			expected: []string{"file1.txt"},
 		},
 		{
 			name:     "non-existent path",
-			args:     []string{"/nonexistent/path"},
+			args:     []string{"--path", "/nonexistent/path"},
 			hasError: true,
 		},
 		{
 			name:     "file instead of directory",
-			args:     []string{filepath.Join(tmpDir, "file1.txt")},
+			args:     []string{"--path", filepath.Join(tmpDir, "file1.txt")},
 			hasError: true,
 		},
 	}
@@ -89,7 +89,7 @@ func TestListdirEmptyDirectory(t *testing.T) {
 	cmd := newListdirCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{tmpDir, "--no-gitignore"})
+	cmd.SetArgs([]string{"--path", tmpDir, "--no-gitignore"})
 
 	err := cmd.Execute()
 	if err != nil {

@@ -23,7 +23,7 @@ func TestGitContextBasic(t *testing.T) {
 	cmd := newGitContextCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{tmpDir})
+	cmd.SetArgs([]string{"--path", tmpDir})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -52,7 +52,7 @@ func TestGitContextJSON(t *testing.T) {
 	cmd := newGitContextCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{tmpDir, "--json"})
+	cmd.SetArgs([]string{"--path", tmpDir, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -88,7 +88,7 @@ func TestGitContextWithChanges(t *testing.T) {
 	cmd := newGitContextCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{tmpDir, "--json"})
+	cmd.SetArgs([]string{"--path", tmpDir, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -118,7 +118,7 @@ func TestGitContextNotARepo(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
-	cmd.SetArgs([]string{tmpDir})
+	cmd.SetArgs([]string{"--path", tmpDir})
 
 	err := cmd.Execute()
 	if err == nil {
@@ -141,7 +141,7 @@ func TestGitContextInvalidDate(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
-	cmd.SetArgs([]string{tmpDir, "--since", "invalid-date"})
+	cmd.SetArgs([]string{"--path", tmpDir, "--since", "invalid-date"})
 
 	err := cmd.Execute()
 	if err == nil {
@@ -163,7 +163,7 @@ func TestGitContextMaxCommits(t *testing.T) {
 	cmd := newGitContextCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{tmpDir, "--max-commits", "3", "--json"})
+	cmd.SetArgs([]string{"--path", tmpDir, "--max-commits", "3", "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -203,7 +203,7 @@ func TestGitContextIncludeDiff(t *testing.T) {
 	cmd := newGitContextCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{tmpDir, "--include-diff", "--json"})
+	cmd.SetArgs([]string{"--path", tmpDir, "--include-diff", "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)

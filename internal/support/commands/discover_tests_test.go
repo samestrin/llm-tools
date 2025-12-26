@@ -59,7 +59,7 @@ func TestDiscoverTestsCommand(t *testing.T) {
 			cmd := newDiscoverTestsCmd()
 			buf := new(bytes.Buffer)
 			cmd.SetOut(buf)
-			cmd.SetArgs([]string{tmpDir})
+			cmd.SetArgs([]string{"--path", tmpDir})
 
 			err := cmd.Execute()
 			if err != nil {

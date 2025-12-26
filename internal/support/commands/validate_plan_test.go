@@ -19,7 +19,7 @@ func TestValidatePlanValid(t *testing.T) {
 	cmd := newValidatePlanCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{planDir})
+	cmd.SetArgs([]string{"--path", planDir})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error for valid plan: %v", err)
@@ -40,7 +40,7 @@ func TestValidatePlanValidJSON(t *testing.T) {
 	cmd := newValidatePlanCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{planDir, "--json"})
+	cmd.SetArgs([]string{"--path", planDir, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -73,7 +73,7 @@ func TestValidatePlanMissingPlanMD(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
-	cmd.SetArgs([]string{planDir})
+	cmd.SetArgs([]string{"--path", planDir})
 
 	err := cmd.Execute()
 	if err == nil {
@@ -99,7 +99,7 @@ func TestValidatePlanMissingUserStories(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
-	cmd.SetArgs([]string{planDir})
+	cmd.SetArgs([]string{"--path", planDir})
 
 	err := cmd.Execute()
 	if err == nil {
@@ -117,7 +117,7 @@ func TestValidatePlanNotExists(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
-	cmd.SetArgs([]string{"/nonexistent/plan"})
+	cmd.SetArgs([]string{"--path", "/nonexistent/plan"})
 
 	err := cmd.Execute()
 	if err == nil {
@@ -137,7 +137,7 @@ func TestValidatePlanNotDirectory(t *testing.T) {
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)
-	cmd.SetArgs([]string{filePath})
+	cmd.SetArgs([]string{"--path", filePath})
 
 	err := cmd.Execute()
 	if err == nil {
@@ -170,7 +170,7 @@ Some content here.
 	cmd := newValidatePlanCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{planDir, "--json"})
+	cmd.SetArgs([]string{"--path", planDir, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -201,7 +201,7 @@ func TestValidatePlanEmptyDirectories(t *testing.T) {
 	cmd := newValidatePlanCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{planDir, "--json"})
+	cmd.SetArgs([]string{"--path", planDir, "--json"})
 
 	// Should succeed but with warnings
 	if err := cmd.Execute(); err != nil {
@@ -243,7 +243,7 @@ func TestValidatePlanWithOptionalFiles(t *testing.T) {
 	cmd := newValidatePlanCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{planDir, "--json"})
+	cmd.SetArgs([]string{"--path", planDir, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)

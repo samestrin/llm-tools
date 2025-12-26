@@ -33,11 +33,11 @@ func TestRepoRootCommand(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		args       []string
-		wantRoot   string
-		wantValid  string
-		wantError  bool
+		name      string
+		args      []string
+		wantRoot  string
+		wantValid string
+		wantError bool
 	}{
 		{
 			name:     "from repo root",
