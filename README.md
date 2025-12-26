@@ -25,7 +25,7 @@ We benchmarked this against the original Python implementation on a real-world c
 | Hash | SHA256 Verification | 6ms | 65ms | **10.8x** |
 | Tree | Generate file map | 22ms | 89ms | **4x** |
 
-> *Benchmarks run on macOS Darwin (arm64), 2025-12-26.*
+> *Benchmarks run on M4 Pro 64gb macOS Darwin (arm64), 2025-12-26.*
 
 ## 🛠️ The Toolkit
 
@@ -230,18 +230,18 @@ Measured on llm-interface (21,322 files, 459MB):
 ## How It Works
 
 ```mermaid
-graph TD
-    User[User Request] --> |"/implement feature X"| Agent[Claude / Gemini Agent]
+  graph TD
+      User[User Request] --> |"/execute-sprint @.planning/sprints/active/1.0_feature-name/"| Agent[Claude CLI / Gemini CLI]
 
-    subgraph "llm-tools Engine"
-        Agent --> |"multigrep, tree, detect"| Support[llm-support]
-        Agent --> |"match-clarification"| Memory[llm-clarification]
+      subgraph "llm-tools Engine"
+          Agent --> |"multiexists, count, report"| Support[llm-support]
+          Agent --> |"match-clarification, add-clarification"| Memory[llm-clarification]
 
-        Support --> |"Files, Context"| Agent
-        Memory --> |"We decided Y for reason Z"| Agent
-    end
+          Support --> |"✓ Sprint valid, 5/12 tasks remaining"| Agent
+          Memory --> |"Prior decision: 'Use Jest, mock external APIs'"| Agent
+      end
 
-    Agent --> |Generated Code| IDE[VS Code / Cursor]
+      Agent --> |"TDD Implementation"| Codebase[Codebase Changes]
 ```
 
 **The Loop:**
