@@ -2,6 +2,14 @@
 """
 MCP Server for LLM Clarification Learning System
 
+⚠️ DEPRECATED: This Python MCP server is deprecated.
+Use the native Go implementation instead: llm-clarification-mcp
+
+Build the Go version:
+    go build -o llm-clarification-mcp ./cmd/llm-clarification-mcp/
+
+See docs/MCP_SETUP.md for migration instructions.
+
 Provides clarification learning tools as MCP tools for Claude Desktop.
 All tools use the `llm_clarify_` prefix for clear identification.
 

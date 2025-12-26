@@ -2,6 +2,14 @@
 """
 MCP Server for llm-support tool (V2 Edition)
 
+⚠️ DEPRECATED: This Python MCP server is deprecated.
+Use the native Go implementation instead: llm-support-mcp
+
+Build the Go version:
+    go build -o llm-support-mcp ./cmd/llm-support-mcp/
+
+See docs/MCP_SETUP.md for migration instructions.
+
 Provides llm-support commands as MCP tools for Claude Desktop.
 All tools use the `llm_support_` prefix for clear identification.
 
