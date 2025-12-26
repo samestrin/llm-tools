@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	clarifyserver "github.com/samestrin/llm-tools/internal/clarification/mcpserver"
 	"github.com/samestrin/llm-tools/internal/mcp"
 	supportserver "github.com/samestrin/llm-tools/internal/support/mcpserver"
-	clarifyserver "github.com/samestrin/llm-tools/internal/clarification/mcpserver"
 )
 
 // BenchmarkServerStartup measures MCP server initialization time

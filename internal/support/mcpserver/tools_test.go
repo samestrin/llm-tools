@@ -86,17 +86,17 @@ func TestToolSchemaRequiredFields(t *testing.T) {
 
 	// Map of tools to their required fields
 	requiredFields := map[string][]string{
-		"llm_support_grep":        {"pattern", "paths"},
-		"llm_support_multiexists": {"paths"},
-		"llm_support_json_query":  {"file", "query"},
+		"llm_support_grep":             {"pattern", "paths"},
+		"llm_support_multiexists":      {"paths"},
+		"llm_support_json_query":       {"file", "query"},
 		"llm_support_markdown_headers": {"file"},
-		"llm_support_template":    {"file"},
-		"llm_support_multigrep":   {"keywords"},
-		"llm_support_analyze_deps": {"file"},
-		"llm_support_count":       {"mode", "target"},
-		"llm_support_summarize_dir": {"path"},
-		"llm_support_deps":        {"manifest"},
-		"llm_support_validate_plan": {"path"},
+		"llm_support_template":         {"file"},
+		"llm_support_multigrep":        {"keywords"},
+		"llm_support_analyze_deps":     {"file"},
+		"llm_support_count":            {"mode", "target"},
+		"llm_support_summarize_dir":    {"path"},
+		"llm_support_deps":             {"manifest"},
+		"llm_support_validate_plan":    {"path"},
 		"llm_support_extract_relevant": {"context"},
 	}
 

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/samestrin/llm-tools/internal/mcp"
 	clarifyserver "github.com/samestrin/llm-tools/internal/clarification/mcpserver"
+	"github.com/samestrin/llm-tools/internal/mcp"
 	supportserver "github.com/samestrin/llm-tools/internal/support/mcpserver"
 )
 
