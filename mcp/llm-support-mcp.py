@@ -2,6 +2,14 @@
 """
 MCP Server for llm-support tool (V2 Edition)
 
+⚠️ DEPRECATED: This Python MCP server is deprecated.
+Use the native Go implementation instead: llm-support-mcp
+
+Build the Go version:
+    go build -o llm-support-mcp ./cmd/llm-support-mcp/
+
+See docs/MCP_SETUP.md for migration instructions.
+
 Provides llm-support commands as MCP tools for Claude Desktop.
 All tools use the `llm_support_` prefix for clear identification.
 
@@ -27,10 +35,11 @@ V2.4 Tools (context & analysis):
 - llm_support_validate_plan: Validate plan directory structure
 - llm_support_partition_work: Partition work items for parallel execution
 - llm_support_repo_root: Find git repository root for path anchoring
+- llm_support_extract_relevant: Extract relevant content using LLM API
 
 NOTE: Clarification Learning System tools have been moved to llm-clarification-mcp.py
 
-Version: 2.9.0 (Go Edition - uses llm-support-go binary)
+Version: 2.10.0 (Go Edition - uses llm-support-go binary)
 """
 
 import asyncio
@@ -510,6 +519,42 @@ class LLMSupportMCPServer:
                         }
                     }
                 ),
+
+                # 18. Extract relevant content using LLM
+                Tool(
+                    name=f"{PREFIX}extract_relevant",
+                    description="Extract only relevant content from files using LLM API. Filters large files/directories to just the parts relevant to your query context. Great for context window relief.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "File or directory path (default: current directory)"
+                            },
+                            "context": {
+                                "type": "string",
+                                "description": "What you're looking for - describes relevance criteria"
+                            },
+                            "concurrency": {
+                                "type": "integer",
+                                "description": "Number of concurrent API calls (default: 2)"
+                            },
+                            "output": {
+                                "type": "string",
+                                "description": "Output file path (optional)"
+                            },
+                            "timeout": {
+                                "type": "integer",
+                                "description": "Timeout in seconds (default: 60)"
+                            },
+                            "json": {
+                                "type": "boolean",
+                                "description": "Output as JSON"
+                            }
+                        },
+                        "required": ["context"]
+                    }
+                ),
             ]
 
         @self.server.call_tool()
@@ -582,6 +627,9 @@ class LLMSupportMCPServer:
                 elif cmd_name == "repo_root":
                     cmd.append("repo-root")
                     cmd.extend(self._build_repo_root_args(arguments))
+                elif cmd_name == "extract_relevant":
+                    cmd.append("extract-relevant")
+                    cmd.extend(self._build_extract_relevant_args(arguments))
                 else:
                     return [TextContent(type="text", text=f"ERROR: Unknown tool '{name}'")]
 
@@ -816,6 +864,23 @@ class LLMSupportMCPServer:
             cmd_args.extend(["--path", args["path"]])
         if args.get("validate"):
             cmd_args.append("--validate")
+        return cmd_args
+
+    def _build_extract_relevant_args(self, args: dict) -> list[str]:
+        """Build args for extract-relevant command"""
+        cmd_args = []
+        if "path" in args:
+            cmd_args.extend(["--path", args["path"]])
+        if "context" in args:
+            cmd_args.extend(["--context", args["context"]])
+        if "concurrency" in args:
+            cmd_args.extend(["--concurrency", str(args["concurrency"])])
+        if "output" in args:
+            cmd_args.extend(["--output", args["output"]])
+        if "timeout" in args:
+            cmd_args.extend(["--timeout", str(args["timeout"])])
+        if args.get("json"):
+            cmd_args.append("--json")
         return cmd_args
 
     async def run(self):

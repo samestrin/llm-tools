@@ -84,7 +84,7 @@ func TestDetectCommand(t *testing.T) {
 			cmd := newDetectCmd()
 			buf := new(bytes.Buffer)
 			cmd.SetOut(buf)
-			cmd.SetArgs([]string{tmpDir})
+			cmd.SetArgs([]string{"--path", tmpDir})
 
 			err := cmd.Execute()
 			if err != nil {
@@ -108,7 +108,7 @@ func TestDetectJSONOutput(t *testing.T) {
 	cmd := newDetectCmd()
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
-	cmd.SetArgs([]string{tmpDir, "--json"})
+	cmd.SetArgs([]string{"--path", tmpDir, "--json"})
 
 	err := cmd.Execute()
 	if err != nil {

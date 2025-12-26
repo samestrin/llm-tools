@@ -24,22 +24,22 @@ func TestTreeCommand(t *testing.T) {
 	}{
 		{
 			name:     "basic tree",
-			args:     []string{tmpDir, "--no-gitignore"},
+			args:     []string{"--path", tmpDir, "--no-gitignore"},
 			expected: []string{"file1.txt", "subdir/"},
 		},
 		{
 			name:     "tree with sizes",
-			args:     []string{tmpDir, "--sizes", "--no-gitignore"},
+			args:     []string{"--path", tmpDir, "--sizes", "--no-gitignore"},
 			expected: []string{"file1.txt"},
 		},
 		{
 			name:     "tree with depth limit",
-			args:     []string{tmpDir, "--depth", "1", "--no-gitignore"},
+			args:     []string{"--path", tmpDir, "--depth", "1", "--no-gitignore"},
 			expected: []string{"subdir/"},
 		},
 		{
 			name:     "non-existent path",
-			args:     []string{"/nonexistent/path"},
+			args:     []string{"--path", "/nonexistent/path"},
 			hasError: true,
 		},
 	}
