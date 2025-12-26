@@ -7,9 +7,7 @@ This repository includes two MCP (Model Context Protocol) servers that make llm-
 1. **llm-support-mcp** - 18 tools for file operations, search, and project analysis
 2. **llm-clarification-mcp** - 8 tools for the Clarification Learning System
 
-**Available Implementations:**
-- **Go (Recommended)** - Native binaries, no runtime dependencies
-- **Python (Legacy)** - Requires Python 3.10+ and MCP SDK
+Both servers are native Go binaries with no runtime dependencies.
 
 ## What You Get
 
@@ -65,9 +63,9 @@ This repository includes two MCP (Model Context Protocol) servers that make llm-
 
 ## Prerequisites
 
-1. **Go binaries installed** - `llm-support` and `llm-clarification` in your PATH
+1. **Go CLI binaries installed** - `llm-support` and `llm-clarification` in your PATH
 2. **Claude Desktop** installed
-3. **Go 1.21+** (for Go MCP servers) OR **Python 3.10+ with MCP SDK** (for Python MCP servers)
+3. **Go 1.21+** (only needed if building from source)
 
 ## Installation
 
@@ -93,8 +91,6 @@ llm-clarification --version
 
 ### Step 2: Build MCP Servers
 
-#### Option A: Go MCP Servers (Recommended)
-
 Build the native Go MCP server binaries:
 
 ```bash
@@ -114,26 +110,6 @@ Verify installation:
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | llm-support-mcp
 ```
 
-#### Option B: Python MCP Servers (Legacy)
-
-Install MCP SDK:
-```bash
-pip install mcp
-```
-
-The Python MCP servers are in the `mcp/` directory:
-```
-mcp/
-├── llm-support-mcp.py       # Python MCP server for llm-support
-└── llm-clarification-mcp.py # Python MCP server for clarification
-```
-
-Make them executable:
-```bash
-chmod +x mcp/llm-support-mcp.py
-chmod +x mcp/llm-clarification-mcp.py
-```
-
 ### Step 3: Configure Claude Desktop
 
 Edit your Claude Desktop config file:
@@ -142,9 +118,7 @@ Edit your Claude Desktop config file:
 **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 **Linux:** `~/.config/Claude/claude_desktop_config.json`
 
-#### For Go MCP Servers (Recommended)
-
-If you installed the Go binaries to `/usr/local/bin/`:
+Add the MCP server configurations:
 
 ```json
 {
@@ -154,41 +128,6 @@ If you installed the Go binaries to `/usr/local/bin/`:
     },
     "llm-clarification": {
       "command": "/usr/local/bin/llm-clarification-mcp"
-    }
-  }
-}
-```
-
-#### For Python MCP Servers (Legacy)
-
-```json
-{
-  "mcpServers": {
-    "llm-support": {
-      "command": "python3",
-      "args": ["/absolute/path/to/llm-tools/mcp/llm-support-mcp.py"]
-    },
-    "llm-clarification": {
-      "command": "python3",
-      "args": ["/absolute/path/to/llm-tools/mcp/llm-clarification-mcp.py"]
-    }
-  }
-}
-```
-
-**Important:** Use absolute paths for Python servers!
-
-Example (macOS with Python):
-```json
-{
-  "mcpServers": {
-    "llm-support": {
-      "command": "python3",
-      "args": ["/Users/yourname/projects/llm-tools/mcp/llm-support-mcp.py"]
-    },
-    "llm-clarification": {
-      "command": "python3",
-      "args": ["/Users/yourname/projects/llm-tools/mcp/llm-clarification-mcp.py"]
     }
   }
 }
@@ -381,19 +320,16 @@ List entries with optional filtering.
 ### MCP server not showing up
 
 1. **Check config path:**
-   - Verify absolute paths in claude_desktop_config.json
-   - Use `pwd` in the directory to get the full path
+   - Verify the path to the MCP binary in claude_desktop_config.json
+   - Use `which llm-support-mcp` to get the full path
 
-2. **Check Python path:**
-   - Try `python3` or `python` depending on your system
-   - Verify with: `which python3`
-
-3. **Check MCP installed:**
+2. **Check binary exists:**
    ```bash
-   python3 -c "import mcp; print('MCP installed')"
+   ls -la /usr/local/bin/llm-support-mcp
+   ls -la /usr/local/bin/llm-clarification-mcp
    ```
 
-4. **Check logs:**
+3. **Check logs:**
    - macOS: `~/Library/Logs/Claude/`
    - Look for MCP-related errors
 
@@ -406,16 +342,15 @@ List entries with optional filtering.
    llm-support --version
    ```
 
-2. **Check scripts are executable:**
-   ```bash
-   chmod +x mcp/llm-support-mcp.py
-   chmod +x mcp/llm-clarification-mcp.py
-   ```
-
-3. **Test binaries directly:**
+2. **Test binaries directly:**
    ```bash
    llm-support tree --path .
    llm-clarification --help
+   ```
+
+3. **Test MCP server directly:**
+   ```bash
+   echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | llm-support-mcp
    ```
 
 ### Clarification API tools failing
@@ -436,9 +371,9 @@ List entries with optional filtering.
 
 ## Performance
 
-- **Cold start:** ~10-20ms (Go binary startup)
-- **Execution:** Same as running binaries directly
-- **Overhead:** Minimal (~10-20ms) for MCP wrapper
+- **Cold start:** ~7ms (Go binary startup)
+- **Tool registration:** <1ms
+- **Request handling:** <10ms overhead
 - **multigrep:** 10+ keywords in <500ms
 
 ## Security
@@ -452,52 +387,10 @@ List entries with optional filtering.
 
 1. Remove MCP server configs from claude_desktop_config.json
 2. Restart Claude Desktop
-3. Optionally remove files:
+3. Optionally remove binaries:
    ```bash
-   rm mcp/llm-support-mcp.py mcp/llm-clarification-mcp.py
+   sudo rm /usr/local/bin/llm-support-mcp /usr/local/bin/llm-clarification-mcp
    ```
-
-## Migration from Python to Go
-
-If you're currently using the Python MCP servers, migrate to Go for better performance:
-
-1. Build Go binaries:
-   ```bash
-   go build -o llm-support-mcp ./cmd/llm-support-mcp/
-   go build -o llm-clarification-mcp ./cmd/llm-clarification-mcp/
-   sudo cp llm-support-mcp llm-clarification-mcp /usr/local/bin/
-   ```
-
-2. Update Claude Desktop config:
-   ```json
-   {
-     "mcpServers": {
-       "llm-support": {
-         "command": "/usr/local/bin/llm-support-mcp"
-       },
-       "llm-clarification": {
-         "command": "/usr/local/bin/llm-clarification-mcp"
-       }
-     }
-   }
-   ```
-
-3. Restart Claude Desktop
-
-**Benefits of Go implementation:**
-- No Python runtime dependency
-- ~10x faster startup time
-- Native binary - single file deployment
-- Identical functionality to Python version
-
-## Version History
-
-| Server | Version | Tools | Notes |
-|--------|---------|-------|-------|
-| llm-support-mcp (Go) | 1.0.0 | 18 | Native Go implementation |
-| llm-clarification-mcp (Go) | 1.0.0 | 8 | Native Go implementation |
-| llm-support-mcp (Python) | 2.9.0 | 18 | Legacy Python, deprecated |
-| llm-clarification-mcp (Python) | 1.0.0 | 8 | Legacy Python, deprecated |
 
 ## See Also
 
