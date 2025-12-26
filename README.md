@@ -171,13 +171,19 @@ See [docs/MCP_SETUP.md](docs/MCP_SETUP.md) for setup instructions.
 
 ## Performance
 
+Measured on llm-interface (21k files, 459MB):
+
 | Operation | Time |
 |-----------|------|
-| Startup | ~7ms |
-| listdir (1000 files) | 70μs |
-| tree (depth 5) | 88ms |
-| hash (1MB) | 0.4ms |
-| multigrep (10 keywords) | <500ms |
+| Startup | 6ms |
+| MCP Server Startup | 4ms |
+| detect | 6ms |
+| tree (depth 3) | 22ms |
+| listdir | 42ms |
+| grep | 13ms |
+| multigrep (5 keywords) | 13ms |
+| hash | 6ms |
+| count | 6ms |
 
 ## Configuration
 

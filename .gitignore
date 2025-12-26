@@ -34,5 +34,8 @@ go.sum
 .env.local
 *.pem
 *.key
+# Local binaries (installed to /usr/local/bin)
+llm-support
+llm-clarification
 llm-support-mcp
 llm-clarification-mcp

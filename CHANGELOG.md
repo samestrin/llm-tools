@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Removed Python MCP wrappers (Go-only implementation)
+- Updated documentation for Go-only MCP servers
+- Fixed incorrect command examples in README
+
+### Fixed
+- Fixed test failures in internal/support/commands (--path flag migration)
+- Fixed version strings to show 1.0.0 consistently
+
 ## [1.0.0] - 2025-12-24
 
 ### Added
@@ -80,14 +89,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
-Initial release performance metrics:
+Measured on llm-interface (21k files, 459MB):
 
-| Metric | Value |
-|--------|-------|
-| Cold start | ~7ms |
-| listdir (1000 files) | 70us |
-| tree (depth 5) | 88ms |
-| hash (1MB) | 0.4ms |
+| Operation | Time |
+|-----------|------|
+| Startup | 6ms |
+| MCP Server Startup | 4ms |
+| detect | 6ms |
+| tree (depth 3) | 22ms |
+| listdir | 42ms |
+| grep | 13ms |
+| multigrep (5 keywords) | 13ms |
+| hash | 6ms |
+| count | 6ms |
 | Binary size | 14-15MB |
 
 ### Technical Details
