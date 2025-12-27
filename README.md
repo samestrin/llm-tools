@@ -16,7 +16,7 @@ LLM Agents need to be fast. Waiting 400ms for a Python script to spin up just to
 
 ### The "Rewrite it in Go" Effect
 
-![Python vs. Go Speed Comparison](https://vhs.charm.sh/vhs-5qSnvKbPRr9h4cTpOVK3MH.gif)
+![Python vs. Go Speed Comparison](https://vhs.charm.sh/vhs-5iqaqS4p92ubeVCeH5oQm1.gif)
 
 I benchmarked this against my original Python implementation on a real-world codebase (21k files). The difference was _massive_.
 
