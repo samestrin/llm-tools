@@ -23,11 +23,12 @@ type Tool struct {
 
 // Server represents an MCP server
 type Server struct {
-	transport  *Transport
-	tools      map[string]Tool
-	handlers   map[string]ToolHandler
-	serverInfo ServerInfo
-	mu         sync.RWMutex
+	transport    *Transport
+	tools        map[string]Tool
+	handlers     map[string]ToolHandler
+	serverInfo   ServerInfo
+	instructions string
+	mu           sync.RWMutex
 }
 
 // ServerInfo contains server identification
@@ -36,9 +37,14 @@ type ServerInfo struct {
 	Version string `json:"version"`
 }
 
+// ToolsCapability represents the tools capability configuration
+type ToolsCapability struct {
+	ListChanged bool `json:"listChanged,omitempty"`
+}
+
 // Capabilities represents server capabilities
 type Capabilities struct {
-	Tools bool `json:"tools,omitempty"`
+	Tools *ToolsCapability `json:"tools,omitempty"`
 }
 
 // InitializeParams represents the params for initialize request
@@ -56,6 +62,7 @@ type InitializeResult struct {
 	ProtocolVersion string       `json:"protocolVersion"`
 	Capabilities    Capabilities `json:"capabilities"`
 	ServerInfo      ServerInfo   `json:"serverInfo"`
+	Instructions    string       `json:"instructions,omitempty"`
 }
 
 // ToolsListResult represents the result of tools/list
@@ -109,6 +116,11 @@ func (s *Server) SetServerInfo(name, version string) {
 	s.serverInfo = ServerInfo{Name: name, Version: version}
 }
 
+// SetInstructions sets the server instructions (required by some clients like Gemini)
+func (s *Server) SetInstructions(instructions string) {
+	s.instructions = instructions
+}
+
 // RegisterTool registers a tool with its handler
 func (s *Server) RegisterTool(tool Tool, handler ToolHandler) {
 	s.mu.Lock()
@@ -159,8 +171,9 @@ func (s *Server) handleInitialize(req *Request) error {
 
 	result := InitializeResult{
 		ProtocolVersion: "2024-11-05",
-		Capabilities:    Capabilities{Tools: true},
+		Capabilities:    Capabilities{Tools: &ToolsCapability{}},
 		ServerInfo:      s.serverInfo,
+		Instructions:    s.instructions,
 	}
 
 	return s.sendResult(req.ID, result)

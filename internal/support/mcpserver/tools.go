@@ -3,15 +3,36 @@ package mcpserver
 import (
 	"encoding/json"
 
-	"github.com/samestrin/llm-tools/internal/mcp"
+	internalmcp "github.com/samestrin/llm-tools/internal/mcp"
 )
 
 // ToolPrefix is the prefix for all llm-support tools
 const ToolPrefix = "llm_support_"
 
-// GetTools returns all llm-support MCP tools
-func GetTools() []mcp.Tool {
-	return []mcp.Tool{
+// ToolDefinition defines a tool for the MCP SDK
+type ToolDefinition struct {
+	Name        string
+	Description string
+	InputSchema json.RawMessage
+}
+
+// GetToolDefinitions returns tool definitions for the official MCP SDK
+func GetToolDefinitions() []ToolDefinition {
+	tools := GetTools()
+	defs := make([]ToolDefinition, len(tools))
+	for i, t := range tools {
+		defs[i] = ToolDefinition{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.InputSchema,
+		}
+	}
+	return defs
+}
+
+// GetTools returns all llm-support MCP tools (for internal use)
+func GetTools() []internalmcp.Tool {
+	return []internalmcp.Tool{
 		// 1. Directory tree structure
 		{
 			Name:        ToolPrefix + "tree",
