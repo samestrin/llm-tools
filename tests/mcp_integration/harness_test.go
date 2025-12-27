@@ -52,8 +52,8 @@ func TestLLMSupportMCPInitialize(t *testing.T) {
 	if result.ServerInfo.Name != "llm-support-mcp" {
 		t.Errorf("ServerInfo.Name = %v, want llm-support-mcp", result.ServerInfo.Name)
 	}
-	if !result.Capabilities.Tools {
-		t.Error("Expected tools capability to be true")
+	if result.Capabilities.Tools == nil {
+		t.Error("Expected tools capability to be present")
 	}
 }
 

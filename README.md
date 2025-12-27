@@ -15,7 +15,7 @@ LLM Agents need to be fast. Waiting 400ms for a Python script to spin up just to
 **llm-tools** is a suite of high-performance, statically compiled tools designed to be the "hands" of your AI agent. It includes a native **MCP Server** for instant integration with Claude Desktop and Gemini.
 
 ### The "Rewrite it in Go" Effect
-I benchmarked this against the original Python implementation on a real-world codebase (21k files). The difference is massive.
+I benchmarked this against my original Python implementation on a real-world codebase (21k files). The difference was _massive_.
 
 | Operation | Action | Go (Native) | Python | Speedup |
 |-----------|-------------|-----|--------|---------|
@@ -36,7 +36,7 @@ Think of it as `ls`, `grep`, and `find` on steroids, optimized for LLM context w
 * **Smart Parsing:** Detects project stacks, extracts dependencies, validates configs instantly.
 
 ### `llm-clarification` — The Long-Term Memory
-Gives your agent a persistent decision ledger. It tracks, reconciles, and learns from decision points over time.
+Don't let your agent make the same mistake twice. This tool persists architectural decisions and constraints across sessions, allowing your agent to 'remember' that you use Jest, not Mocha.
 * **Conflict Detection:** Prevents the agent from contradicting past decisions.
 * **Decision Ledger:** Keeps a permanent record of *why* architecture decisions Ire made.
 * **Auto-Reconciliation:** Identifies when new requirements conflict with past choices.
@@ -52,7 +52,7 @@ Drop-in MCP servers for Claude Desktop and Gemini CLI.
 
 ### Pre-built Binaries
 
-Download the latest release for your platform from the [Releases](https://github.com/samestrin/llm-tools/releases) page, or use the direct links below:
+Recommended: [Download the latest binary](https://github.com/samestrin/llm-tools/releases) for your OS (macOS, Linux, Windows). No dependencies required.
 
 | Platform | Architecture | Download | SHA256 |
 |----------|--------------|----------|--------|

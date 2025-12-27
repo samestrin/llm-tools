@@ -7,14 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2025-12-26
+
 ### Changed
-- Removed Python MCP wrappers (Go-only implementation)
-- Updated documentation for Go-only MCP servers
-- Fixed incorrect command examples in README
+- **Migrated MCP servers to official Go SDK** ([github.com/modelcontextprotocol/go-sdk](https://github.com/modelcontextprotocol/go-sdk) v1.2.0)
+- Removed custom MCP transport implementation in favor of SDK's `StdioTransport`
+- Updated Go version requirement to 1.23.0
+
+### Added
+- Full Gemini CLI support (tested and verified working)
+- Proper MCP protocol compliance via official SDK
 
 ### Fixed
-- Fixed test failures in internal/support/commands (--path flag migration)
-- Fixed version strings to show 1.0.0 consistently
+- MCP server compatibility with Gemini CLI (previously only worked with Claude)
+- Protocol handshake issues with non-Claude MCP clients
+- Capabilities response format (now uses object instead of boolean per MCP spec)
+- Instructions field placement in initialize response
+
+### Removed
+- Python MCP wrappers (Go-only implementation)
+- Custom MCP transport code (replaced by official SDK)
 
 ## [1.0.0] - 2025-12-24
 
@@ -113,5 +125,6 @@ Binary size: 14-15MB per platform.
 - OpenAI-compatible LLM API with retry and caching
 - Race-condition free (verified with `go test -race`)
 
-[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/samestrin/llm-tools/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/samestrin/llm-tools/releases/tag/v1.0.0

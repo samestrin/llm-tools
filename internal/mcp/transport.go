@@ -2,17 +2,21 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 )
 
 // Transport handles JSON-RPC 2.0 communication over stdio
+// Supports both raw JSON streams and LSP-style header-prefixed messages
 type Transport struct {
 	reader  io.Reader
 	writer  io.Writer
-	scanner *bufio.Scanner
+	bufRead *bufio.Reader
 	encoder *json.Encoder
 }
 
@@ -23,11 +27,7 @@ func NewTransport(reader io.Reader, writer io.Writer) *Transport {
 		writer: writer,
 	}
 	if reader != nil {
-		t.scanner = bufio.NewScanner(reader)
-		// Set a large buffer to handle large messages (up to 10MB)
-		const maxScanTokenSize = 10 * 1024 * 1024
-		buf := make([]byte, maxScanTokenSize)
-		t.scanner.Buffer(buf, maxScanTokenSize)
+		t.bufRead = bufio.NewReader(reader)
 	}
 	if writer != nil {
 		t.encoder = json.NewEncoder(writer)
@@ -36,27 +36,68 @@ func NewTransport(reader io.Reader, writer io.Writer) *Transport {
 }
 
 // ReadRequest reads and parses a JSON-RPC 2.0 request from the transport
+// Supports two modes:
+// 1. Raw JSON: Message starts with '{' - reads complete JSON object
+// 2. LSP-style: Message starts with headers (Content-Length) - parses headers then JSON body
 func (t *Transport) ReadRequest() (*Request, error) {
-	if t.scanner == nil {
+	if t.bufRead == nil {
 		return nil, errors.New("no reader configured")
 	}
 
-	// Read next line
-	if !t.scanner.Scan() {
-		if err := t.scanner.Err(); err != nil {
-			return nil, fmt.Errorf("read error: %w", err)
+	// Skip leading whitespace (spaces, tabs, newlines)
+	for {
+		b, err := t.bufRead.Peek(1)
+		if err != nil {
+			if err == io.EOF {
+				return nil, io.EOF
+			}
+			return nil, fmt.Errorf("peek error: %w", err)
 		}
-		return nil, io.EOF
+
+		// Skip whitespace
+		if b[0] == ' ' || b[0] == '\t' || b[0] == '\n' || b[0] == '\r' {
+			t.bufRead.ReadByte() // consume it
+			continue
+		}
+		break
 	}
 
-	line := t.scanner.Bytes()
-	if len(line) == 0 {
-		return nil, io.EOF
+	// Now peek at first non-whitespace byte to determine mode
+	firstByte, err := t.bufRead.Peek(1)
+	if err != nil {
+		if err == io.EOF {
+			return nil, io.EOF
+		}
+		return nil, fmt.Errorf("peek error: %w", err)
 	}
 
-	// Parse JSON
+	var jsonData []byte
+
+	if firstByte[0] == '{' {
+		// Raw JSON mode - read complete JSON object by tracking braces
+		jsonData, err = t.readJSONObject()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// LSP-style header mode - parse Content-Length header, then read body
+		contentLength, err := t.parseHeaders()
+		if err != nil {
+			return nil, err
+		}
+
+		// Read exactly contentLength bytes
+		jsonData = make([]byte, contentLength)
+		if _, err := io.ReadFull(t.bufRead, jsonData); err != nil {
+			return nil, &JSONRPCError{
+				Code:    ParseError,
+				Message: "Failed to read message body: " + err.Error(),
+			}
+		}
+	}
+
 	var req Request
-	if err := json.Unmarshal(line, &req); err != nil {
+	if err := json.Unmarshal(jsonData, &req); err != nil {
 		return nil, &JSONRPCError{
 			Code:    ParseError,
 			Message: "Parse error: " + err.Error(),
@@ -69,6 +110,115 @@ func (t *Transport) ReadRequest() (*Request, error) {
 	}
 
 	return &req, nil
+}
+
+// readJSONObject reads a complete JSON object from the buffer by tracking braces
+func (t *Transport) readJSONObject() ([]byte, error) {
+	var buf bytes.Buffer
+	depth := 0
+	inString := false
+	escaped := false
+
+	for {
+		b, err := t.bufRead.ReadByte()
+		if err != nil {
+			if err == io.EOF {
+				if buf.Len() > 0 {
+					return nil, &JSONRPCError{
+						Code:    ParseError,
+						Message: "Unexpected EOF in JSON object",
+					}
+				}
+				return nil, io.EOF
+			}
+			return nil, fmt.Errorf("read error: %w", err)
+		}
+
+		buf.WriteByte(b)
+
+		if escaped {
+			escaped = false
+			continue
+		}
+
+		if b == '\\' && inString {
+			escaped = true
+			continue
+		}
+
+		if b == '"' {
+			inString = !inString
+			continue
+		}
+
+		if inString {
+			continue
+		}
+
+		if b == '{' {
+			depth++
+		} else if b == '}' {
+			depth--
+			if depth == 0 {
+				// Complete JSON object
+				return buf.Bytes(), nil
+			}
+		}
+	}
+}
+
+// parseHeaders reads LSP-style headers until empty line
+// Returns the Content-Length value
+func (t *Transport) parseHeaders() (int, error) {
+	var contentLength int
+	foundContentLength := false
+
+	for {
+		line, err := t.bufRead.ReadString('\n')
+		if err != nil {
+			return 0, &JSONRPCError{
+				Code:    ParseError,
+				Message: "Failed to read header: " + err.Error(),
+			}
+		}
+
+		// Trim \r\n or \n
+		line = strings.TrimRight(line, "\r\n")
+
+		// Empty line signals end of headers
+		if line == "" {
+			break
+		}
+
+		// Parse header
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+
+			if strings.EqualFold(key, "Content-Length") {
+				length, err := strconv.Atoi(value)
+				if err != nil {
+					return 0, &JSONRPCError{
+						Code:    ParseError,
+						Message: "Invalid Content-Length: " + value,
+					}
+				}
+				contentLength = length
+				foundContentLength = true
+			}
+			// Ignore other headers (Content-Type, etc.)
+		}
+	}
+
+	if !foundContentLength {
+		return 0, &JSONRPCError{
+			Code:    ParseError,
+			Message: "Missing Content-Length header",
+		}
+	}
+
+	return contentLength, nil
 }
 
 // validateRequest validates that a request conforms to JSON-RPC 2.0

@@ -1,16 +1,19 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
-	"github.com/samestrin/llm-tools/internal/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/samestrin/llm-tools/internal/support/mcpserver"
 )
 
 const (
-	serverName    = "llm-support-mcp"
-	serverVersion = "1.0.0"
+	serverName         = "llm-support-mcp"
+	serverVersion      = "1.0.1"
+	serverInstructions = "LLM Support MCP provides tools for directory analysis, file searching, JSON querying, git context, dependency analysis, and project detection to enhance LLM context gathering."
 )
 
 func main() {
@@ -21,25 +24,60 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create MCP server
-	server := mcp.NewServer(os.Stdin, os.Stdout)
-	server.SetServerInfo(serverName, serverVersion)
+	// Create MCP server using official SDK
+	server := mcp.NewServer(&mcp.Implementation{
+		Name:    serverName,
+		Version: serverVersion,
+	}, &mcp.ServerOptions{
+		Instructions: serverInstructions,
+	})
 
 	// Register all tools
-	tools := mcpserver.GetTools()
-	for _, tool := range tools {
-		// Capture tool name for closure
-		toolName := tool.Name
-		server.RegisterTool(tool, func(args map[string]interface{}) (string, error) {
-			return mcpserver.ExecuteHandler(toolName, args)
+	tools := mcpserver.GetToolDefinitions()
+	for _, toolDef := range tools {
+		// Capture for closure
+		td := toolDef
+		server.AddTool(&mcp.Tool{
+			Name:        td.Name,
+			Description: td.Description,
+			InputSchema: td.InputSchema,
+		}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			// Unmarshal arguments
+			var args map[string]interface{}
+			if req.Params.Arguments != nil {
+				if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
+					return &mcp.CallToolResult{
+						Content: []mcp.Content{
+							&mcp.TextContent{Text: "Error parsing arguments: " + err.Error()},
+						},
+						IsError: true,
+					}, nil
+				}
+			}
+
+			// Execute the tool using the handler
+			output, err := mcpserver.ExecuteHandler(td.Name, args)
+			if err != nil {
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{
+						&mcp.TextContent{Text: "Error: " + err.Error()},
+					},
+					IsError: true,
+				}, nil
+			}
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: output},
+				},
+			}, nil
 		})
 	}
 
 	// Log startup
 	fmt.Fprintf(os.Stderr, "%s v%s started with %d tools\n", serverName, serverVersion, len(tools))
 
-	// Run server
-	if err := server.ServeWithSignalHandler(); err != nil {
+	// Run server on stdio
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 		os.Exit(1)
 	}
