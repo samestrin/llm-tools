@@ -40,7 +40,5 @@ llm-clarification
 llm-support-mcp
 llm-clarification-mcp
 
-# Demo outputs (generated GIFs are large)
-demos/*.gif
-demos/*.mp4
-demos/llm-support.py
+# Demos (work in progress)
+demos/
