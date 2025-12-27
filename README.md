@@ -27,6 +27,63 @@ I benchmarked this against my original Python implementation on a real-world cod
 
 > *Benchmarks run on M4 Pro 64gb macOS Darwin (arm64), 2025-12-26.*
 
+### 🚫 No Python Venv Hell
+Deploying Python-based agent tools is painful. You have to manage virtual environments, `pip install` dependencies, and worry about version conflicts. 
+**llm-tools** is a single static binary. It works instantly on any machine—no setup required.
+
+## 🤖 Standardized LLM Orchestration
+
+**llm-tools** isn't just for reading files; it's a reliability layer for your agent's cognitive functions. 
+
+The `prompt` command acts as a **Universal Adapter** for almost any LLM CLI (`gemini`, `claude`, `ollama`, `openai`, `octo`). It wraps them with:
+*   **Retries & Backoff:** Automatically retries failed API calls.
+*   **Caching:** Caches expensive results to disk (`--cache-ttl 3600`).
+*   **Validation:** Ensures output meets criteria (`--min-length`, `--must-contain`) or fails fast.
+*   **Standardization:** Use the same flags regardless of the underlying model.
+
+```bash
+# Reliable, cached, validated prompt execution
+llm-support prompt \
+  --prompt "Analyze this error log" \
+  --llm gemini \
+  --retries 3 \
+  --cache \
+  --min-length 50
+```
+
+## ⚡ Advanced Workflows
+
+### Parallel Batch Processing (`foreach`)
+Run prompts across thousands of files in parallel without writing a loop script. Perfect for migrations, code reviews, or documentation generation.
+
+```bash
+# Review all Go files in parallel (4 concurrent workers)
+llm-support foreach \
+  --glob "src/**/*.go" \
+  --template templates/code-review.md \
+  --llm claude \
+  --parallel 4 \
+  --output-dir ./reviews
+```
+
+### Prompt Templates
+Stop concatenating strings. Use reusable template files with variable substitution.
+
+**template.md:**
+```text
+Review the code in [[FILENAME]]:
+[[CONTENT]]
+
+Focus on: [[FOCUS_AREA]]
+```
+
+**Command:**
+```bash
+llm-support prompt \
+  --template template.md \
+  --var FOCUS_AREA="Security"
+```
+
 ## 🛠️ The Toolkit
 
 ### `llm-support` — The Fast Hands
