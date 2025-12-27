@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.1] - 2025-12-26
+## [1.0.1] - 2025-12-27
 
 ### Changed
 - **Migrated MCP servers to official Go SDK** ([github.com/modelcontextprotocol/go-sdk](https://github.com/modelcontextprotocol/go-sdk) v1.2.0)
@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Protocol handshake issues with non-Claude MCP clients
 - Capabilities response format (now uses object instead of boolean per MCP spec)
 - Instructions field placement in initialize response
+- Claude and Gemini CLI compatibility verified working
 
 ### Removed
 - Python MCP wrappers (Go-only implementation)
