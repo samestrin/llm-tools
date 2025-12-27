@@ -15,6 +15,11 @@ LLM Agents need to be fast. Waiting 400ms for a Python script to spin up just to
 **llm-tools** is a suite of high-performance, statically compiled tools designed to be the "hands" of your AI agent. It includes a native **MCP Server** for instant integration with Claude Desktop and Gemini.
 
 ### The "Rewrite it in Go" Effect
+
+<div align="center">
+  <img src="https://vhs.charm.sh/vhs-5qSnvKbPRr9h4cTpOVK3MH.gif" width="700" alt="Speed Benchmark Demo" />
+</div>
+
 I benchmarked this against my original Python implementation on a real-world codebase (21k files). The difference was _massive_.
 
 | Operation | Action | Go (Native) | Python | Speedup |
