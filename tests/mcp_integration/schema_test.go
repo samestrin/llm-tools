@@ -10,7 +10,7 @@ import (
 
 // TestLLMSupportToolCount verifies the correct number of tools
 func TestLLMSupportToolCount(t *testing.T) {
-	tools := supportserver.GetTools()
+	tools := supportserver.GetToolDefinitions()
 	expected := 18
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-support tools, got %d", expected, len(tools))
@@ -19,7 +19,7 @@ func TestLLMSupportToolCount(t *testing.T) {
 
 // TestLLMClarificationToolCount verifies the correct number of tools
 func TestLLMClarificationToolCount(t *testing.T) {
-	tools := clarifyserver.GetTools()
+	tools := clarifyserver.GetToolDefinitions()
 	expected := 8
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-clarification tools, got %d", expected, len(tools))
@@ -28,7 +28,7 @@ func TestLLMClarificationToolCount(t *testing.T) {
 
 // TestLLMSupportToolSchemas validates all tool schemas are valid JSON
 func TestLLMSupportToolSchemas(t *testing.T) {
-	tools := supportserver.GetTools()
+	tools := supportserver.GetToolDefinitions()
 	for _, tool := range tools {
 		var schema map[string]interface{}
 		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
@@ -50,7 +50,7 @@ func TestLLMSupportToolSchemas(t *testing.T) {
 
 // TestLLMClarificationToolSchemas validates all tool schemas are valid JSON
 func TestLLMClarificationToolSchemas(t *testing.T) {
-	tools := clarifyserver.GetTools()
+	tools := clarifyserver.GetToolDefinitions()
 	for _, tool := range tools {
 		var schema map[string]interface{}
 		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
@@ -67,14 +67,14 @@ func TestLLMClarificationToolSchemas(t *testing.T) {
 
 // TestToolPrefixes verifies tool naming conventions
 func TestToolPrefixes(t *testing.T) {
-	supportTools := supportserver.GetTools()
+	supportTools := supportserver.GetToolDefinitions()
 	for _, tool := range supportTools {
 		if len(tool.Name) < len("llm_support_") || tool.Name[:12] != "llm_support_" {
 			t.Errorf("Tool %s should have 'llm_support_' prefix", tool.Name)
 		}
 	}
 
-	clarifyTools := clarifyserver.GetTools()
+	clarifyTools := clarifyserver.GetToolDefinitions()
 	for _, tool := range clarifyTools {
 		if len(tool.Name) < len("llm_clarify_") || tool.Name[:12] != "llm_clarify_" {
 			t.Errorf("Tool %s should have 'llm_clarify_' prefix", tool.Name)
@@ -84,8 +84,14 @@ func TestToolPrefixes(t *testing.T) {
 
 // TestToolDescriptions verifies all tools have meaningful descriptions
 func TestToolDescriptions(t *testing.T) {
-	allTools := append(supportserver.GetTools(), clarifyserver.GetTools()...)
-	for _, tool := range allTools {
+	// Test support tools
+	for _, tool := range supportserver.GetToolDefinitions() {
+		if len(tool.Description) < 20 {
+			t.Errorf("Tool %s has too short description (%d chars)", tool.Name, len(tool.Description))
+		}
+	}
+	// Test clarify tools
+	for _, tool := range clarifyserver.GetToolDefinitions() {
 		if len(tool.Description) < 20 {
 			t.Errorf("Tool %s has too short description (%d chars)", tool.Name, len(tool.Description))
 		}
@@ -115,7 +121,7 @@ func TestExpectedSupportToolNames(t *testing.T) {
 		"llm_support_extract_relevant",
 	}
 
-	tools := supportserver.GetTools()
+	tools := supportserver.GetToolDefinitions()
 	toolMap := make(map[string]bool)
 	for _, tool := range tools {
 		toolMap[tool.Name] = true
@@ -141,7 +147,7 @@ func TestExpectedClarifyToolNames(t *testing.T) {
 		"llm_clarify_list",
 	}
 
-	tools := clarifyserver.GetTools()
+	tools := clarifyserver.GetToolDefinitions()
 	toolMap := make(map[string]bool)
 	for _, tool := range tools {
 		toolMap[tool.Name] = true
