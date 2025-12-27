@@ -115,6 +115,15 @@ llm-support count --mode checkboxes --path sprint/plan.md -r
 
 # Detect project stack
 llm-support detect --path .
+
+# Extract only relevant context (AI-filtered)
+llm-support extract-relevant --path docs/ --context "Authentication Config"
+
+# Summarize directory content for context window (Outline mode)
+llm-support summarize-dir src/ --format outline --max-tokens 2000
+
+# Batch process files with a template
+llm-support foreach --files "*.ts" --template refactor.md --parallel 4
 ```
 
 ## 📚 Documentation
