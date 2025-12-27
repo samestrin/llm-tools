@@ -119,10 +119,10 @@ llm-support detect --path .
 # Extract only relevant context (AI-filtered)
 llm-support extract-relevant --path docs/ --context "Authentication Config"
 
-# Summarize directory content for context window (Outline mode)
+# Summarize directory content for context window (Token optimized)
 llm-support summarize-dir src/ --format outline --max-tokens 2000
 
-# Batch process files with a template
+# Batch process files with a template (LLM-driven)
 llm-support foreach --files "*.ts" --template refactor.md --parallel 4
 ```
 
