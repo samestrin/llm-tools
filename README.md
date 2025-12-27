@@ -149,6 +149,7 @@ sequenceDiagram
     participant A as 🤖 Agent
     participant S as ⚡ Support
     participant M as 🧠 Memory
+    participant C as 📂 Codebase
 
     U->>A: /execute-sprint
     
@@ -163,6 +164,8 @@ sequenceDiagram
         A->>M: match-clarification
         M-->>A: ⚠ RECALL: "Use Jest"
     end
+
+    A->>C: TDD Implementation (using Jest)
 ```
 
 ## License
