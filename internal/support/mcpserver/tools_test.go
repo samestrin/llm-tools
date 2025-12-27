@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func TestGetTools(t *testing.T) {
-	tools := GetTools()
+func TestGetToolDefinitions(t *testing.T) {
+	tools := GetToolDefinitions()
 
 	// Verify we have exactly 18 tools
 	if len(tools) != 18 {
@@ -68,7 +68,7 @@ func TestGetTools(t *testing.T) {
 }
 
 func TestToolDescriptions(t *testing.T) {
-	tools := GetTools()
+	tools := GetToolDefinitions()
 
 	for _, tool := range tools {
 		if tool.Description == "" {
@@ -82,7 +82,7 @@ func TestToolDescriptions(t *testing.T) {
 }
 
 func TestToolSchemaRequiredFields(t *testing.T) {
-	tools := GetTools()
+	tools := GetToolDefinitions()
 
 	// Map of tools to their required fields
 	requiredFields := map[string][]string{
