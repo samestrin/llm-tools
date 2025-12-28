@@ -15,11 +15,11 @@ import (
 // YAMLStorage implements Storage interface using YAML file backend.
 // Thread-safe via mutex for all operations.
 type YAMLStorage struct {
-	path    string
-	mu      sync.RWMutex
-	data    *tracking.TrackingFile
-	closed  bool
-	dirty   bool
+	path   string
+	mu     sync.RWMutex
+	data   *tracking.TrackingFile
+	closed bool
+	dirty  bool
 }
 
 // NewYAMLStorage creates a new YAML storage instance.
