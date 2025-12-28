@@ -574,5 +574,46 @@ func GetToolDefinitions() []ToolDefinition {
 				}
 			}`),
 		},
+
+		// 22. Context variable management
+		{
+			Name:        ToolPrefix + "context",
+			Description: "Manage persistent key-value storage for prompt variables. Supports init, set, get, list, dump, and clear operations. Solves the 'forgotten timestamp' problem by persisting values across prompt executions.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"operation": {
+						"type": "string",
+						"enum": ["init", "set", "get", "list", "dump", "clear"],
+						"description": "Operation to perform: init (create context file), set (store value), get (retrieve value), list (show all), dump (shell-sourceable), clear (remove all)"
+					},
+					"dir": {
+						"type": "string",
+						"description": "Directory containing context.env file (required)"
+					},
+					"key": {
+						"type": "string",
+						"description": "Variable key (for set/get operations)"
+					},
+					"value": {
+						"type": "string",
+						"description": "Variable value (for set operation)"
+					},
+					"default": {
+						"type": "string",
+						"description": "Default value if key not found (for get operation)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON (for get/list operations)"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - just the value (for get operation)"
+					}
+				},
+				"required": ["operation", "dir"]
+			}`),
+		},
 	}
 }
