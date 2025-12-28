@@ -2,14 +2,15 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/internal/clarification/utils"
+	"github.com/samestrin/llm-tools/pkg/output"
 
 	"github.com/spf13/cobra"
 )
@@ -29,6 +30,8 @@ var (
 	addSprint     string
 	addTags       []string
 	addCheckMatch bool
+	addJSON       bool
+	addMinimal    bool
 )
 
 func init() {
@@ -40,6 +43,8 @@ func init() {
 	addClarificationCmd.Flags().StringVarP(&addSprint, "sprint", "s", "", "Sprint name")
 	addClarificationCmd.Flags().StringSliceVarP(&addTags, "tag", "t", nil, "Context tags")
 	addClarificationCmd.Flags().BoolVar(&addCheckMatch, "check-match", false, "Check for similar questions")
+	addClarificationCmd.Flags().BoolVar(&addJSON, "json", false, "Output as JSON")
+	addClarificationCmd.Flags().BoolVar(&addMinimal, "min", false, "Output in minimal/token-optimized format")
 	addClarificationCmd.MarkFlagRequired("file")
 }
 
@@ -157,14 +162,17 @@ func runAddClarification(cmd *cobra.Command, args []string) error {
 		result.PotentialMatches = potentialMatches
 	}
 
-	// Output JSON result
-	output, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal result: %w", err)
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout(), string(output))
-	return nil
+	// Output result using Formatter
+	formatter := output.New(addJSON, addMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(AddClarificationResult)
+		fmt.Fprintf(w, "STATUS: %s\n", r.Status)
+		fmt.Fprintf(w, "ID: %s\n", r.ID)
+		fmt.Fprintf(w, "MESSAGE: %s\n", r.Message)
+		if len(r.PotentialMatches) > 0 {
+			fmt.Fprintf(w, "POTENTIAL_MATCHES: %s\n", strings.Join(r.PotentialMatches, ", "))
+		}
+	})
 }
 
 // isSimilarQuestion checks if two questions are similar using simple keyword matching.
