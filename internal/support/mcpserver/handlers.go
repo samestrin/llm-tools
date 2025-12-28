@@ -141,6 +141,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildRepoRootArgs(args), nil
 	case "extract_relevant":
 		return buildExtractRelevantArgs(args), nil
+	case "highest":
+		return buildHighestArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -432,6 +434,26 @@ func buildExtractRelevantArgs(args map[string]interface{}) []string {
 	}
 	if timeout, ok := getInt(args, "timeout"); ok {
 		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(timeout))
+	}
+	if getBool(args, "json") {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	return cmdArgs
+}
+
+func buildHighestArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"highest"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	if pattern, ok := args["pattern"].(string); ok {
+		cmdArgs = append(cmdArgs, "--pattern", pattern)
+	}
+	if t, ok := args["type"].(string); ok {
+		cmdArgs = append(cmdArgs, "--type", t)
+	}
+	if prefix, ok := args["prefix"].(string); ok {
+		cmdArgs = append(cmdArgs, "--prefix", prefix)
 	}
 	if getBool(args, "json") {
 		cmdArgs = append(cmdArgs, "--json")

@@ -1,11 +1,12 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/samestrin/llm-tools/internal/clarification/tracking"
+	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
 
 	"github.com/spf13/cobra"
@@ -44,19 +45,24 @@ type ClusterResult struct {
 }
 
 func runClusterClarifications(cmd *cobra.Command, args []string) error {
-	// Load tracking file
-	if !tracking.FileExists(clusterFile) {
-		return fmt.Errorf("tracking file not found: %s", clusterFile)
-	}
+	ctx := context.Background()
 
-	tf, err := tracking.LoadTrackingFile(clusterFile)
+	// Get storage instance
+	store, err := GetStorageOrError(ctx, clusterFile)
 	if err != nil {
-		return fmt.Errorf("failed to load tracking file: %w", err)
+		return err
+	}
+	defer store.Close()
+
+	// Get all entries
+	entries, err := store.List(ctx, storage.ListFilter{})
+	if err != nil {
+		return fmt.Errorf("failed to list entries: %w", err)
 	}
 
 	// Extract questions from entries
-	questions := make([]string, 0, len(tf.Entries))
-	for _, entry := range tf.Entries {
+	questions := make([]string, 0, len(entries))
+	for _, entry := range entries {
 		if entry.CanonicalQuestion != "" {
 			questions = append(questions, entry.CanonicalQuestion)
 		}

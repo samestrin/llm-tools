@@ -1,10 +1,12 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
 
@@ -70,18 +72,23 @@ func getLLMClient() (LLMClientInterface, error) {
 }
 
 func runMatchClarification(cmd *cobra.Command, args []string) error {
-	// Load tracking file
-	if !tracking.FileExists(matchFile) {
-		return fmt.Errorf("tracking file not found: %s", matchFile)
-	}
+	ctx := context.Background()
 
-	tf, err := tracking.LoadTrackingFile(matchFile)
+	// Get storage instance
+	store, err := GetStorageOrError(ctx, matchFile)
 	if err != nil {
-		return fmt.Errorf("failed to load tracking file: %w", err)
+		return err
+	}
+	defer store.Close()
+
+	// Get all entries
+	entries, err := store.List(ctx, storage.ListFilter{})
+	if err != nil {
+		return fmt.Errorf("failed to list entries: %w", err)
 	}
 
 	// If no entries, return no_match immediately
-	if len(tf.Entries) == 0 {
+	if len(entries) == 0 {
 		result := MatchResult{
 			Status: "no_match",
 			Reason: "No existing clarifications to match against",
@@ -96,7 +103,7 @@ func runMatchClarification(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build prompt
-	prompt := buildMatchPrompt(matchQuestion, tf.Entries)
+	prompt := buildMatchPrompt(matchQuestion, entries)
 
 	// Call LLM
 	response, err := client.Complete(prompt, 30*time.Second)
@@ -130,9 +137,9 @@ func runMatchClarification(cmd *cobra.Command, args []string) error {
 	} else {
 		// Find the matched entry
 		var matchedEntry *tracking.Entry
-		for i := range tf.Entries {
-			if tf.Entries[i].ID == *llmResult.MatchID {
-				matchedEntry = &tf.Entries[i]
+		for i := range entries {
+			if entries[i].ID == *llmResult.MatchID {
+				matchedEntry = &entries[i]
 				break
 			}
 		}

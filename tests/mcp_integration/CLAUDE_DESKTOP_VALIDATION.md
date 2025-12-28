@@ -3,13 +3,14 @@
 ## Overview
 
 This document captures validation results for testing Go MCP servers with Claude Desktop.
+MCP servers use the official Go SDK (`github.com/modelcontextprotocol/go-sdk`).
 
 ## Build Information
 
-- **Go Version:** 1.21+
-- **Build Date:** 2025-12-26
+- **Go Version:** 1.23+
+- **Build Date:** 2025-12-28
 - **Binaries:**
-  - `llm-support-mcp` (18 tools)
+  - `llm-support-mcp` (19 tools)
   - `llm-clarification-mcp` (8 tools)
 
 ## Build Verification
@@ -41,7 +42,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ## Test Plan
 
-### llm-support Tools (18 total)
+### llm-support Tools (19 total)
 
 | # | Tool | Test Command | Status |
 |---|------|--------------|--------|
@@ -63,6 +64,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | 16 | llm_support_partition_work | Partition work items | ⬜ Pending |
 | 17 | llm_support_repo_root | Find repository root | ⬜ Pending |
 | 18 | llm_support_extract_relevant | Extract relevant content | ⬜ Pending |
+| 19 | llm_support_highest | Find highest numbered dir/file | ⬜ Pending |
 
 ### llm-clarification Tools (8 total)
 
@@ -81,7 +83,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ### Unit Tests
 ```
-go test ./internal/mcp/... ./internal/support/... ./internal/clarification/...
+go test ./internal/support/... ./internal/clarification/...
 ```
 - **Status:** ✅ All passing
 - **Coverage:** See coverage report
@@ -91,16 +93,7 @@ go test ./internal/mcp/... ./internal/support/... ./internal/clarification/...
 go test ./tests/mcp_integration/...
 ```
 - **Status:** ✅ All passing
-- **Tests:** 26 tests (schema, harness, parity)
-
-### Benchmarks
-```
-go test ./tests/mcp_integration/... -bench=. -benchtime=100ms
-```
-- **Server Startup:** ~215μs
-- **Tools List:** ~277μs
-- **Full Cycle:** ~268μs
-- **Tool Call:** ~180μs
+- **Tests:** Schema validation tests
 
 ## Notes
 
@@ -125,5 +118,5 @@ None currently identified.
 
 ---
 
-**Last Updated:** 2025-12-26
+**Last Updated:** 2025-12-28
 **Validated By:** Pending Manual Testing

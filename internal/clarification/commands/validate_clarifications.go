@@ -1,11 +1,13 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/internal/clarification/utils"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
@@ -50,18 +52,23 @@ type ValidateClarificationsResult struct {
 }
 
 func runValidateClarifications(cmd *cobra.Command, args []string) error {
-	// Load tracking file
-	if !tracking.FileExists(validateFile) {
-		return fmt.Errorf("tracking file not found: %s", validateFile)
-	}
+	ctx := context.Background()
 
-	tf, err := tracking.LoadTrackingFile(validateFile)
+	// Get storage instance
+	store, err := GetStorageOrError(ctx, validateFile)
 	if err != nil {
-		return fmt.Errorf("failed to load tracking file: %w", err)
+		return err
+	}
+	defer store.Close()
+
+	// Get all entries
+	entries, err := store.List(ctx, storage.ListFilter{})
+	if err != nil {
+		return fmt.Errorf("failed to list entries: %w", err)
 	}
 
 	// No entries means nothing to validate
-	if len(tf.Entries) == 0 {
+	if len(entries) == 0 {
 		result := ValidateClarificationsResult{
 			Status:      "no_entries",
 			Validations: []Validation{},
@@ -79,13 +86,13 @@ func runValidateClarifications(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get or detect project context
-	context := validateContext
-	if context == "" {
-		context = detectProjectContext()
+	projectContext := validateContext
+	if projectContext == "" {
+		projectContext = detectProjectContext()
 	}
 
 	// Build prompt
-	prompt := buildValidatePrompt(tf.Entries, context)
+	prompt := buildValidatePrompt(entries, projectContext)
 
 	// Call LLM
 	response, err := client.Complete(prompt, 30*time.Second)

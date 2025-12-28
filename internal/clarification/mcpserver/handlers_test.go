@@ -357,3 +357,209 @@ func TestGetBool(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildDeleteArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic delete",
+			args: map[string]interface{}{"file": "tracking.db", "id": "entry-001"},
+			want: []string{"delete-clarification", "--file", "tracking.db", "--id", "entry-001"},
+		},
+		{
+			name: "with force and quiet",
+			args: map[string]interface{}{
+				"file":  "tracking.db",
+				"id":    "entry-002",
+				"force": true,
+				"quiet": true,
+			},
+			want: []string{"delete-clarification", "--file", "tracking.db", "--id", "entry-002", "--force", "--quiet"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildDeleteArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildDeleteArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildExportArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic export",
+			args: map[string]interface{}{"source": "data.db", "output": "export.yaml"},
+			want: []string{"export-memory", "--source", "data.db", "--output", "export.yaml"},
+		},
+		{
+			name: "with quiet",
+			args: map[string]interface{}{
+				"source": "data.db",
+				"output": "export.yaml",
+				"quiet":  true,
+			},
+			want: []string{"export-memory", "--source", "data.db", "--output", "export.yaml", "--quiet"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildExportArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildExportArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildImportArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic import",
+			args: map[string]interface{}{"source": "data.yaml", "target": "data.db"},
+			want: []string{"import-memory", "--source", "data.yaml", "--target", "data.db"},
+		},
+		{
+			name: "with mode and quiet",
+			args: map[string]interface{}{
+				"source": "data.yaml",
+				"target": "data.db",
+				"mode":   "merge",
+				"quiet":  true,
+			},
+			want: []string{"import-memory", "--source", "data.yaml", "--target", "data.db", "--mode", "merge", "--quiet"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildImportArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildImportArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildOptimizeArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic optimize",
+			args: map[string]interface{}{"file": "data.db"},
+			want: []string{"optimize-memory", "--file", "data.db"},
+		},
+		{
+			name: "with vacuum and stats",
+			args: map[string]interface{}{
+				"file":   "data.db",
+				"vacuum": true,
+				"stats":  true,
+			},
+			want: []string{"optimize-memory", "--file", "data.db", "--vacuum", "--stats"},
+		},
+		{
+			name: "with prune_stale",
+			args: map[string]interface{}{
+				"file":        "data.db",
+				"prune_stale": "30d",
+				"quiet":       true,
+			},
+			want: []string{"optimize-memory", "--file", "data.db", "--prune-stale", "30d", "--quiet"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildOptimizeArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildOptimizeArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildReconcileArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic reconcile",
+			args: map[string]interface{}{"file": "data.db", "project_root": "/path/to/project"},
+			want: []string{"reconcile-memory", "--file", "data.db", "--project-root", "/path/to/project"},
+		},
+		{
+			name: "with dry_run and quiet",
+			args: map[string]interface{}{
+				"file":         "data.db",
+				"project_root": "/path/to/project",
+				"dry_run":      true,
+				"quiet":        true,
+			},
+			want: []string{"reconcile-memory", "--file", "data.db", "--project-root", "/path/to/project", "--dry-run", "--quiet"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildReconcileArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildReconcileArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildArgsDispatcherNewCommands(t *testing.T) {
+	tests := []struct {
+		command   string
+		args      map[string]interface{}
+		wantLen   int
+		wantFirst string
+		wantErr   bool
+	}{
+		{"delete", map[string]interface{}{"file": "f", "id": "i"}, 5, "delete-clarification", false},
+		{"export", map[string]interface{}{"source": "s", "output": "o"}, 5, "export-memory", false},
+		{"import", map[string]interface{}{"source": "s", "target": "t"}, 5, "import-memory", false},
+		{"optimize", map[string]interface{}{"file": "f"}, 3, "optimize-memory", false},
+		{"reconcile", map[string]interface{}{"file": "f", "project_root": "p"}, 5, "reconcile-memory", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.command, func(t *testing.T) {
+			got, err := buildArgs(tt.command, tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("buildArgs() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				if len(got) < tt.wantLen {
+					t.Errorf("buildArgs() len = %d, want >= %d", len(got), tt.wantLen)
+				}
+				if got[0] != tt.wantFirst {
+					t.Errorf("buildArgs()[0] = %s, want %s", got[0], tt.wantFirst)
+				}
+			}
+		})
+	}
+}

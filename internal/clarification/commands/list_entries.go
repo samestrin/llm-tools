@@ -1,11 +1,13 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"text/tabwriter"
 
+	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 
 	"github.com/spf13/cobra"
@@ -41,18 +43,29 @@ type ListEntriesResult struct {
 }
 
 func runListEntries(cmd *cobra.Command, args []string) error {
-	// Load tracking file
-	if !tracking.FileExists(listFile) {
-		return fmt.Errorf("tracking file not found: %s", listFile)
-	}
+	ctx := context.Background()
 
-	tf, err := tracking.LoadTrackingFile(listFile)
+	// Get storage instance
+	store, err := GetStorageOrError(ctx, listFile)
 	if err != nil {
-		return fmt.Errorf("failed to load tracking file: %w", err)
+		return err
+	}
+	defer store.Close()
+
+	// Build filter
+	filter := storage.ListFilter{
+		Status:         listStatus,
+		MinOccurrences: listMinOccurrences,
 	}
 
-	// Apply filters
-	filtered := filterEntries(tf.Entries, listStatus, listMinOccurrences)
+	// Get entries from storage
+	entries, err := store.List(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("failed to list entries: %w", err)
+	}
+
+	// Apply any additional filtering (for backward compatibility)
+	filtered := filterEntries(entries, listStatus, listMinOccurrences)
 
 	if listJSON {
 		// JSON output

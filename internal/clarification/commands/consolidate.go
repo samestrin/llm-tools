@@ -1,10 +1,12 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
 
@@ -44,18 +46,23 @@ type ConsolidationSuggestion struct {
 }
 
 func runSuggestConsolidation(cmd *cobra.Command, args []string) error {
-	// Load tracking file
-	if !tracking.FileExists(consolidateFile) {
-		return fmt.Errorf("tracking file not found: %s", consolidateFile)
-	}
+	ctx := context.Background()
 
-	tf, err := tracking.LoadTrackingFile(consolidateFile)
+	// Get storage instance
+	store, err := GetStorageOrError(ctx, consolidateFile)
 	if err != nil {
-		return fmt.Errorf("failed to load tracking file: %w", err)
+		return err
+	}
+	defer store.Close()
+
+	// Get all entries
+	entries, err := store.List(ctx, storage.ListFilter{})
+	if err != nil {
+		return fmt.Errorf("failed to list entries: %w", err)
 	}
 
 	// Need at least 2 entries to consolidate
-	if len(tf.Entries) < 2 {
+	if len(entries) < 2 {
 		result := ConsolidationResult{
 			Status:      "no_suggestions",
 			Suggestions: []ConsolidationSuggestion{},
@@ -71,7 +78,7 @@ func runSuggestConsolidation(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build prompt
-	prompt := buildConsolidationPrompt(tf.Entries)
+	prompt := buildConsolidationPrompt(entries)
 
 	// Call LLM
 	response, err := client.Complete(prompt, 30*time.Second)

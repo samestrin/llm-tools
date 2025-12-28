@@ -228,5 +228,146 @@ func GetToolDefinitions() []ToolDefinition {
 				"required": ["tracking_file"]
 			}`),
 		},
+
+		// 9. Delete clarification (no API)
+		{
+			Name:        ToolPrefix + "delete",
+			Description: "Delete a clarification entry by ID from the storage file. Supports both YAML and SQLite storage backends.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Path to storage file (YAML or SQLite)"
+					},
+					"id": {
+						"type": "string",
+						"description": "Entry ID to delete"
+					},
+					"force": {
+						"type": "boolean",
+						"description": "Skip confirmation prompt"
+					},
+					"quiet": {
+						"type": "boolean",
+						"description": "Suppress output"
+					}
+				},
+				"required": ["file", "id"]
+			}`),
+		},
+
+		// 10. Export memory (no API)
+		{
+			Name:        ToolPrefix + "export",
+			Description: "Export clarification data from any storage format (SQLite or YAML) to a human-readable YAML file for editing or backup.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"source": {
+						"type": "string",
+						"description": "Source storage file path"
+					},
+					"output": {
+						"type": "string",
+						"description": "Output YAML file path"
+					},
+					"quiet": {
+						"type": "boolean",
+						"description": "Suppress output"
+					}
+				},
+				"required": ["source", "output"]
+			}`),
+		},
+
+		// 11. Import memory (no API)
+		{
+			Name:        ToolPrefix + "import",
+			Description: "Import clarification data from a YAML file to any supported storage format (SQLite or YAML). Supports append, overwrite, and merge modes.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"source": {
+						"type": "string",
+						"description": "Source YAML file path"
+					},
+					"target": {
+						"type": "string",
+						"description": "Target storage file path"
+					},
+					"mode": {
+						"type": "string",
+						"enum": ["append", "overwrite", "merge"],
+						"description": "Import mode: append (skip existing), overwrite (replace all), merge (update existing)"
+					},
+					"quiet": {
+						"type": "boolean",
+						"description": "Suppress output"
+					}
+				},
+				"required": ["source", "target"]
+			}`),
+		},
+
+		// 12. Optimize memory (no API)
+		{
+			Name:        ToolPrefix + "optimize",
+			Description: "Optimize clarification storage for better performance. Supports vacuum (SQLite only), prune-stale, and stats operations.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Storage file path"
+					},
+					"vacuum": {
+						"type": "boolean",
+						"description": "Run SQLite VACUUM to reclaim space (SQLite only)"
+					},
+					"prune_stale": {
+						"type": "string",
+						"description": "Remove entries older than duration (e.g., 30d, 90d)"
+					},
+					"stats": {
+						"type": "boolean",
+						"description": "Show storage statistics"
+					},
+					"quiet": {
+						"type": "boolean",
+						"description": "Suppress output"
+					}
+				},
+				"required": ["file"]
+			}`),
+		},
+
+		// 13. Reconcile memory (no API)
+		{
+			Name:        ToolPrefix + "reconcile",
+			Description: "Scan clarification entries for file path references and identify references to files that no longer exist in the codebase. Marks stale entries for review.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Storage file path"
+					},
+					"project_root": {
+						"type": "string",
+						"description": "Project root directory to scan for file existence"
+					},
+					"dry_run": {
+						"type": "boolean",
+						"description": "Show changes without applying"
+					},
+					"quiet": {
+						"type": "boolean",
+						"description": "Suppress output"
+					}
+				},
+				"required": ["file", "project_root"]
+			}`),
+		},
 	}
 }

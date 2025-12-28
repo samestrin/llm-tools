@@ -67,6 +67,16 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildPromoteArgs(args), nil
 	case "list":
 		return buildListArgs(args), nil
+	case "delete":
+		return buildDeleteArgs(args), nil
+	case "export":
+		return buildExportArgs(args), nil
+	case "import":
+		return buildImportArgs(args), nil
+	case "optimize":
+		return buildOptimizeArgs(args), nil
+	case "reconcile":
+		return buildReconcileArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -195,6 +205,91 @@ func buildListArgs(args map[string]interface{}) []string {
 	}
 	if getBool(args, "json_output") {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	return cmdArgs
+}
+
+func buildDeleteArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"delete-clarification"}
+	if f, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", f)
+	}
+	if id, ok := args["id"].(string); ok {
+		cmdArgs = append(cmdArgs, "--id", id)
+	}
+	if getBool(args, "force") {
+		cmdArgs = append(cmdArgs, "--force")
+	}
+	if getBool(args, "quiet") {
+		cmdArgs = append(cmdArgs, "--quiet")
+	}
+	return cmdArgs
+}
+
+func buildExportArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"export-memory"}
+	if s, ok := args["source"].(string); ok {
+		cmdArgs = append(cmdArgs, "--source", s)
+	}
+	if o, ok := args["output"].(string); ok {
+		cmdArgs = append(cmdArgs, "--output", o)
+	}
+	if getBool(args, "quiet") {
+		cmdArgs = append(cmdArgs, "--quiet")
+	}
+	return cmdArgs
+}
+
+func buildImportArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"import-memory"}
+	if s, ok := args["source"].(string); ok {
+		cmdArgs = append(cmdArgs, "--source", s)
+	}
+	if t, ok := args["target"].(string); ok {
+		cmdArgs = append(cmdArgs, "--target", t)
+	}
+	if m, ok := args["mode"].(string); ok {
+		cmdArgs = append(cmdArgs, "--mode", m)
+	}
+	if getBool(args, "quiet") {
+		cmdArgs = append(cmdArgs, "--quiet")
+	}
+	return cmdArgs
+}
+
+func buildOptimizeArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"optimize-memory"}
+	if f, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", f)
+	}
+	if getBool(args, "vacuum") {
+		cmdArgs = append(cmdArgs, "--vacuum")
+	}
+	if ps, ok := args["prune_stale"].(string); ok {
+		cmdArgs = append(cmdArgs, "--prune-stale", ps)
+	}
+	if getBool(args, "stats") {
+		cmdArgs = append(cmdArgs, "--stats")
+	}
+	if getBool(args, "quiet") {
+		cmdArgs = append(cmdArgs, "--quiet")
+	}
+	return cmdArgs
+}
+
+func buildReconcileArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"reconcile-memory"}
+	if f, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", f)
+	}
+	if pr, ok := args["project_root"].(string); ok {
+		cmdArgs = append(cmdArgs, "--project-root", pr)
+	}
+	if getBool(args, "dry_run") {
+		cmdArgs = append(cmdArgs, "--dry-run")
+	}
+	if getBool(args, "quiet") {
+		cmdArgs = append(cmdArgs, "--quiet")
 	}
 	return cmdArgs
 }

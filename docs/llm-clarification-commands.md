@@ -13,11 +13,18 @@ The Clarification Learning System tracks questions and answers gathered during L
 
 ## Table of Contents
 
+- [Storage Backends](#storage-backends)
 - [Management Commands](#management-commands)
   - [init-tracking](#init-tracking)
   - [add-clarification](#add-clarification)
   - [list-entries](#list-entries)
   - [promote-clarification](#promote-clarification)
+  - [delete-clarification](#delete-clarification)
+- [Storage Commands](#storage-commands)
+  - [export-memory](#export-memory)
+  - [import-memory](#import-memory)
+  - [optimize-memory](#optimize-memory)
+  - [reconcile-memory](#reconcile-memory)
 - [Analysis Commands (Require API)](#analysis-commands-require-api)
   - [match-clarification](#match-clarification)
   - [cluster-clarifications](#cluster-clarifications)
@@ -48,6 +55,40 @@ echo 'your-api-key' > .planning/.config/openai_api_key
 echo 'https://openrouter.ai/api/v1' > .planning/.config/openai_base_url
 echo 'gpt-4o-mini' > .planning/.config/openai_model
 ```
+
+---
+
+## Storage Backends
+
+The clarification system supports two storage backends:
+
+### YAML Storage (Default)
+- Human-readable and editable
+- Best for small to medium datasets (<1000 entries)
+- Files: `.yaml`, `.yml`
+
+### SQLite Storage
+- High performance for large datasets
+- Full-text search capability
+- Best for 1000+ entries
+- Files: `.db`, `.sqlite`, `.sqlite3`
+
+**Using SQLite:**
+```bash
+# Initialize with SQLite
+llm-clarification init-tracking -o clarifications.db
+
+# Use --db flag to override storage path globally
+llm-clarification --db clarifications.db list-entries
+
+# Or set environment variable
+export CLARIFY_DB_PATH=clarifications.db
+```
+
+**Storage Selection:**
+- File extension determines backend automatically
+- `--db` flag overrides per-command `--file` flags
+- `CLARIFY_DB_PATH` environment variable provides default
 
 ---
 
@@ -227,6 +268,198 @@ llm-clarification promote-clarification \
 **Effect:**
 1. Appends the clarification Q&A to the target file
 2. Updates the entry status to "promoted" in the tracking file
+
+---
+
+### delete-clarification
+
+Delete a clarification entry from storage.
+
+```bash
+llm-clarification delete-clarification [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `-f, --file` | Storage file path (required) |
+| `--id` | Entry ID to delete (required) |
+| `--force` | Skip confirmation prompt |
+| `-q, --quiet` | Suppress output |
+
+**Examples:**
+```bash
+# Delete with confirmation
+llm-clarification delete-clarification \
+  -f tracking.yaml \
+  --id CLR-001
+
+# Delete without confirmation
+llm-clarification delete-clarification \
+  -f tracking.db \
+  --id CLR-001 \
+  --force
+
+# Silent delete for scripting
+llm-clarification delete-clarification \
+  -f tracking.db \
+  --id CLR-001 \
+  --force --quiet
+```
+
+---
+
+## Storage Commands
+
+### export-memory
+
+Export clarifications from any storage backend to YAML for editing or backup.
+
+```bash
+llm-clarification export-memory [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `-s, --source` | Source storage file (required) |
+| `-o, --output` | Output YAML file (required) |
+| `-q, --quiet` | Suppress output |
+
+**Examples:**
+```bash
+# Export SQLite to YAML
+llm-clarification export-memory \
+  --source clarifications.db \
+  --output backup.yaml
+
+# Export for editing
+llm-clarification export-memory \
+  --source data.db \
+  --output editable.yaml
+```
+
+---
+
+### import-memory
+
+Import clarifications from YAML into any storage backend.
+
+```bash
+llm-clarification import-memory [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `-s, --source` | Source YAML file (required) |
+| `-t, --target` | Target storage file (required) |
+| `-m, --mode` | Import mode: append, overwrite, merge (default: append) |
+| `-q, --quiet` | Suppress output |
+
+**Import Modes:**
+- `append` - Add new entries, skip existing IDs
+- `overwrite` - Replace all data with source
+- `merge` - Add new entries, update existing ones
+
+**Examples:**
+```bash
+# Migrate YAML to SQLite
+llm-clarification import-memory \
+  --source clarifications.yaml \
+  --target clarifications.db
+
+# Merge updates
+llm-clarification import-memory \
+  --source updates.yaml \
+  --target data.db \
+  --mode merge
+
+# Full replacement
+llm-clarification import-memory \
+  --source new-data.yaml \
+  --target data.db \
+  --mode overwrite
+```
+
+---
+
+### optimize-memory
+
+Optimize SQLite storage (vacuum, prune stale entries, show stats).
+
+```bash
+llm-clarification optimize-memory [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `-f, --file` | Storage file path (required) |
+| `--vacuum` | Run SQLite VACUUM to reclaim space |
+| `--prune-stale` | Remove entries older than duration (e.g., 30d, 90d) |
+| `--stats` | Show storage statistics |
+| `-q, --quiet` | Suppress output |
+
+**Examples:**
+```bash
+# Show storage statistics
+llm-clarification optimize-memory \
+  -f data.db \
+  --stats
+
+# Vacuum database
+llm-clarification optimize-memory \
+  -f data.db \
+  --vacuum
+
+# Remove entries older than 90 days
+llm-clarification optimize-memory \
+  -f data.db \
+  --prune-stale 90d
+
+# Combined optimization
+llm-clarification optimize-memory \
+  -f data.db \
+  --vacuum --prune-stale 30d --stats
+```
+
+---
+
+### reconcile-memory
+
+Reconcile clarifications against the current codebase, identifying stale file references.
+
+```bash
+llm-clarification reconcile-memory [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `-f, --file` | Storage file path (required) |
+| `-p, --project-root` | Project root directory (required) |
+| `--dry-run` | Show changes without applying |
+| `-q, --quiet` | Suppress output |
+
+**Examples:**
+```bash
+# Check for stale references (dry run)
+llm-clarification reconcile-memory \
+  -f tracking.db \
+  -p /path/to/project \
+  --dry-run
+
+# Apply reconciliation
+llm-clarification reconcile-memory \
+  -f tracking.db \
+  -p .
+```
+
+**Effect:**
+1. Scans clarifications for file path references
+2. Identifies references to files that no longer exist
+3. Marks or removes stale references
 
 ---
 

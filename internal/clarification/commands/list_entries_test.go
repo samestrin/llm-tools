@@ -63,7 +63,8 @@ func TestListEntriesCmd_ListAll(t *testing.T) {
 	trackingPath, cleanup := createTestTrackingFile(t)
 	defer cleanup()
 
-	// Reset flags
+	// Reset flags and global state
+	globalDBPath = ""
 	listFile = ""
 	listStatus = ""
 	listMinOccurrences = 0
@@ -104,7 +105,8 @@ func TestListEntriesCmd_FilterByStatus(t *testing.T) {
 	trackingPath, cleanup := createTestTrackingFile(t)
 	defer cleanup()
 
-	// Reset flags
+	// Reset flags and global state
+	globalDBPath = ""
 	listFile = ""
 	listStatus = ""
 	listMinOccurrences = 0
@@ -147,7 +149,8 @@ func TestListEntriesCmd_FilterByMinOccurrences(t *testing.T) {
 	trackingPath, cleanup := createTestTrackingFile(t)
 	defer cleanup()
 
-	// Reset flags
+	// Reset flags and global state
+	globalDBPath = ""
 	listFile = ""
 	listStatus = ""
 	listMinOccurrences = 0
@@ -190,7 +193,8 @@ func TestListEntriesCmd_CombinedFilters(t *testing.T) {
 	trackingPath, cleanup := createTestTrackingFile(t)
 	defer cleanup()
 
-	// Reset flags
+	// Reset flags and global state
+	globalDBPath = ""
 	listFile = ""
 	listStatus = ""
 	listMinOccurrences = 0
@@ -228,7 +232,8 @@ func TestListEntriesCmd_TableOutput(t *testing.T) {
 	trackingPath, cleanup := createTestTrackingFile(t)
 	defer cleanup()
 
-	// Reset flags
+	// Reset flags and global state
+	globalDBPath = ""
 	listFile = ""
 	listStatus = ""
 	listMinOccurrences = 0
@@ -274,7 +279,8 @@ func TestListEntriesCmd_EmptyFile(t *testing.T) {
 		t.Fatalf("failed to create tracking file: %v", err)
 	}
 
-	// Reset flags
+	// Reset flags and global state
+	globalDBPath = ""
 	listFile = ""
 	listStatus = ""
 	listMinOccurrences = 0
@@ -308,7 +314,8 @@ func TestListEntriesCmd_EmptyFile(t *testing.T) {
 }
 
 func TestListEntriesCmd_FileNotFound(t *testing.T) {
-	// Reset flags
+	// Reset flags and global state
+	globalDBPath = ""
 	listFile = ""
 
 	cmd := newTestRootCmd()
