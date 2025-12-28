@@ -1,8 +1,8 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -18,6 +19,7 @@ var (
 	gitContextSince       string
 	gitContextMaxCommits  int
 	gitContextJSON        bool
+	gitContextMinimal     bool
 	gitContextPath        string
 )
 
@@ -81,7 +83,9 @@ Examples:
   llm-support git-context --path /path/to/repo
   llm-support git-context --include-diff
   llm-support git-context --since 2025-12-01 --max-commits 10
-  llm-support git-context --json`,
+  llm-support git-context --json
+  llm-support git-context --min
+  llm-support git-context --min --json`,
 		Args: cobra.NoArgs,
 		RunE: runGitContext,
 	}
@@ -91,6 +95,7 @@ Examples:
 	cmd.Flags().StringVar(&gitContextSince, "since", "", "Only include commits since date (YYYY-MM-DD)")
 	cmd.Flags().IntVar(&gitContextMaxCommits, "max-commits", 10, "Maximum number of commits to include")
 	cmd.Flags().BoolVar(&gitContextJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&gitContextMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	return cmd
 }
@@ -168,15 +173,11 @@ func runGitContext(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Output
-	if gitContextJSON {
-		output, _ := json.MarshalIndent(ctx, "", "  ")
-		fmt.Fprintln(cmd.OutOrStdout(), string(output))
-	} else {
-		printGitContext(cmd, ctx)
-	}
-
-	return nil
+	// Output using formatter
+	formatter := output.New(gitContextJSON, gitContextMinimal, cmd.OutOrStdout())
+	return formatter.Print(ctx, func(w io.Writer, data interface{}) {
+		printGitContext(w, data.(GitContext), gitContextMinimal)
+	})
 }
 
 func getGitStatus(path string) GitStatus {
@@ -290,15 +291,22 @@ func getGitRemotes(path string) []GitRemote {
 	return remotes
 }
 
-func printGitContext(cmd *cobra.Command, ctx GitContext) {
-	out := cmd.OutOrStdout()
+func printGitContext(out io.Writer, ctx GitContext, minimal bool) {
+	// Use relative path in minimal mode
+	repoPath := ctx.Repository.Root
+	if minimal {
+		repoPath = output.RelativePathCwd(repoPath)
+	}
 
-	fmt.Fprintf(out, "REPOSITORY: %s\n", ctx.Repository.Root)
+	fmt.Fprintf(out, "REPOSITORY: %s\n", repoPath)
 	fmt.Fprintf(out, "BRANCH: %s\n", ctx.Branch.Current)
 	if ctx.Branch.Tracking != "" {
 		fmt.Fprintf(out, "TRACKING: %s\n", ctx.Branch.Tracking)
 	}
-	fmt.Fprintln(out, "---")
+
+	if !minimal {
+		fmt.Fprintln(out, "---")
+	}
 
 	// Status
 	if ctx.Status.Clean {
@@ -308,12 +316,24 @@ func printGitContext(cmd *cobra.Command, ctx GitContext) {
 		if ctx.Status.Conflict {
 			fmt.Fprintln(out, "CONFLICT: true")
 		}
-		fmt.Fprintf(out, "MODIFIED: %d\n", ctx.Status.Modified)
-		fmt.Fprintf(out, "ADDED: %d\n", ctx.Status.Added)
-		fmt.Fprintf(out, "DELETED: %d\n", ctx.Status.Deleted)
-		fmt.Fprintf(out, "UNTRACKED: %d\n", ctx.Status.Untracked)
+		// In minimal mode, only show non-zero counts
+		if !minimal || ctx.Status.Modified > 0 {
+			fmt.Fprintf(out, "MODIFIED: %d\n", ctx.Status.Modified)
+		}
+		if !minimal || ctx.Status.Added > 0 {
+			fmt.Fprintf(out, "ADDED: %d\n", ctx.Status.Added)
+		}
+		if !minimal || ctx.Status.Deleted > 0 {
+			fmt.Fprintf(out, "DELETED: %d\n", ctx.Status.Deleted)
+		}
+		if !minimal || ctx.Status.Untracked > 0 {
+			fmt.Fprintf(out, "UNTRACKED: %d\n", ctx.Status.Untracked)
+		}
 	}
-	fmt.Fprintln(out, "---")
+
+	if !minimal {
+		fmt.Fprintln(out, "---")
+	}
 
 	// Commits
 	if len(ctx.Commits) > 0 {
@@ -321,10 +341,13 @@ func printGitContext(cmd *cobra.Command, ctx GitContext) {
 		for _, commit := range ctx.Commits {
 			fmt.Fprintf(out, "  %s %s\n", commit.SHA, commit.Message)
 		}
-	} else {
+	} else if !minimal {
 		fmt.Fprintln(out, "COMMITS: 0")
 	}
-	fmt.Fprintln(out, "---")
+
+	if !minimal {
+		fmt.Fprintln(out, "---")
+	}
 
 	// Remotes
 	if len(ctx.Remotes) > 0 {
@@ -332,13 +355,15 @@ func printGitContext(cmd *cobra.Command, ctx GitContext) {
 		for _, remote := range ctx.Remotes {
 			fmt.Fprintf(out, "  %s: %s\n", remote.Name, remote.FetchURL)
 		}
-	} else {
+	} else if !minimal {
 		fmt.Fprintln(out, "REMOTES: no remotes configured")
 	}
 
 	// Diff
 	if ctx.Diff != "" {
-		fmt.Fprintln(out, "---")
+		if !minimal {
+			fmt.Fprintln(out, "---")
+		}
 		fmt.Fprintln(out, "DIFF:")
 		fmt.Fprintln(out, ctx.Diff)
 	}
