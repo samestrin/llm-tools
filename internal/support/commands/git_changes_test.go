@@ -13,12 +13,12 @@ import (
 // TestParseGitStatus tests the porcelain format parsing logic
 func TestParseGitStatus(t *testing.T) {
 	tests := []struct {
-		name              string
-		gitOutput         string
-		includeUntracked  bool
-		stagedOnly        bool
-		expectedCount     int
-		expectedFiles     []string
+		name             string
+		gitOutput        string
+		includeUntracked bool
+		stagedOnly       bool
+		expectedCount    int
+		expectedFiles    []string
 	}{
 		{
 			name:             "basic modified files",

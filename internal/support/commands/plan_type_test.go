@@ -209,11 +209,11 @@ func TestPlanTypeValidation(t *testing.T) {
 // TestPlanTypeEnrichment tests enrichment data for all plan types
 func TestPlanTypeEnrichment(t *testing.T) {
 	tests := []struct {
-		planType                 string
-		expectedLabel            string
-		expectedIcon             string
-		expectedRequiresStories  bool
-		expectedWorkSource       string
+		planType                string
+		expectedLabel           string
+		expectedIcon            string
+		expectedRequiresStories bool
+		expectedWorkSource      string
 	}{
 		{"feature", "Feature Development", "✨", true, "user-stories"},
 		{"bugfix", "Bug Fix", "🐛", false, "tasks"},

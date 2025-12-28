@@ -8,11 +8,11 @@ import (
 
 func TestDetectStorageType(t *testing.T) {
 	tests := []struct {
-		name     string
-		path     string
-		want     StorageType
-		wantErr  bool
-		errType  string
+		name    string
+		path    string
+		want    StorageType
+		wantErr bool
+		errType string
 	}{
 		{"yaml extension", "/path/to/file.yaml", StorageTypeYAML, false, ""},
 		{"yml extension", "/path/to/file.yml", StorageTypeYAML, false, ""},

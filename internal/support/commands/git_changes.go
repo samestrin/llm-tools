@@ -11,11 +11,11 @@ import (
 )
 
 var (
-	gitChangesPath            string
+	gitChangesPath             string
 	gitChangesIncludeUntracked bool
-	gitChangesStagedOnly      bool
-	gitChangesJSON            bool
-	gitChangesMin             bool
+	gitChangesStagedOnly       bool
+	gitChangesJSON             bool
+	gitChangesMin              bool
 )
 
 // GitChangesResult holds the git changes detection result
