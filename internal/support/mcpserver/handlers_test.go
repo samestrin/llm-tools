@@ -115,12 +115,12 @@ func TestBuildJSONQueryArgs(t *testing.T) {
 func TestBuildCountArgs(t *testing.T) {
 	args := map[string]interface{}{
 		"mode":      "checkboxes",
-		"target":    "README.md",
+		"path":      "README.md",
 		"recursive": true,
 	}
 
 	got := buildCountArgs(args)
-	want := []string{"count", "--mode", "checkboxes", "README.md", "--recursive"}
+	want := []string{"count", "--mode", "checkboxes", "--path", "README.md", "--recursive"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildCountArgs() = %v, want %v", got, want)
@@ -592,7 +592,7 @@ func TestBuildArgsDispatcher(t *testing.T) {
 		{"multigrep", map[string]interface{}{"keywords": "a,b"}, 3},
 		{"analyze_deps", map[string]interface{}{"file": "f"}, 2},
 		{"detect", map[string]interface{}{}, 1},
-		{"count", map[string]interface{}{"mode": "lines", "target": "f"}, 4},
+		{"count", map[string]interface{}{"mode": "lines", "path": "f"}, 4},
 		{"summarize_dir", map[string]interface{}{"path": "p"}, 2},
 		{"deps", map[string]interface{}{"manifest": "m"}, 2},
 		{"git_context", map[string]interface{}{}, 1},
@@ -620,5 +620,116 @@ func TestBuildArgsUnknownCommand(t *testing.T) {
 	_, err := buildArgs("unknown_command", map[string]interface{}{})
 	if err == nil {
 		t.Error("Expected error for unknown command")
+	}
+}
+
+func TestNormalizeArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want map[string]interface{}
+	}{
+		{
+			name: "nil args",
+			args: nil,
+			want: nil,
+		},
+		{
+			name: "empty args",
+			args: map[string]interface{}{},
+			want: map[string]interface{}{},
+		},
+		{
+			name: "no aliases needed",
+			args: map[string]interface{}{"path": "/tmp", "recursive": true},
+			want: map[string]interface{}{"path": "/tmp", "recursive": true},
+		},
+		{
+			name: "target -> path alias",
+			args: map[string]interface{}{"target": "/tmp", "mode": "files"},
+			want: map[string]interface{}{"path": "/tmp", "mode": "files"},
+		},
+		{
+			name: "dir -> path alias",
+			args: map[string]interface{}{"dir": "/home", "depth": 3},
+			want: map[string]interface{}{"path": "/home", "depth": 3},
+		},
+		{
+			name: "template -> file alias",
+			args: map[string]interface{}{"template": "my.tmpl", "vars": map[string]interface{}{"x": 1}},
+			want: map[string]interface{}{"file": "my.tmpl", "vars": map[string]interface{}{"x": 1}},
+		},
+		{
+			name: "canonical takes precedence over alias",
+			args: map[string]interface{}{"path": "/correct", "target": "/ignored"},
+			want: map[string]interface{}{"path": "/correct", "target": "/ignored"},
+		},
+		{
+			name: "package -> manifest alias",
+			args: map[string]interface{}{"package": "package.json"},
+			want: map[string]interface{}{"manifest": "package.json"},
+		},
+		{
+			name: "regex -> pattern alias",
+			args: map[string]interface{}{"regex": "TODO.*"},
+			want: map[string]interface{}{"pattern": "TODO.*"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("normalizeArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeArgsIntegration(t *testing.T) {
+	// Test that aliases work end-to-end through buildArgs
+	tests := []struct {
+		name    string
+		command string
+		args    map[string]interface{}
+		wantArg string // Check that this argument appears in output
+	}{
+		{
+			name:    "count with target alias",
+			command: "count",
+			args:    map[string]interface{}{"mode": "checkboxes", "target": "/readme.md"},
+			wantArg: "--path",
+		},
+		{
+			name:    "tree with dir alias",
+			command: "tree",
+			args:    map[string]interface{}{"dir": "/src"},
+			wantArg: "--path",
+		},
+		{
+			name:    "template with template alias for file",
+			command: "template",
+			args:    map[string]interface{}{"template": "my.tmpl"},
+			wantArg: "my.tmpl",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildArgs(tt.command, tt.args)
+			if err != nil {
+				t.Fatalf("buildArgs() error = %v", err)
+			}
+			found := false
+			for _, arg := range got {
+				if arg == tt.wantArg {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("buildArgs() = %v, expected to contain %q", got, tt.wantArg)
+			}
+		})
 	}
 }

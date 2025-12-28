@@ -93,7 +93,7 @@ func TestToolSchemaRequiredFields(t *testing.T) {
 		"llm_support_template":         {"file"},
 		"llm_support_multigrep":        {"keywords"},
 		"llm_support_analyze_deps":     {"file"},
-		"llm_support_count":            {"mode", "target"},
+		"llm_support_count":            {"mode", "path"},
 		"llm_support_summarize_dir":    {"path"},
 		"llm_support_deps":             {"manifest"},
 		"llm_support_validate_plan":    {"path"},

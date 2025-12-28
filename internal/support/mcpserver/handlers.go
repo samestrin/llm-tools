@@ -9,6 +9,57 @@ import (
 	"time"
 )
 
+// paramAliases maps canonical parameter names to their accepted aliases.
+// This makes the MCP tools more forgiving when LLMs use alternative parameter names.
+var paramAliases = map[string][]string{
+	"path":     {"target", "file", "input", "dir", "directory"},
+	"file":     {"path", "input", "template"},
+	"manifest": {"path", "file", "package"},
+	"pattern":  {"regex", "search"},
+	"context":  {"prompt", "description"},
+}
+
+// normalizeArgs converts aliased parameter names to their canonical forms.
+// It returns a new map with normalized keys while preserving original values.
+func normalizeArgs(args map[string]interface{}) map[string]interface{} {
+	if args == nil {
+		return args
+	}
+
+	// Build set of canonical names (these should never be remapped)
+	canonicalNames := make(map[string]bool)
+	for canonical := range paramAliases {
+		canonicalNames[canonical] = true
+	}
+
+	// Build reverse lookup: alias -> canonical
+	// Skip aliases that are themselves canonical names to avoid conflicts
+	aliasToCanonical := make(map[string]string)
+	for canonical, aliases := range paramAliases {
+		for _, alias := range aliases {
+			// Don't add if alias is itself a canonical name (avoid conflicts)
+			if !canonicalNames[alias] {
+				aliasToCanonical[alias] = canonical
+			}
+		}
+	}
+
+	normalized := make(map[string]interface{})
+	for key, value := range args {
+		// Check if this key should be normalized
+		if canonical, isAlias := aliasToCanonical[key]; isAlias {
+			// Only normalize if canonical key not already present in input
+			if _, hasCanonical := args[canonical]; !hasCanonical {
+				normalized[canonical] = value
+				continue
+			}
+		}
+		normalized[key] = value
+	}
+
+	return normalized
+}
+
 // BinaryPath is the path to the llm-support binary
 var BinaryPath = "/usr/local/bin/llm-support"
 
@@ -50,6 +101,9 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 
 // buildArgs builds CLI arguments for the given tool
 func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
+	// Normalize parameter aliases before processing
+	args = normalizeArgs(args)
+
 	switch cmdName {
 	case "tree":
 		return buildTreeArgs(args), nil
@@ -257,8 +311,8 @@ func buildCountArgs(args map[string]interface{}) []string {
 	if mode, ok := args["mode"].(string); ok {
 		cmdArgs = append(cmdArgs, "--mode", mode)
 	}
-	if target, ok := args["target"].(string); ok {
-		cmdArgs = append(cmdArgs, target)
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
 	}
 	if getBool(args, "recursive") {
 		cmdArgs = append(cmdArgs, "--recursive")
