@@ -610,3 +610,96 @@ func TestContext_Clear_EmptyContext(t *testing.T) {
 		t.Fatalf("clear on empty context should not error: %v", err)
 	}
 }
+
+// =============================================================================
+// AC 03-01: init-temp Integration Tests
+// =============================================================================
+
+func TestContext_InitTempWorkflow(t *testing.T) {
+	// Simulate init-temp output by creating a temp directory
+	tempDir := t.TempDir()
+
+	// Step 1: Init context
+	stdout, _, err := runContextCmd(t, "init", "--dir", tempDir)
+	if err != nil {
+		t.Fatalf("context init failed: %v", err)
+	}
+	if !strings.Contains(stdout, "CONTEXT_FILE") {
+		t.Errorf("expected CONTEXT_FILE in output, got: %s", stdout)
+	}
+
+	// Step 2: Set a value
+	_, _, err = runContextCmd(t, "set", "--dir", tempDir, "MY_KEY", "my_value")
+	if err != nil {
+		t.Fatalf("context set failed: %v", err)
+	}
+
+	// Step 3: Get the value
+	stdout, _, err = runContextCmd(t, "get", "--dir", tempDir, "MY_KEY", "--min")
+	if err != nil {
+		t.Fatalf("context get failed: %v", err)
+	}
+	if strings.TrimSpace(stdout) != "my_value" {
+		t.Errorf("expected 'my_value', got: %q", stdout)
+	}
+
+	// Step 4: Verify context.env exists in temp directory
+	contextFile := filepath.Join(tempDir, "context.env")
+	if _, err := os.Stat(contextFile); os.IsNotExist(err) {
+		t.Error("context.env should exist in temp directory")
+	}
+}
+
+func TestContext_WorksWithAnyDirectory(t *testing.T) {
+	// Context should work with any valid directory, not just init-temp created ones
+	customDir := t.TempDir()
+
+	// Should work fine
+	_, _, err := runContextCmd(t, "init", "--dir", customDir)
+	if err != nil {
+		t.Fatalf("context init failed on custom directory: %v", err)
+	}
+}
+
+// =============================================================================
+// AC 03-02: Error Messages Tests
+// =============================================================================
+
+func TestContext_Init_ErrorMessageSuggestsInitTemp(t *testing.T) {
+	_, _, err := runContextCmd(t, "init", "--dir", "/nonexistent/directory/path")
+	if err == nil {
+		t.Fatal("expected error for nonexistent directory")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "init-temp") {
+		t.Errorf("error message should suggest init-temp, got: %s", errMsg)
+	}
+}
+
+func TestContext_Set_ErrorMessageSuggestsInitTemp(t *testing.T) {
+	_, _, err := runContextCmd(t, "set", "--dir", "/nonexistent/directory/path", "KEY", "value")
+	if err == nil {
+		t.Fatal("expected error for nonexistent directory")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "init") {
+		t.Errorf("error message should mention init, got: %s", errMsg)
+	}
+}
+
+func TestContext_Get_ErrorMessageForMissingFile(t *testing.T) {
+	tempDir := t.TempDir()
+	// Don't init, try to get directly
+
+	_, _, err := runContextCmd(t, "get", "--dir", tempDir, "KEY")
+	if err == nil {
+		t.Fatal("expected error for missing context file")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "context init") {
+		t.Errorf("error message should suggest context init, got: %s", errMsg)
+	}
+}

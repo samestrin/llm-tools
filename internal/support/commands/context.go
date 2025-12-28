@@ -75,7 +75,7 @@ Output:
 			// Verify directory exists
 			info, err := os.Stat(dir)
 			if os.IsNotExist(err) {
-				return fmt.Errorf("directory does not exist: %s", dir)
+				return fmt.Errorf("directory does not exist: %s (hint: use 'llm-support init-temp --name mycontext' to create a temp directory)", dir)
 			}
 			if err != nil {
 				return fmt.Errorf("error accessing directory: %w", err)
@@ -137,6 +137,11 @@ Examples:
 				return fmt.Errorf("--dir flag is required")
 			}
 
+			// Verify directory exists
+			if _, err := os.Stat(dir); os.IsNotExist(err) {
+				return fmt.Errorf("directory does not exist: %s (hint: use 'llm-support init-temp --name mycontext' to create a temp directory)", dir)
+			}
+
 			key := args[0]
 			value := args[1]
 
@@ -165,6 +170,9 @@ Examples:
 			// Append to file
 			f, err := os.OpenFile(contextFile, os.O_APPEND|os.O_WRONLY, 0644)
 			if err != nil {
+				if os.IsNotExist(err) {
+					return fmt.Errorf("context file not found: %s (hint: run 'llm-support context init --dir %s' first)", contextFile, dir)
+				}
 				return fmt.Errorf("failed to open context file: %w", err)
 			}
 			defer f.Close()
@@ -282,6 +290,9 @@ Examples:
 
 			values, err := parseContextFile(contextFile)
 			if err != nil {
+				if os.IsNotExist(err) {
+					return fmt.Errorf("context file not found (hint: run 'llm-support context init --dir %s' first)", dir)
+				}
 				return fmt.Errorf("failed to read context file: %w", err)
 			}
 
