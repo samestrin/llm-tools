@@ -288,6 +288,14 @@ Examples:
 			key := strings.ToUpper(args[0])
 			contextFile := filepath.Join(dir, "context.env")
 
+			// Acquire shared lock for read consistency
+			lockFile := contextFile + ".lock"
+			fileLock := flock.New(lockFile)
+			if err := fileLock.RLock(); err != nil {
+				return fmt.Errorf("failed to acquire read lock: %w", err)
+			}
+			defer fileLock.Unlock()
+
 			values, err := parseContextFile(contextFile)
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -353,6 +361,14 @@ Examples:
 
 			contextFile := filepath.Join(dir, "context.env")
 
+			// Acquire shared lock for read consistency
+			lockFile := contextFile + ".lock"
+			fileLock := flock.New(lockFile)
+			if err := fileLock.RLock(); err != nil {
+				return fmt.Errorf("failed to acquire read lock: %w", err)
+			}
+			defer fileLock.Unlock()
+
 			values, err := parseContextFile(contextFile)
 			if err != nil {
 				return fmt.Errorf("failed to read context file: %w", err)
@@ -407,6 +423,14 @@ Examples:
 			}
 
 			contextFile := filepath.Join(dir, "context.env")
+
+			// Acquire shared lock for read consistency
+			lockFile := contextFile + ".lock"
+			fileLock := flock.New(lockFile)
+			if err := fileLock.RLock(); err != nil {
+				return fmt.Errorf("failed to acquire read lock: %w", err)
+			}
+			defer fileLock.Unlock()
 
 			values, err := parseContextFile(contextFile)
 			if err != nil {
