@@ -192,6 +192,8 @@ func extractTypeFromFile(filePath string) (string, error) {
 			parts := strings.SplitN(line, ":", 2)
 			if len(parts) == 2 {
 				value := strings.TrimSpace(parts[1])
+				// Strip markdown formatting (bold, italic, etc.)
+				value = stripMarkdownFormatting(value)
 				if value != "" {
 					return value, nil
 				}
@@ -200,6 +202,26 @@ func extractTypeFromFile(filePath string) (string, error) {
 	}
 
 	return "", nil
+}
+
+// stripMarkdownFormatting removes common markdown formatting characters
+func stripMarkdownFormatting(s string) string {
+	// Remove bold/italic markers (**text** or __text__ or *text* or _text_)
+	result := s
+	// Strip leading/trailing ** or __
+	result = strings.TrimPrefix(result, "**")
+	result = strings.TrimSuffix(result, "**")
+	result = strings.TrimPrefix(result, "__")
+	result = strings.TrimSuffix(result, "__")
+	result = strings.TrimPrefix(result, "*")
+	result = strings.TrimSuffix(result, "*")
+	result = strings.TrimPrefix(result, "_")
+	result = strings.TrimSuffix(result, "_")
+	// Remove backticks
+	result = strings.TrimPrefix(result, "`")
+	result = strings.TrimSuffix(result, "`")
+	// Trim any remaining whitespace
+	return strings.TrimSpace(result)
 }
 
 // normalizePlanType normalizes the plan type to lowercase and standardized format

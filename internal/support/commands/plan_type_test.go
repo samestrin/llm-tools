@@ -102,6 +102,27 @@ func TestPlanTypeDetection(t *testing.T) {
 			expectedType:    "tech-debt",
 			expectWarning:   false,
 		},
+		{
+			name:            "markdown bold formatting",
+			metadataContent: "**Plan Type:** feature\n",
+			planContent:     "",
+			expectedType:    "feature",
+			expectWarning:   false,
+		},
+		{
+			name:            "markdown italic formatting",
+			metadataContent: "*Plan Type:* bugfix\n",
+			planContent:     "",
+			expectedType:    "bugfix",
+			expectWarning:   false,
+		},
+		{
+			name:            "backtick formatting",
+			metadataContent: "Plan Type: `tech-debt`\n",
+			planContent:     "",
+			expectedType:    "tech-debt",
+			expectWarning:   false,
+		},
 	}
 
 	for _, tt := range tests {
