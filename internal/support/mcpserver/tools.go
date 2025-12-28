@@ -520,5 +520,59 @@ func GetToolDefinitions() []ToolDefinition {
 				}
 			}`),
 		},
+
+		// 20. Plan type extraction
+		{
+			Name:        ToolPrefix + "plan_type",
+			Description: "Extract plan type from planning metadata files with rich type information. Supports feature, bugfix, test-remediation, tech-debt, and infrastructure types.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Plan directory path (default: current directory)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output (type only)"
+					}
+				}
+			}`),
+		},
+
+		// 21. Git changes detection
+		{
+			Name:        ToolPrefix + "git_changes",
+			Description: "Count and list git working tree changes with optional path filtering. Returns count and file list with support for filtering by path prefix, staged-only, and untracked inclusion.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Filter to files matching this path prefix"
+					},
+					"include_untracked": {
+						"type": "boolean",
+						"description": "Include untracked files (default: true)"
+					},
+					"staged_only": {
+						"type": "boolean",
+						"description": "Only show staged changes"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output (count only)"
+					}
+				}
+			}`),
+		},
 	}
 }

@@ -600,6 +600,8 @@ func TestBuildArgsDispatcher(t *testing.T) {
 		{"partition_work", map[string]interface{}{"stories": "s"}, 3},
 		{"repo_root", map[string]interface{}{}, 1},
 		{"extract_relevant", map[string]interface{}{"context": "c"}, 3},
+		{"plan_type", map[string]interface{}{}, 1},
+		{"git_changes", map[string]interface{}{}, 1},
 	}
 
 	for _, tt := range tests {
@@ -729,6 +731,102 @@ func TestNormalizeArgsIntegration(t *testing.T) {
 			}
 			if !found {
 				t.Errorf("buildArgs() = %v, expected to contain %q", got, tt.wantArg)
+			}
+		})
+	}
+}
+
+func TestBuildPlanTypeArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "empty",
+			args: map[string]interface{}{},
+			want: []string{"plan-type"},
+		},
+		{
+			name: "with path",
+			args: map[string]interface{}{"path": "/plan"},
+			want: []string{"plan-type", "--path", "/plan"},
+		},
+		{
+			name: "with json",
+			args: map[string]interface{}{"json": true},
+			want: []string{"plan-type", "--json"},
+		},
+		{
+			name: "with min",
+			args: map[string]interface{}{"min": true},
+			want: []string{"plan-type", "--min"},
+		},
+		{
+			name: "with all flags",
+			args: map[string]interface{}{"path": "/plan", "json": true, "min": true},
+			want: []string{"plan-type", "--path", "/plan", "--json", "--min"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildPlanTypeArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildPlanTypeArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildGitChangesArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "empty",
+			args: map[string]interface{}{},
+			want: []string{"git-changes"},
+		},
+		{
+			name: "with path",
+			args: map[string]interface{}{"path": ".planning/"},
+			want: []string{"git-changes", "--path", ".planning/"},
+		},
+		{
+			name: "exclude untracked",
+			args: map[string]interface{}{"include_untracked": false},
+			want: []string{"git-changes", "--include-untracked=false"},
+		},
+		{
+			name: "staged only",
+			args: map[string]interface{}{"staged_only": true},
+			want: []string{"git-changes", "--staged-only"},
+		},
+		{
+			name: "with json",
+			args: map[string]interface{}{"json": true},
+			want: []string{"git-changes", "--json"},
+		},
+		{
+			name: "with min",
+			args: map[string]interface{}{"min": true},
+			want: []string{"git-changes", "--min"},
+		},
+		{
+			name: "all options",
+			args: map[string]interface{}{"path": ".planning/", "include_untracked": false, "staged_only": true, "json": true, "min": true},
+			want: []string{"git-changes", "--path", ".planning/", "--include-untracked=false", "--staged-only", "--json", "--min"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildGitChangesArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildGitChangesArgs() = %v, want %v", got, tt.want)
 			}
 		})
 	}
