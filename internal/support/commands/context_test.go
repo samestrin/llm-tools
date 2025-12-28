@@ -339,3 +339,274 @@ func TestContext_Set_ConcurrentWritesSafe(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// AC 02-01: Value Retrieval (Get) Tests
+// =============================================================================
+
+func TestContext_Get_ExistingKey(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "MY_VAR", "test_value")
+
+	stdout, _, err := runContextCmd(t, "get", "--dir", tempDir, "MY_VAR")
+	if err != nil {
+		t.Fatalf("context get failed: %v", err)
+	}
+
+	if !strings.Contains(stdout, "MY_VAR: test_value") {
+		t.Errorf("expected 'MY_VAR: test_value', got: %s", stdout)
+	}
+}
+
+func TestContext_Get_MissingKeyWithDefault(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	stdout, _, err := runContextCmd(t, "get", "--dir", tempDir, "MISSING_VAR", "--default", "fallback")
+	if err != nil {
+		t.Fatalf("context get with default failed: %v", err)
+	}
+
+	if !strings.Contains(stdout, "MISSING_VAR: fallback") {
+		t.Errorf("expected 'MISSING_VAR: fallback', got: %s", stdout)
+	}
+}
+
+func TestContext_Get_MissingKeyNoDefault(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	_, _, err := runContextCmd(t, "get", "--dir", tempDir, "MISSING_VAR")
+	if err == nil {
+		t.Error("expected error for missing key without default")
+	}
+}
+
+func TestContext_Get_JsonOutput(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "MY_VAR", "test_value")
+
+	stdout, _, err := runContextCmd(t, "get", "--dir", tempDir, "MY_VAR", "--json")
+	if err != nil {
+		t.Fatalf("context get --json failed: %v", err)
+	}
+
+	if !strings.Contains(stdout, `"key"`) || !strings.Contains(stdout, `"MY_VAR"`) {
+		t.Errorf("expected JSON with key, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, `"value"`) || !strings.Contains(stdout, `"test_value"`) {
+		t.Errorf("expected JSON with value, got: %s", stdout)
+	}
+}
+
+func TestContext_Get_MinOutput(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "MY_VAR", "test_value")
+
+	stdout, _, err := runContextCmd(t, "get", "--dir", tempDir, "MY_VAR", "--min")
+	if err != nil {
+		t.Fatalf("context get --min failed: %v", err)
+	}
+
+	// Min output should be just the value
+	if strings.TrimSpace(stdout) != "test_value" {
+		t.Errorf("expected 'test_value', got: %q", stdout)
+	}
+}
+
+func TestContext_Get_LastValueWins(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "COUNTER", "1")
+	runContextCmd(t, "set", "--dir", tempDir, "COUNTER", "2")
+	runContextCmd(t, "set", "--dir", tempDir, "COUNTER", "3")
+
+	stdout, _, err := runContextCmd(t, "get", "--dir", tempDir, "COUNTER", "--min")
+	if err != nil {
+		t.Fatalf("context get failed: %v", err)
+	}
+
+	// Should get the last value
+	if strings.TrimSpace(stdout) != "3" {
+		t.Errorf("expected '3' (last value), got: %q", stdout)
+	}
+}
+
+// =============================================================================
+// AC 02-02: List All Values Tests
+// =============================================================================
+
+func TestContext_List_MultipleValues(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "VAR1", "A")
+	runContextCmd(t, "set", "--dir", tempDir, "VAR2", "B")
+
+	stdout, _, err := runContextCmd(t, "list", "--dir", tempDir)
+	if err != nil {
+		t.Fatalf("context list failed: %v", err)
+	}
+
+	if !strings.Contains(stdout, "VAR1") || !strings.Contains(stdout, "VAR2") {
+		t.Errorf("expected both variables in output, got: %s", stdout)
+	}
+}
+
+func TestContext_List_EmptyContext(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	stdout, _, err := runContextCmd(t, "list", "--dir", tempDir)
+	if err != nil {
+		t.Fatalf("context list on empty should not error: %v", err)
+	}
+
+	// Empty context should produce no output (or just whitespace)
+	trimmed := strings.TrimSpace(stdout)
+	if trimmed != "" {
+		t.Errorf("expected empty output for empty context, got: %q", stdout)
+	}
+}
+
+func TestContext_List_JsonOutput(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "VAR1", "A")
+	runContextCmd(t, "set", "--dir", tempDir, "VAR2", "B")
+
+	stdout, _, err := runContextCmd(t, "list", "--dir", tempDir, "--json")
+	if err != nil {
+		t.Fatalf("context list --json failed: %v", err)
+	}
+
+	if !strings.Contains(stdout, "{") || !strings.Contains(stdout, "}") {
+		t.Errorf("expected JSON object, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, `"VAR1"`) || !strings.Contains(stdout, `"VAR2"`) {
+		t.Errorf("expected both keys in JSON, got: %s", stdout)
+	}
+}
+
+func TestContext_List_DeduplicatesKeys(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "COUNTER", "1")
+	runContextCmd(t, "set", "--dir", tempDir, "COUNTER", "2")
+
+	stdout, _, err := runContextCmd(t, "list", "--dir", tempDir)
+	if err != nil {
+		t.Fatalf("context list failed: %v", err)
+	}
+
+	// Should only show COUNTER once with last value
+	count := strings.Count(stdout, "COUNTER")
+	if count != 1 {
+		t.Errorf("expected COUNTER to appear once (deduplicated), got %d times in: %s", count, stdout)
+	}
+}
+
+// =============================================================================
+// AC 02-03: Dump Shell-Sourceable Tests
+// =============================================================================
+
+func TestContext_Dump_ShellFormat(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "VAR1", "value1")
+
+	stdout, _, err := runContextCmd(t, "dump", "--dir", tempDir)
+	if err != nil {
+		t.Fatalf("context dump failed: %v", err)
+	}
+
+	// Should be shell-sourceable format
+	if !strings.Contains(stdout, "VAR1='value1'") {
+		t.Errorf("expected shell format VAR1='value1', got: %s", stdout)
+	}
+}
+
+func TestContext_Dump_EmptyContext(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	stdout, _, err := runContextCmd(t, "dump", "--dir", tempDir)
+	if err != nil {
+		t.Fatalf("context dump on empty should not error: %v", err)
+	}
+
+	trimmed := strings.TrimSpace(stdout)
+	if trimmed != "" {
+		t.Errorf("expected empty output for empty context, got: %q", stdout)
+	}
+}
+
+func TestContext_Dump_DeduplicatesKeys(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "VAR", "first")
+	runContextCmd(t, "set", "--dir", tempDir, "VAR", "second")
+
+	stdout, _, err := runContextCmd(t, "dump", "--dir", tempDir)
+	if err != nil {
+		t.Fatalf("context dump failed: %v", err)
+	}
+
+	// Should only have last value
+	if !strings.Contains(stdout, "VAR='second'") {
+		t.Errorf("expected VAR='second', got: %s", stdout)
+	}
+	if strings.Contains(stdout, "VAR='first'") {
+		t.Errorf("should not contain first value, got: %s", stdout)
+	}
+}
+
+// =============================================================================
+// AC 02-04: Clear Context Tests
+// =============================================================================
+
+func TestContext_Clear_RemovesAllValues(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "VAR1", "A")
+	runContextCmd(t, "set", "--dir", tempDir, "VAR2", "B")
+
+	_, _, err := runContextCmd(t, "clear", "--dir", tempDir)
+	if err != nil {
+		t.Fatalf("context clear failed: %v", err)
+	}
+
+	// List should now be empty
+	stdout, _, _ := runContextCmd(t, "list", "--dir", tempDir)
+	trimmed := strings.TrimSpace(stdout)
+	if trimmed != "" {
+		t.Errorf("expected empty list after clear, got: %q", stdout)
+	}
+}
+
+func TestContext_Clear_PreservesHeader(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "VAR1", "A")
+
+	runContextCmd(t, "clear", "--dir", tempDir)
+
+	// File should still have header
+	content, _ := os.ReadFile(filepath.Join(tempDir, "context.env"))
+	if !strings.Contains(string(content), "# llm-support context file") {
+		t.Errorf("header was not preserved after clear: %s", content)
+	}
+}
+
+func TestContext_Clear_EmptyContext(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	// Clear empty context should succeed (no-op)
+	_, _, err := runContextCmd(t, "clear", "--dir", tempDir)
+	if err != nil {
+		t.Fatalf("clear on empty context should not error: %v", err)
+	}
+}
