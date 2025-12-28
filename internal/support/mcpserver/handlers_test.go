@@ -831,3 +831,111 @@ func TestBuildGitChangesArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildContextArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "init operation",
+			args: map[string]interface{}{
+				"operation": "init",
+				"dir":       "/tmp/mycontext",
+			},
+			want: []string{"context", "init", "--dir", "/tmp/mycontext"},
+		},
+		{
+			name: "set operation",
+			args: map[string]interface{}{
+				"operation": "set",
+				"dir":       "/tmp/mycontext",
+				"key":       "MY_VAR",
+				"value":     "hello world",
+			},
+			want: []string{"context", "set", "--dir", "/tmp/mycontext", "MY_VAR", "hello world"},
+		},
+		{
+			name: "get operation",
+			args: map[string]interface{}{
+				"operation": "get",
+				"dir":       "/tmp/mycontext",
+				"key":       "MY_VAR",
+			},
+			want: []string{"context", "get", "--dir", "/tmp/mycontext", "MY_VAR"},
+		},
+		{
+			name: "get with default",
+			args: map[string]interface{}{
+				"operation": "get",
+				"dir":       "/tmp/mycontext",
+				"key":       "MISSING",
+				"default":   "fallback",
+			},
+			want: []string{"context", "get", "--dir", "/tmp/mycontext", "MISSING", "--default", "fallback"},
+		},
+		{
+			name: "get with json",
+			args: map[string]interface{}{
+				"operation": "get",
+				"dir":       "/tmp/mycontext",
+				"key":       "MY_VAR",
+				"json":      true,
+			},
+			want: []string{"context", "get", "--dir", "/tmp/mycontext", "MY_VAR", "--json"},
+		},
+		{
+			name: "get with min",
+			args: map[string]interface{}{
+				"operation": "get",
+				"dir":       "/tmp/mycontext",
+				"key":       "MY_VAR",
+				"min":       true,
+			},
+			want: []string{"context", "get", "--dir", "/tmp/mycontext", "MY_VAR", "--min"},
+		},
+		{
+			name: "list operation",
+			args: map[string]interface{}{
+				"operation": "list",
+				"dir":       "/tmp/mycontext",
+			},
+			want: []string{"context", "list", "--dir", "/tmp/mycontext"},
+		},
+		{
+			name: "list with json",
+			args: map[string]interface{}{
+				"operation": "list",
+				"dir":       "/tmp/mycontext",
+				"json":      true,
+			},
+			want: []string{"context", "list", "--dir", "/tmp/mycontext", "--json"},
+		},
+		{
+			name: "dump operation",
+			args: map[string]interface{}{
+				"operation": "dump",
+				"dir":       "/tmp/mycontext",
+			},
+			want: []string{"context", "dump", "--dir", "/tmp/mycontext"},
+		},
+		{
+			name: "clear operation",
+			args: map[string]interface{}{
+				"operation": "clear",
+				"dir":       "/tmp/mycontext",
+			},
+			want: []string{"context", "clear", "--dir", "/tmp/mycontext"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildContextArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildContextArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

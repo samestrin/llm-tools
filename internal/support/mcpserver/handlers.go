@@ -147,6 +147,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildPlanTypeArgs(args), nil
 	case "git_changes":
 		return buildGitChangesArgs(args), nil
+	case "context":
+		return buildContextArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -497,6 +499,49 @@ func buildGitChangesArgs(args map[string]interface{}) []string {
 	if getBool(args, "min") {
 		cmdArgs = append(cmdArgs, "--min")
 	}
+	return cmdArgs
+}
+
+func buildContextArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"context"}
+
+	// Get the operation (required)
+	operation, _ := args["operation"].(string)
+	cmdArgs = append(cmdArgs, operation)
+
+	// Add --dir flag (required)
+	if dir, ok := args["dir"].(string); ok {
+		cmdArgs = append(cmdArgs, "--dir", dir)
+	}
+
+	// Operation-specific arguments
+	switch operation {
+	case "set":
+		if key, ok := args["key"].(string); ok {
+			cmdArgs = append(cmdArgs, key)
+		}
+		if value, ok := args["value"].(string); ok {
+			cmdArgs = append(cmdArgs, value)
+		}
+	case "get":
+		if key, ok := args["key"].(string); ok {
+			cmdArgs = append(cmdArgs, key)
+		}
+		if defaultVal, ok := args["default"].(string); ok {
+			cmdArgs = append(cmdArgs, "--default", defaultVal)
+		}
+		if getBool(args, "json") {
+			cmdArgs = append(cmdArgs, "--json")
+		}
+		if getBool(args, "min") {
+			cmdArgs = append(cmdArgs, "--min")
+		}
+	case "list":
+		if getBool(args, "json") {
+			cmdArgs = append(cmdArgs, "--json")
+		}
+	}
+
 	return cmdArgs
 }
 
