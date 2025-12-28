@@ -11,7 +11,7 @@ import (
 // TestLLMSupportToolCount verifies the correct number of tools
 func TestLLMSupportToolCount(t *testing.T) {
 	tools := supportserver.GetToolDefinitions()
-	expected := 21
+	expected := 22
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-support tools, got %d", expected, len(tools))
 	}
@@ -122,6 +122,7 @@ func TestExpectedSupportToolNames(t *testing.T) {
 		"llm_support_highest",
 		"llm_support_plan_type",
 		"llm_support_git_changes",
+		"llm_support_context",
 	}
 
 	tools := supportserver.GetToolDefinitions()
