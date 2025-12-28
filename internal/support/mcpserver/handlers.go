@@ -143,6 +143,10 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildExtractRelevantArgs(args), nil
 	case "highest":
 		return buildHighestArgs(args), nil
+	case "plan_type":
+		return buildPlanTypeArgs(args), nil
+	case "git_changes":
+		return buildGitChangesArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -457,6 +461,41 @@ func buildHighestArgs(args map[string]interface{}) []string {
 	}
 	if getBool(args, "json") {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	return cmdArgs
+}
+
+func buildPlanTypeArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"plan-type"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	if getBool(args, "json") {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBool(args, "min") {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+	return cmdArgs
+}
+
+func buildGitChangesArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"git-changes"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	// Handle include_untracked - default is true, only add flag if explicitly false
+	if v, ok := args["include_untracked"].(bool); ok && !v {
+		cmdArgs = append(cmdArgs, "--include-untracked=false")
+	}
+	if getBool(args, "staged_only") {
+		cmdArgs = append(cmdArgs, "--staged-only")
+	}
+	if getBool(args, "json") {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBool(args, "min") {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }
