@@ -1,10 +1,12 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
 
@@ -47,23 +49,25 @@ type Candidate struct {
 }
 
 func runIdentifyCandidates(cmd *cobra.Command, args []string) error {
-	// Load tracking file
-	if !tracking.FileExists(candidatesFile) {
-		return fmt.Errorf("tracking file not found: %s", candidatesFile)
-	}
+	ctx := context.Background()
 
-	tf, err := tracking.LoadTrackingFile(candidatesFile)
+	// Get storage instance
+	store, err := GetStorageOrError(ctx, candidatesFile)
 	if err != nil {
-		return fmt.Errorf("failed to load tracking file: %w", err)
+		return err
+	}
+	defer store.Close()
+
+	// Get all entries and filter eligible ones (pending status, meets occurrence threshold)
+	entries, err := store.List(ctx, storage.ListFilter{
+		Status:         "pending",
+		MinOccurrences: candidatesMinOccurrences,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list entries: %w", err)
 	}
 
-	// Filter eligible entries (pending status, meets occurrence threshold)
-	var eligibleEntries []tracking.Entry
-	for _, entry := range tf.Entries {
-		if entry.Status == "pending" && entry.Occurrences >= candidatesMinOccurrences {
-			eligibleEntries = append(eligibleEntries, entry)
-		}
-	}
+	eligibleEntries := entries
 
 	if len(eligibleEntries) == 0 {
 		result := CandidatesResult{

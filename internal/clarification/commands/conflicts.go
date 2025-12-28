@@ -1,10 +1,12 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
 
@@ -53,18 +55,23 @@ type ConflictsResult struct {
 }
 
 func runDetectConflicts(cmd *cobra.Command, args []string) error {
-	// Load tracking file
-	if !tracking.FileExists(conflictsFile) {
-		return fmt.Errorf("tracking file not found: %s", conflictsFile)
-	}
+	ctx := context.Background()
 
-	tf, err := tracking.LoadTrackingFile(conflictsFile)
+	// Get storage instance
+	store, err := GetStorageOrError(ctx, conflictsFile)
 	if err != nil {
-		return fmt.Errorf("failed to load tracking file: %w", err)
+		return err
+	}
+	defer store.Close()
+
+	// Get all entries
+	entries, err := store.List(ctx, storage.ListFilter{})
+	if err != nil {
+		return fmt.Errorf("failed to list entries: %w", err)
 	}
 
 	// Need at least 2 entries to detect conflicts
-	if len(tf.Entries) < 2 {
+	if len(entries) < 2 {
 		result := ConflictsResult{
 			Status:        "no_conflicts",
 			Conflicts:     []Conflict{},
@@ -81,7 +88,7 @@ func runDetectConflicts(cmd *cobra.Command, args []string) error {
 	}
 
 	// Build prompt
-	prompt := buildConflictsPrompt(tf.Entries)
+	prompt := buildConflictsPrompt(entries)
 
 	// Call LLM
 	response, err := client.Complete(prompt, 30*time.Second)
@@ -105,7 +112,7 @@ func runDetectConflicts(cmd *cobra.Command, args []string) error {
 
 	// Build entry map for enrichment
 	entryMap := make(map[string]tracking.Entry)
-	for _, e := range tf.Entries {
+	for _, e := range entries {
 		entryMap[e.ID] = e
 	}
 

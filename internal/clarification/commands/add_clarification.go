@@ -1,11 +1,13 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/internal/clarification/utils"
 
@@ -56,15 +58,14 @@ type PotentialMatch struct {
 }
 
 func runAddClarification(cmd *cobra.Command, args []string) error {
-	// Load tracking file
-	if !tracking.FileExists(addFile) {
-		return fmt.Errorf("tracking file not found: %s", addFile)
-	}
+	ctx := context.Background()
 
-	tf, err := tracking.LoadTrackingFile(addFile)
+	// Get storage instance
+	store, err := GetStorageOrError(ctx, addFile)
 	if err != nil {
-		return fmt.Errorf("failed to load tracking file: %w", err)
+		return err
 	}
+	defer store.Close()
 
 	today := time.Now().Format("2006-01-02")
 	var result AddClarificationResult
@@ -72,7 +73,11 @@ func runAddClarification(cmd *cobra.Command, args []string) error {
 
 	// Check for similar questions if requested
 	if addCheckMatch && addQuestion != "" {
-		for _, entry := range tf.Entries {
+		entries, err := store.List(ctx, storage.ListFilter{})
+		if err != nil {
+			return fmt.Errorf("failed to list entries: %w", err)
+		}
+		for _, entry := range entries {
 			if isSimilarQuestion(entry.CanonicalQuestion, addQuestion) {
 				potentialMatches = append(potentialMatches, entry.ID)
 			}
@@ -82,32 +87,35 @@ func runAddClarification(cmd *cobra.Command, args []string) error {
 	// Update existing entry or create new
 	if addID != "" {
 		// Update existing entry
-		found := false
-		for i := range tf.Entries {
-			if tf.Entries[i].ID == addID {
-				// Update the entry
-				if addAnswer != "" {
-					tf.Entries[i].CurrentAnswer = addAnswer
-				}
-				tf.Entries[i].Occurrences++
-				tf.Entries[i].LastSeen = today
-				if addSprint != "" {
-					tf.Entries[i].SprintsSeen = appendUnique(tf.Entries[i].SprintsSeen, addSprint)
-				}
-				if len(addTags) > 0 {
-					tf.Entries[i].ContextTags = mergeUnique(tf.Entries[i].ContextTags, addTags)
-				}
-				result = AddClarificationResult{
-					Status:  "updated",
-					ID:      addID,
-					Message: "Entry updated successfully",
-				}
-				found = true
-				break
+		entry, err := store.Read(ctx, addID)
+		if err != nil {
+			if err == storage.ErrNotFound {
+				return fmt.Errorf("entry not found: %s", addID)
 			}
+			return fmt.Errorf("failed to read entry: %w", err)
 		}
-		if !found {
-			return fmt.Errorf("entry not found: %s", addID)
+
+		// Update the entry
+		if addAnswer != "" {
+			entry.CurrentAnswer = addAnswer
+		}
+		entry.Occurrences++
+		entry.LastSeen = today
+		if addSprint != "" {
+			entry.SprintsSeen = appendUnique(entry.SprintsSeen, addSprint)
+		}
+		if len(addTags) > 0 {
+			entry.ContextTags = mergeUnique(entry.ContextTags, addTags)
+		}
+
+		if err := store.Update(ctx, entry); err != nil {
+			return fmt.Errorf("failed to update entry: %w", err)
+		}
+
+		result = AddClarificationResult{
+			Status:  "updated",
+			ID:      addID,
+			Message: "Entry updated successfully",
 		}
 	} else {
 		// Create new entry
@@ -116,7 +124,7 @@ func runAddClarification(cmd *cobra.Command, args []string) error {
 		}
 
 		newID := utils.GenerateID(addQuestion)
-		entry := tracking.Entry{
+		entry := &tracking.Entry{
 			ID:                newID,
 			CanonicalQuestion: addQuestion,
 			CurrentAnswer:     addAnswer,
@@ -132,20 +140,16 @@ func runAddClarification(cmd *cobra.Command, args []string) error {
 		if len(addTags) > 0 {
 			entry.ContextTags = addTags
 		}
-		tf.Entries = append(tf.Entries, entry)
+
+		if err := store.Create(ctx, entry); err != nil {
+			return fmt.Errorf("failed to create entry: %w", err)
+		}
+
 		result = AddClarificationResult{
 			Status:  "created",
 			ID:      newID,
 			Message: "New entry created successfully",
 		}
-	}
-
-	// Update last_updated
-	tf.LastUpdated = today
-
-	// Save tracking file
-	if err := tracking.SaveTrackingFile(tf, addFile); err != nil {
-		return fmt.Errorf("failed to save tracking file: %w", err)
 	}
 
 	// Add potential matches to result

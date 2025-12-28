@@ -1,12 +1,14 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 
 	"github.com/spf13/cobra"
@@ -45,30 +47,23 @@ type PromoteResult struct {
 }
 
 func runPromoteClarification(cmd *cobra.Command, args []string) error {
-	// Load tracking file
-	if !tracking.FileExists(promoteFile) {
-		return fmt.Errorf("tracking file not found: %s", promoteFile)
-	}
+	ctx := context.Background()
 
-	tf, err := tracking.LoadTrackingFile(promoteFile)
+	// Get storage instance
+	store, err := GetStorageOrError(ctx, promoteFile)
 	if err != nil {
-		return fmt.Errorf("failed to load tracking file: %w", err)
+		return err
 	}
+	defer store.Close()
 
 	// Find entry by ID
-	var entryIndex = -1
-	for i, entry := range tf.Entries {
-		if entry.ID == promoteID {
-			entryIndex = i
-			break
+	entry, err := store.Read(ctx, promoteID)
+	if err != nil {
+		if err == storage.ErrNotFound {
+			return fmt.Errorf("entry not found: %s", promoteID)
 		}
+		return fmt.Errorf("failed to read entry: %w", err)
 	}
-
-	if entryIndex == -1 {
-		return fmt.Errorf("entry not found: %s", promoteID)
-	}
-
-	entry := &tf.Entries[entryIndex]
 
 	// Check if already promoted
 	if entry.Status == "promoted" && !promoteForce {
@@ -90,11 +85,10 @@ func runPromoteClarification(cmd *cobra.Command, args []string) error {
 	entry.Status = "promoted"
 	entry.PromotedTo = filepath.Base(targetPath)
 	entry.PromotedDate = today
-	tf.LastUpdated = today
 
-	// Save tracking file
-	if err := tracking.SaveTrackingFile(tf, promoteFile); err != nil {
-		return fmt.Errorf("failed to save tracking file: %w", err)
+	// Save updated entry
+	if err := store.Update(ctx, entry); err != nil {
+		return fmt.Errorf("failed to update entry: %w", err)
 	}
 
 	// Prepare result

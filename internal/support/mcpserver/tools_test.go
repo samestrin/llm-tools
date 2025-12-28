@@ -8,9 +8,9 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Verify we have exactly 18 tools
-	if len(tools) != 18 {
-		t.Errorf("Expected 18 tools, got %d", len(tools))
+	// Verify we have exactly 19 tools
+	if len(tools) != 19 {
+		t.Errorf("Expected 19 tools, got %d", len(tools))
 	}
 
 	// Verify all tools have the correct prefix
@@ -53,6 +53,7 @@ func TestGetToolDefinitions(t *testing.T) {
 		"llm_support_partition_work",
 		"llm_support_repo_root",
 		"llm_support_extract_relevant",
+		"llm_support_highest",
 	}
 
 	toolMap := make(map[string]bool)

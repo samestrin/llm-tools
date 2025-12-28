@@ -8,9 +8,9 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Verify we have exactly 8 tools
-	if len(tools) != 8 {
-		t.Errorf("Expected 8 tools, got %d", len(tools))
+	// Verify we have exactly 13 tools
+	if len(tools) != 13 {
+		t.Errorf("Expected 13 tools, got %d", len(tools))
 	}
 
 	// Verify all tools have the correct prefix
@@ -43,6 +43,11 @@ func TestGetToolDefinitions(t *testing.T) {
 		"llm_clarify_add",
 		"llm_clarify_promote",
 		"llm_clarify_list",
+		"llm_clarify_delete",
+		"llm_clarify_export",
+		"llm_clarify_import",
+		"llm_clarify_optimize",
+		"llm_clarify_reconcile",
 	}
 
 	toolMap := make(map[string]bool)
@@ -83,6 +88,11 @@ func TestToolSchemaRequiredFields(t *testing.T) {
 		"llm_clarify_add":              {"tracking_file", "question"},
 		"llm_clarify_promote":          {"tracking_file", "id", "target"},
 		"llm_clarify_list":             {"tracking_file"},
+		"llm_clarify_delete":           {"file", "id"},
+		"llm_clarify_export":           {"source", "output"},
+		"llm_clarify_import":           {"source", "target"},
+		"llm_clarify_optimize":         {"file"},
+		"llm_clarify_reconcile":        {"file", "project_root"},
 	}
 
 	for _, tool := range tools {

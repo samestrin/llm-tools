@@ -42,6 +42,7 @@ Complete documentation for all 32+ llm-support commands.
   - [report](#report)
   - [deps](#deps)
   - [git-context](#git-context)
+  - [highest](#highest)
 
 ---
 
@@ -1001,6 +1002,61 @@ llm-support repo-root
 llm-support repo-root --path ./src/components
 llm-support repo-root --validate
 llm-support repo-root --path /path/to/subdir --validate
+```
+
+---
+
+### highest
+
+Find the highest numbered directory or file in a path. Useful for determining the next plan number, sprint number, user story number, etc.
+
+```bash
+llm-support highest [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--path` | Directory to search in (default: ".") |
+| `--pattern` | Custom regex pattern (auto-detected if not provided) |
+| `--type` | Type to search: dir, file, both (default: both) |
+| `--prefix` | Filter to items starting with this prefix |
+| `--json` | Output as JSON |
+
+**Auto-detected Patterns by Directory Name:**
+| Directory | Pattern | Example Match |
+|-----------|---------|---------------|
+| plans, sprints | `^(\d+)\.(\d+)[-_]` | `115.0_feature` |
+| user-stories | `^(\d+)[-_]` | `01-story-name` |
+| acceptance-criteria | `^(\d+)[-_](\d+)[-_]` | `01-02-criteria` |
+| tasks | `^(?:task[-_])?(\d+)[-_]` | `task-01-name` |
+| technical-debt | `(?i)^td[-_](\d+)[-_]` | `td-22-item` |
+
+**Output Format:**
+```
+HIGHEST: 115.0
+NAME: 115.0_feature_name
+FULL_PATH: /path/to/115.0_feature_name
+NEXT: 116.0
+COUNT: 8
+```
+
+**Examples:**
+```bash
+# Find highest plan number
+llm-support highest --path .planning/plans --type dir
+
+# Find highest user story
+llm-support highest --path .planning/plans/X/user-stories --type file
+
+# Find highest AC for user story 01
+llm-support highest --path .planning/plans/X/acceptance-criteria --prefix "01-"
+
+# JSON output
+llm-support highest --path .planning/sprints/active --type dir --json
+
+# Custom pattern
+llm-support highest --path ./releases --pattern "^v(\d+)\.(\d+)"
 ```
 
 ---

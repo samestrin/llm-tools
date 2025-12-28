@@ -488,5 +488,37 @@ func GetToolDefinitions() []ToolDefinition {
 				"required": ["context"]
 			}`),
 		},
+
+		// 19. Find highest numbered directory/file
+		{
+			Name:        ToolPrefix + "highest",
+			Description: "Find highest numbered directory or file in a path. Returns HIGHEST (version), NAME, FULL_PATH, NEXT (incremented), COUNT. Auto-detects pattern based on directory context (plans, sprints, user-stories, acceptance-criteria, tasks, technical-debt).",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Directory to search in (default: current directory)"
+					},
+					"pattern": {
+						"type": "string",
+						"description": "Custom regex pattern with capture groups for version extraction"
+					},
+					"type": {
+						"type": "string",
+						"enum": ["dir", "file", "both"],
+						"description": "Type to search: dir, file, both (default: both)"
+					},
+					"prefix": {
+						"type": "string",
+						"description": "Filter to items starting with this prefix (e.g., '01-' for ACs in story 1)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					}
+				}
+			}`),
+		},
 	}
 }

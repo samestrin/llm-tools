@@ -39,6 +39,7 @@ Fast lookup for all commands with examples.
 | 31 | `repo-root` | Find git repo root | `llm-support repo-root --validate` |
 | 32 | `report` | Generate reports | `llm-support report --template report.md` |
 | 33 | `deps` | Show dependencies | `llm-support deps package.json` |
+| 34 | `highest` | Find highest numbered dir/file | `llm-support highest --path .planning/plans` |
 
 ---
 
@@ -532,6 +533,37 @@ llm-support repo-root --path /some/subdir --validate
 
 **Output fields:** ROOT, VALID (with --validate)
 
+### highest - Find Highest Numbered Item
+
+```bash
+# Find highest plan number
+llm-support highest --path .planning/plans
+
+# Find highest sprint
+llm-support highest --path .planning/sprints --type dir
+
+# Find highest user story
+llm-support highest --path .planning/plans/1.0_feature/user-stories
+
+# Find highest AC for a specific user story (use --prefix)
+llm-support highest --path .planning/plans/1.0_feature/acceptance-criteria --prefix "01-"
+
+# Custom pattern
+llm-support highest --path ./releases --pattern "^v(\\d+)\\.(\\d+)"
+
+# JSON output
+llm-support highest --path .planning/plans --json
+```
+
+**Auto-detected patterns by directory:**
+- `plans/sprints`: `^(\d+)\.(\d+)[-_]` → extracts "115.0"
+- `user-stories`: `^(\d+)[-_]` → extracts "01"
+- `acceptance-criteria`: `^(\d+)[-_](\d+)[-_]` → extracts "01-02"
+- `tasks`: `^(?:task[-_])?(\d+)[-_]` → extracts "01"
+- `technical-debt`: `(?i)^td[-_](\d+)[-_]` → extracts "22"
+
+**Output fields:** HIGHEST, NAME, FULL_PATH, NEXT, COUNT
+
 ---
 
 ## Flag Reference
@@ -609,10 +641,13 @@ llm-support template deploy.tpl --env -o deploy.sh
 
 # Find git repo root
 llm-support repo-root --validate
+
+# Find highest plan number and next
+llm-support highest --path .planning/plans --json
 ```
 
 ---
 
-**Version:** 1.0.0 | **Go:** 1.22+ | **License:** MIT
+**Version:** 1.1.0 | **Go:** 1.22+ | **License:** MIT
 
 See [README.md](../README.md) for full documentation.

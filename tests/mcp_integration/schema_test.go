@@ -11,7 +11,7 @@ import (
 // TestLLMSupportToolCount verifies the correct number of tools
 func TestLLMSupportToolCount(t *testing.T) {
 	tools := supportserver.GetToolDefinitions()
-	expected := 18
+	expected := 19
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-support tools, got %d", expected, len(tools))
 	}
@@ -20,7 +20,7 @@ func TestLLMSupportToolCount(t *testing.T) {
 // TestLLMClarificationToolCount verifies the correct number of tools
 func TestLLMClarificationToolCount(t *testing.T) {
 	tools := clarifyserver.GetToolDefinitions()
-	expected := 8
+	expected := 13
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-clarification tools, got %d", expected, len(tools))
 	}
@@ -119,6 +119,7 @@ func TestExpectedSupportToolNames(t *testing.T) {
 		"llm_support_partition_work",
 		"llm_support_repo_root",
 		"llm_support_extract_relevant",
+		"llm_support_highest",
 	}
 
 	tools := supportserver.GetToolDefinitions()
@@ -145,6 +146,11 @@ func TestExpectedClarifyToolNames(t *testing.T) {
 		"llm_clarify_add",
 		"llm_clarify_promote",
 		"llm_clarify_list",
+		"llm_clarify_delete",
+		"llm_clarify_export",
+		"llm_clarify_import",
+		"llm_clarify_optimize",
+		"llm_clarify_reconcile",
 	}
 
 	tools := clarifyserver.GetToolDefinitions()
