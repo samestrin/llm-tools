@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2025-12-27
+
+### Added
+- **Parameter alias normalization system** for MCP tools - LLMs can now use alternative parameter names and they'll be automatically normalized to canonical names:
+  - `target`, `dir`, `directory`, `input` → `path`
+  - `template` → `file`
+  - `package` → `manifest`
+  - `regex`, `search` → `pattern`
+  - `prompt`, `description` → `context`
+- Canonical parameters always take precedence over aliases when both are provided
+
+### Changed
+- **Aligned MCP schema parameter names with CLI flags** - `llm_support_count` now uses `path` parameter (was `target`) for consistency with other tools
+
+### Fixed
+- **`llm_support_count` MCP tool** now correctly passes `--path` flag to CLI (was passing as positional argument, causing "required flag 'path' not set" errors)
+
 ## [1.0.1] - 2025-12-27
 
 ### Changed
@@ -126,6 +143,7 @@ Binary size: 14-15MB per platform.
 - OpenAI-compatible LLM API with retry and caching
 - Race-condition free (verified with `go test -race`)
 
-[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/samestrin/llm-tools/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/samestrin/llm-tools/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/samestrin/llm-tools/releases/tag/v1.0.0

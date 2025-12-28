@@ -281,7 +281,7 @@ func GetToolDefinitions() []ToolDefinition {
 						"enum": ["checkboxes", "lines", "files"],
 						"description": "What to count"
 					},
-					"target": {
+					"path": {
 						"type": "string",
 						"description": "File or directory to analyze"
 					},
@@ -294,7 +294,7 @@ func GetToolDefinitions() []ToolDefinition {
 						"description": "Glob pattern (for files mode)"
 					}
 				},
-				"required": ["mode", "target"]
+				"required": ["mode", "path"]
 			}`),
 		},
 
