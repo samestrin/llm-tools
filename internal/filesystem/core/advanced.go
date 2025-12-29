@@ -1,0 +1,616 @@
+package core
+
+import (
+	"archive/tar"
+	"archive/zip"
+	"compress/gzip"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+// DiskUsageOptions contains input parameters for GetDiskUsage
+type DiskUsageOptions struct {
+	Path        string
+	AllowedDirs []string
+}
+
+// DiskUsageResult represents disk usage information
+type DiskUsageResult struct {
+	Path       string `json:"path"`
+	TotalSize  int64  `json:"total_size"`
+	TotalFiles int    `json:"total_files"`
+	TotalDirs  int    `json:"total_dirs"`
+}
+
+// GetDiskUsage calculates disk usage for a path
+func GetDiskUsage(opts DiskUsageOptions) (*DiskUsageResult, error) {
+	if opts.Path == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+
+	normalizedPath, err := NormalizePath(opts.Path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+
+	var totalSize int64
+	var totalFiles, totalDirs int
+
+	err = filepath.Walk(normalizedPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			totalDirs++
+		} else {
+			totalFiles++
+			totalSize += info.Size()
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate disk usage: %w", err)
+	}
+
+	return &DiskUsageResult{
+		Path:       normalizedPath,
+		TotalSize:  totalSize,
+		TotalFiles: totalFiles,
+		TotalDirs:  totalDirs,
+	}, nil
+}
+
+// LargeFileInfo represents a large file found
+type LargeFileInfo struct {
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"mod_time"`
+}
+
+// FindLargeFilesOptions contains input parameters for FindLargeFiles
+type FindLargeFilesOptions struct {
+	Path        string
+	MinSize     int64
+	Limit       int
+	AllowedDirs []string
+}
+
+// FindLargeFilesResult represents find large files result
+type FindLargeFilesResult struct {
+	Path    string          `json:"path"`
+	MinSize int64           `json:"min_size"`
+	Files   []LargeFileInfo `json:"files"`
+	Total   int             `json:"total"`
+}
+
+// FindLargeFiles finds files larger than a minimum size
+func FindLargeFiles(opts FindLargeFilesOptions) (*FindLargeFilesResult, error) {
+	if opts.Path == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+
+	normalizedPath, err := NormalizePath(opts.Path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+
+	limit := opts.Limit
+	if limit == 0 {
+		limit = 100
+	}
+
+	var files []LargeFileInfo
+
+	err = filepath.Walk(normalizedPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if info.Size() >= opts.MinSize {
+			files = append(files, LargeFileInfo{
+				Path:    path,
+				Size:    info.Size(),
+				ModTime: info.ModTime().Format("2006-01-02T15:04:05Z07:00"),
+			})
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to find large files: %w", err)
+	}
+
+	// Sort by size descending
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Size > files[j].Size
+	})
+
+	// Apply limit
+	if limit > 0 && len(files) > limit {
+		files = files[:limit]
+	}
+
+	return &FindLargeFilesResult{
+		Path:    normalizedPath,
+		MinSize: opts.MinSize,
+		Files:   files,
+		Total:   len(files),
+	}, nil
+}
+
+// CompressFilesOptions contains input parameters for CompressFiles
+type CompressFilesOptions struct {
+	Paths       []string
+	Output      string
+	Format      string
+	AllowedDirs []string
+}
+
+// CompressResult represents compression result
+type CompressResult struct {
+	Output     string `json:"output"`
+	Format     string `json:"format"`
+	Size       int64  `json:"size"`
+	FilesAdded int    `json:"files_added"`
+	Success    bool   `json:"success"`
+}
+
+// CompressFiles compresses files into an archive
+func CompressFiles(opts CompressFilesOptions) (*CompressResult, error) {
+	if len(opts.Paths) == 0 {
+		return nil, fmt.Errorf("paths is required")
+	}
+	if opts.Output == "" {
+		return nil, fmt.Errorf("output is required")
+	}
+
+	format := opts.Format
+	if format == "" {
+		format = "zip"
+	}
+
+	normalizedOutput, err := NormalizePath(opts.Output)
+	if err != nil {
+		return nil, fmt.Errorf("invalid output path: %w", err)
+	}
+
+	if err := ValidatePath(normalizedOutput, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+
+	// Validate and normalize input paths
+	paths := make([]string, len(opts.Paths))
+	for i, p := range opts.Paths {
+		normalized, err := NormalizePath(p)
+		if err != nil {
+			return nil, fmt.Errorf("invalid path: %w", err)
+		}
+		if err := ValidatePath(normalized, opts.AllowedDirs); err != nil {
+			return nil, err
+		}
+		paths[i] = normalized
+	}
+
+	var filesAdded int
+	var archiveSize int64
+
+	switch format {
+	case "zip":
+		filesAdded, err = createZipArchive(paths, normalizedOutput)
+	case "tar.gz", "tgz":
+		filesAdded, err = createTarGzArchive(paths, normalizedOutput)
+	default:
+		return nil, fmt.Errorf("unsupported format: %s", format)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create archive: %w", err)
+	}
+
+	info, _ := os.Stat(normalizedOutput)
+	if info != nil {
+		archiveSize = info.Size()
+	}
+
+	return &CompressResult{
+		Output:     normalizedOutput,
+		Format:     format,
+		Size:       archiveSize,
+		FilesAdded: filesAdded,
+		Success:    true,
+	}, nil
+}
+
+func createZipArchive(paths []string, output string) (int, error) {
+	file, err := os.Create(output)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	zipWriter := zip.NewWriter(file)
+	defer zipWriter.Close()
+
+	count := 0
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+
+		if info.IsDir() {
+			filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() {
+					return nil
+				}
+				relPath, _ := filepath.Rel(filepath.Dir(path), filePath)
+				if err := addToZip(zipWriter, filePath, relPath); err != nil {
+					return nil
+				}
+				count++
+				return nil
+			})
+		} else {
+			if err := addToZip(zipWriter, path, filepath.Base(path)); err != nil {
+				continue
+			}
+			count++
+		}
+	}
+
+	return count, nil
+}
+
+func addToZip(zipWriter *zip.Writer, filePath, name string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	w, err := zipWriter.Create(name)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(w, file)
+	return err
+}
+
+func createTarGzArchive(paths []string, output string) (int, error) {
+	file, err := os.Create(output)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	gzipWriter := gzip.NewWriter(file)
+	defer gzipWriter.Close()
+
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+
+	count := 0
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+
+		if info.IsDir() {
+			filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() {
+					return nil
+				}
+				relPath, _ := filepath.Rel(filepath.Dir(path), filePath)
+				if err := addToTar(tarWriter, filePath, relPath); err != nil {
+					return nil
+				}
+				count++
+				return nil
+			})
+		} else {
+			if err := addToTar(tarWriter, path, filepath.Base(path)); err != nil {
+				continue
+			}
+			count++
+		}
+	}
+
+	return count, nil
+}
+
+func addToTar(tarWriter *tar.Writer, filePath, name string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
+	header := &tar.Header{
+		Name: name,
+		Mode: int64(info.Mode()),
+		Size: info.Size(),
+	}
+
+	if err := tarWriter.WriteHeader(header); err != nil {
+		return err
+	}
+
+	_, err = io.Copy(tarWriter, file)
+	return err
+}
+
+// ExtractArchiveOptions contains input parameters for ExtractArchive
+type ExtractArchiveOptions struct {
+	Archive     string
+	Destination string
+	AllowedDirs []string
+}
+
+// ExtractResult represents extraction result
+type ExtractResult struct {
+	Archive        string `json:"archive"`
+	Destination    string `json:"destination"`
+	FilesExtracted int    `json:"files_extracted"`
+	Success        bool   `json:"success"`
+}
+
+// ExtractArchive extracts an archive to a destination
+func ExtractArchive(opts ExtractArchiveOptions) (*ExtractResult, error) {
+	if opts.Archive == "" {
+		return nil, fmt.Errorf("archive is required")
+	}
+	if opts.Destination == "" {
+		return nil, fmt.Errorf("destination is required")
+	}
+
+	normalizedArchive, err := NormalizePath(opts.Archive)
+	if err != nil {
+		return nil, fmt.Errorf("invalid archive path: %w", err)
+	}
+
+	normalizedDest, err := NormalizePath(opts.Destination)
+	if err != nil {
+		return nil, fmt.Errorf("invalid destination path: %w", err)
+	}
+
+	if err := ValidatePath(normalizedArchive, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+	if err := ValidatePath(normalizedDest, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+
+	// Create destination directory
+	if err := os.MkdirAll(normalizedDest, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	var filesExtracted int
+
+	// Detect format
+	if strings.HasSuffix(normalizedArchive, ".zip") {
+		filesExtracted, err = extractZip(normalizedArchive, normalizedDest)
+	} else if strings.HasSuffix(normalizedArchive, ".tar.gz") || strings.HasSuffix(normalizedArchive, ".tgz") {
+		filesExtracted, err = extractTarGz(normalizedArchive, normalizedDest)
+	} else {
+		return nil, fmt.Errorf("unsupported archive format")
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract archive: %w", err)
+	}
+
+	return &ExtractResult{
+		Archive:        normalizedArchive,
+		Destination:    normalizedDest,
+		FilesExtracted: filesExtracted,
+		Success:        true,
+	}, nil
+}
+
+func extractZip(archive, destination string) (int, error) {
+	reader, err := zip.OpenReader(archive)
+	if err != nil {
+		return 0, err
+	}
+	defer reader.Close()
+
+	count := 0
+	for _, file := range reader.File {
+		path := filepath.Join(destination, file.Name)
+
+		// Prevent zip slip vulnerability
+		if !strings.HasPrefix(path, filepath.Clean(destination)+string(os.PathSeparator)) {
+			continue
+		}
+
+		if file.FileInfo().IsDir() {
+			os.MkdirAll(path, file.Mode())
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			continue
+		}
+
+		rc, err := file.Open()
+		if err != nil {
+			continue
+		}
+
+		outFile, err := os.Create(path)
+		if err != nil {
+			rc.Close()
+			continue
+		}
+
+		io.Copy(outFile, rc)
+		outFile.Close()
+		rc.Close()
+		count++
+	}
+
+	return count, nil
+}
+
+func extractTarGz(archive, destination string) (int, error) {
+	file, err := os.Open(archive)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return 0, err
+	}
+	defer gzipReader.Close()
+
+	tarReader := tar.NewReader(gzipReader)
+	count := 0
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return count, err
+		}
+
+		path := filepath.Join(destination, header.Name)
+
+		// Prevent tar slip vulnerability
+		if !strings.HasPrefix(path, filepath.Clean(destination)+string(os.PathSeparator)) {
+			continue
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			os.MkdirAll(path, os.FileMode(header.Mode))
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				continue
+			}
+			outFile, err := os.Create(path)
+			if err != nil {
+				continue
+			}
+			io.Copy(outFile, tarReader)
+			outFile.Close()
+			count++
+		}
+	}
+
+	return count, nil
+}
+
+// SyncDirectoriesOptions contains input parameters for SyncDirectories
+type SyncDirectoriesOptions struct {
+	Source      string
+	Destination string
+	AllowedDirs []string
+}
+
+// SyncResult represents sync result
+type SyncResult struct {
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+	FilesCopied int    `json:"files_copied"`
+	DirsCreated int    `json:"dirs_created"`
+	Success     bool   `json:"success"`
+}
+
+// SyncDirectories synchronizes two directories
+func SyncDirectories(opts SyncDirectoriesOptions) (*SyncResult, error) {
+	if opts.Source == "" {
+		return nil, fmt.Errorf("source is required")
+	}
+	if opts.Destination == "" {
+		return nil, fmt.Errorf("destination is required")
+	}
+
+	normalizedSrc, err := NormalizePath(opts.Source)
+	if err != nil {
+		return nil, fmt.Errorf("invalid source path: %w", err)
+	}
+
+	normalizedDst, err := NormalizePath(opts.Destination)
+	if err != nil {
+		return nil, fmt.Errorf("invalid destination path: %w", err)
+	}
+
+	if err := ValidatePath(normalizedSrc, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+	if err := ValidatePath(normalizedDst, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+
+	var filesCopied, dirsCreated int
+
+	err = filepath.Walk(normalizedSrc, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		relPath, _ := filepath.Rel(normalizedSrc, path)
+		dstPath := filepath.Join(normalizedDst, relPath)
+
+		if info.IsDir() {
+			if err := os.MkdirAll(dstPath, info.Mode()); err != nil {
+				return nil
+			}
+			dirsCreated++
+		} else {
+			if err := copyFile(dstPath, path); err != nil {
+				return nil
+			}
+			filesCopied++
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to sync directories: %w", err)
+	}
+
+	return &SyncResult{
+		Source:      normalizedSrc,
+		Destination: normalizedDst,
+		FilesCopied: filesCopied,
+		DirsCreated: dirsCreated,
+		Success:     true,
+	}, nil
+}
+
+// ListAllowedDirectoriesResult represents the allowed directories
+type ListAllowedDirectoriesResult struct {
+	AllowedDirectories []string `json:"allowed_directories"`
+}
+
+// ListAllowedDirectories returns the list of allowed directories
+func ListAllowedDirectories(allowedDirs []string) *ListAllowedDirectoriesResult {
+	return &ListAllowedDirectoriesResult{
+		AllowedDirectories: allowedDirs,
+	}
+}

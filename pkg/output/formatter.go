@@ -156,11 +156,10 @@ func (f *Formatter) processStruct(val reflect.Value) map[string]interface{} {
 			}
 		}
 
-		// Check if value is empty
-		if f.isEmpty(field) {
-			if omitEmpty || f.Minimal {
-				continue
-			}
+		// Check if value is empty - only skip if field has omitempty tag
+		// (minimal mode abbreviates keys but shouldn't omit meaningful zero values)
+		if f.isEmpty(field) && omitEmpty {
+			continue
 		}
 
 		// Abbreviate key name
@@ -183,9 +182,9 @@ func (f *Formatter) processMap(val reflect.Value) map[string]interface{} {
 		keyStr := fmt.Sprintf("%v", key.Interface())
 		value := val.MapIndex(key)
 
-		if f.isEmpty(value) && f.Minimal {
-			continue
-		}
+		// Maps don't have omitempty tags, so don't skip zero values
+		// (they may be semantically meaningful like count=0)
+		_ = f.Minimal // minimal mode only abbreviates keys for maps
 
 		// Abbreviate key name
 		abbrevKey := keyStr

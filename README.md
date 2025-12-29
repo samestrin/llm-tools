@@ -85,6 +85,8 @@ Recommended: [Download the latest binary](https://github.com/samestrin/llm-tools
 ```bash
 go install github.com/samestrin/llm-tools/cmd/llm-support@latest
 go install github.com/samestrin/llm-tools/cmd/llm-clarification@latest
+go install github.com/samestrin/llm-tools/cmd/llm-filesystem@latest
+go install github.com/samestrin/llm-tools/cmd/llm-semantic@latest
 ```
 
 ## 💡 Common Recipes
@@ -135,6 +137,8 @@ Detailed references for all 40+ commands:
 
 *   **[llm-support Commands](docs/llm-support-commands.md)** - File ops, search, analysis, and data processing.
 *   **[llm-clarification Commands](docs/llm-clarification-commands.md)** - Long-term memory and decision tracking system.
+*   **[llm-filesystem Commands](docs/llm-filesystem-commands.md)** - High-performance filesystem operations (27 commands).
+*   **[llm-semantic Commands](docs/llm-semantic-commands.md)** - Semantic code search with local embeddings.
 *   **[MCP Setup Guide](docs/MCP_SETUP.md)** - Integration with Claude Desktop & Gemini.
 *   **[Quick Reference](docs/quick-reference.md)** - Cheat sheet.
 
