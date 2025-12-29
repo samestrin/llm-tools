@@ -80,48 +80,19 @@ func (s *Server) handleListAllowedDirectories(args map[string]interface{}) (stri
 // handleCreateDirectory - implemented in write.go
 // handleListDirectory - implemented in directory.go
 // handleGetDirectoryTree - implemented in directory.go
-
-func (s *Server) handleSearchFiles(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_search_files")
-}
-
-func (s *Server) handleSearchCode(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_search_code")
-}
-
-func (s *Server) handleEditBlock(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_edit_block")
-}
-
-func (s *Server) handleSafeEdit(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_safe_edit")
-}
-
-func (s *Server) handleEditMultipleBlocks(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_edit_multiple_blocks")
-}
-
-func (s *Server) handleEditBlocks(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_edit_blocks")
-}
-
+// handleSearchFiles - implemented in search.go
+// handleSearchCode - implemented in search.go
+// handleEditBlock - implemented in edit.go
+// handleSafeEdit - implemented in edit.go
+// handleEditMultipleBlocks - implemented in edit.go
+// handleEditBlocks - implemented in edit.go
 // handleExtractLines - implemented in read.go
-
-func (s *Server) handleCopyFile(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_copy_file")
-}
-
-func (s *Server) handleMoveFile(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_move_file")
-}
-
-func (s *Server) handleDeleteFile(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_delete_file")
-}
-
-func (s *Server) handleBatchFileOperations(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_batch_file_operations")
-}
+// handleEditFile - implemented in edit.go
+// handleSearchAndReplace - implemented in edit.go
+// handleCopyFile - implemented in fileops.go
+// handleMoveFile - implemented in fileops.go
+// handleDeleteFile - implemented in fileops.go
+// handleBatchFileOperations - implemented in fileops.go
 
 func (s *Server) handleGetDiskUsage(args map[string]interface{}) (string, error) {
 	return "", fmt.Errorf("not implemented: fast_get_disk_usage")
@@ -141,12 +112,4 @@ func (s *Server) handleExtractArchive(args map[string]interface{}) (string, erro
 
 func (s *Server) handleSyncDirectories(args map[string]interface{}) (string, error) {
 	return "", fmt.Errorf("not implemented: fast_sync_directories")
-}
-
-func (s *Server) handleEditFile(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_edit_file")
-}
-
-func (s *Server) handleSearchAndReplace(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_search_and_replace")
 }
