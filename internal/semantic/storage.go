@@ -59,4 +59,3 @@ type Storage interface {
 	// Close releases any resources held by the storage
 	Close() error
 }
-

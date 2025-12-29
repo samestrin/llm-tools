@@ -62,20 +62,15 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 		return fmt.Errorf("semantic index not found. Run 'llm-semantic index' first")
 	}
 
-	// Open storage
-	storage, err := semantic.NewSQLiteStorage(indexPath, 0)
+	// Open storage based on --storage flag
+	storage, err := createStorage(indexPath, 0)
 	if err != nil {
 		return fmt.Errorf("failed to open index: %w", err)
 	}
 	defer storage.Close()
 
-	// Create embedder
-	cfg := semantic.EmbedderConfig{
-		APIURL: apiURL,
-		Model:  model,
-		APIKey: getAPIKey(),
-	}
-	embedder, err := semantic.NewEmbedder(cfg)
+	// Create embedder based on --embedder flag
+	embedder, err := createEmbedder()
 	if err != nil {
 		return fmt.Errorf("failed to create embedder: %w", err)
 	}
