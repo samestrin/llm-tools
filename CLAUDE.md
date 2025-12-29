@@ -11,7 +11,9 @@ go build -o build/llm-support-mcp ./cmd/llm-support-mcp && \
 go build -o build/llm-clarification ./cmd/llm-clarification && \
 go build -o build/llm-clarification-mcp ./cmd/llm-clarification-mcp && \
 go build -o build/llm-filesystem ./cmd/llm-filesystem && \
-go build -o build/llm-semantic ./cmd/llm-semantic
+go build -o build/llm-filesystem-mcp ./cmd/llm-filesystem-mcp && \
+go build -o build/llm-semantic ./cmd/llm-semantic && \
+go build -o build/llm-semantic-mcp ./cmd/llm-semantic-mcp
 ```
 
 ## Install
