@@ -167,18 +167,32 @@ func TestBuildMultigrepArgs(t *testing.T) {
 }
 
 func TestBuildGitContextArgs(t *testing.T) {
+	// With explicit json=true, min=true (the defaults)
 	args := map[string]interface{}{
 		"path":         "/repo",
 		"include_diff": true,
 		"max_commits":  float64(5),
 		"json":         true,
+		"min":          true,
 	}
 
 	got := buildGitContextArgs(args)
-	want := []string{"git-context", "--path", "/repo", "--include-diff", "--max-commits", "5", "--json"}
+	want := []string{"git-context", "--path", "/repo", "--include-diff", "--max-commits", "5", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildGitContextArgs() = %v, want %v", got, want)
+	}
+
+	// Verify flags can be disabled
+	argsNoFlags := map[string]interface{}{
+		"path": "/repo",
+		"json": false,
+		"min":  false,
+	}
+	gotNoFlags := buildGitContextArgs(argsNoFlags)
+	wantNoFlags := []string{"git-context", "--path", "/repo"}
+	if !reflect.DeepEqual(gotNoFlags, wantNoFlags) {
+		t.Errorf("buildGitContextArgs(disabled) = %v, want %v", gotNoFlags, wantNoFlags)
 	}
 }
 
@@ -296,19 +310,24 @@ func TestBuildDiscoverTestsArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "empty",
+			name: "empty (defaults to json+min)",
 			args: map[string]interface{}{},
-			want: []string{"discover-tests"},
+			want: []string{"discover-tests", "--json", "--min"},
 		},
 		{
-			name: "with path",
+			name: "with path (defaults to json+min)",
 			args: map[string]interface{}{"path": "/project"},
-			want: []string{"discover-tests", "--path", "/project"},
+			want: []string{"discover-tests", "--path", "/project", "--json", "--min"},
 		},
 		{
-			name: "with json",
-			args: map[string]interface{}{"json": true},
-			want: []string{"discover-tests", "--json"},
+			name: "with json explicitly true",
+			args: map[string]interface{}{"json": true, "min": true},
+			want: []string{"discover-tests", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"json": false, "min": false},
+			want: []string{"discover-tests"},
 		},
 	}
 
@@ -329,14 +348,19 @@ func TestBuildAnalyzeDepsArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "basic",
+			name: "basic (defaults to json+min)",
 			args: map[string]interface{}{"file": "story.md"},
-			want: []string{"analyze-deps", "story.md"},
+			want: []string{"analyze-deps", "story.md", "--json", "--min"},
 		},
 		{
-			name: "with json",
-			args: map[string]interface{}{"file": "story.md", "json": true},
-			want: []string{"analyze-deps", "story.md", "--json"},
+			name: "with json explicitly true",
+			args: map[string]interface{}{"file": "story.md", "json": true, "min": true},
+			want: []string{"analyze-deps", "story.md", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"file": "story.md", "json": false, "min": false},
+			want: []string{"analyze-deps", "story.md"},
 		},
 	}
 
@@ -357,19 +381,19 @@ func TestBuildDetectArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "empty",
+			name: "empty (defaults to json+min)",
 			args: map[string]interface{}{},
-			want: []string{"detect"},
+			want: []string{"detect", "--json", "--min"},
 		},
 		{
-			name: "with path",
+			name: "with path (defaults to json+min)",
 			args: map[string]interface{}{"path": "/project"},
-			want: []string{"detect", "--path", "/project"},
+			want: []string{"detect", "--path", "/project", "--json", "--min"},
 		},
 		{
-			name: "with json",
-			args: map[string]interface{}{"json": true},
-			want: []string{"detect", "--json"},
+			name: "with json+min disabled",
+			args: map[string]interface{}{"json": false, "min": false},
+			want: []string{"detect"},
 		},
 	}
 
@@ -423,19 +447,19 @@ func TestBuildDepsArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "basic",
+			name: "basic (defaults to json+min)",
 			args: map[string]interface{}{"manifest": "package.json"},
-			want: []string{"deps", "package.json"},
+			want: []string{"deps", "package.json", "--json", "--min"},
 		},
 		{
-			name: "with type",
+			name: "with type (defaults to json+min)",
 			args: map[string]interface{}{"manifest": "package.json", "type": "prod"},
-			want: []string{"deps", "package.json", "--type", "prod"},
+			want: []string{"deps", "package.json", "--type", "prod", "--json", "--min"},
 		},
 		{
-			name: "with json",
-			args: map[string]interface{}{"manifest": "package.json", "json": true},
-			want: []string{"deps", "package.json", "--json"},
+			name: "with json+min disabled",
+			args: map[string]interface{}{"manifest": "package.json", "json": false, "min": false},
+			want: []string{"deps", "package.json"},
 		},
 	}
 
@@ -456,14 +480,19 @@ func TestBuildValidatePlanArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "basic",
+			name: "basic (defaults to json+min)",
 			args: map[string]interface{}{"path": "/plan"},
-			want: []string{"validate-plan", "--path", "/plan"},
+			want: []string{"validate-plan", "--path", "/plan", "--json", "--min"},
 		},
 		{
-			name: "with json",
-			args: map[string]interface{}{"path": "/plan", "json": true},
-			want: []string{"validate-plan", "--path", "/plan", "--json"},
+			name: "with json explicitly true",
+			args: map[string]interface{}{"path": "/plan", "json": true, "min": true},
+			want: []string{"validate-plan", "--path", "/plan", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"path": "/plan", "json": false, "min": false},
+			want: []string{"validate-plan", "--path", "/plan"},
 		},
 	}
 
@@ -484,19 +513,24 @@ func TestBuildPartitionWorkArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "with stories",
+			name: "with stories (defaults to json+min)",
 			args: map[string]interface{}{"stories": "/stories"},
-			want: []string{"partition-work", "--stories", "/stories"},
+			want: []string{"partition-work", "--stories", "/stories", "--json", "--min"},
 		},
 		{
-			name: "with tasks",
+			name: "with tasks (defaults to json+min)",
 			args: map[string]interface{}{"tasks": "/tasks"},
-			want: []string{"partition-work", "--tasks", "/tasks"},
+			want: []string{"partition-work", "--tasks", "/tasks", "--json", "--min"},
 		},
 		{
-			name: "with verbose and json",
-			args: map[string]interface{}{"stories": "/stories", "verbose": true, "json": true},
-			want: []string{"partition-work", "--stories", "/stories", "--verbose", "--json"},
+			name: "with verbose and json+min",
+			args: map[string]interface{}{"stories": "/stories", "verbose": true, "json": true, "min": true},
+			want: []string{"partition-work", "--stories", "/stories", "--verbose", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"stories": "/stories", "json": false, "min": false},
+			want: []string{"partition-work", "--stories", "/stories"},
 		},
 	}
 
@@ -550,19 +584,24 @@ func TestBuildExtractRelevantArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "basic",
+			name: "basic (defaults to json+min)",
 			args: map[string]interface{}{"context": "find auth code"},
-			want: []string{"extract-relevant", "--context", "find auth code"},
+			want: []string{"extract-relevant", "--context", "find auth code", "--json", "--min"},
 		},
 		{
-			name: "with path",
+			name: "with path (defaults to json+min)",
 			args: map[string]interface{}{"context": "query", "path": "/src"},
-			want: []string{"extract-relevant", "--path", "/src", "--context", "query"},
+			want: []string{"extract-relevant", "--path", "/src", "--context", "query", "--json", "--min"},
 		},
 		{
-			name: "with concurrency and timeout",
+			name: "with concurrency and timeout (defaults to json+min)",
 			args: map[string]interface{}{"context": "query", "concurrency": float64(4), "timeout": float64(30)},
-			want: []string{"extract-relevant", "--context", "query", "--concurrency", "4", "--timeout", "30"},
+			want: []string{"extract-relevant", "--context", "query", "--concurrency", "4", "--timeout", "30", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"context": "query", "json": false, "min": false},
+			want: []string{"extract-relevant", "--context", "query"},
 		},
 	}
 
@@ -577,6 +616,7 @@ func TestBuildExtractRelevantArgs(t *testing.T) {
 }
 
 func TestBuildArgsDispatcher(t *testing.T) {
+	// Note: Many commands now default to --json --min, so expected lengths are higher
 	tests := []struct {
 		command string
 		args    map[string]interface{}
@@ -588,20 +628,20 @@ func TestBuildArgsDispatcher(t *testing.T) {
 		{"json_query", map[string]interface{}{"file": "f", "query": "q"}, 4},
 		{"markdown_headers", map[string]interface{}{"file": "f"}, 3},
 		{"template", map[string]interface{}{"file": "f"}, 2},
-		{"discover_tests", map[string]interface{}{}, 1},
-		{"multigrep", map[string]interface{}{"keywords": "a,b"}, 3},
-		{"analyze_deps", map[string]interface{}{"file": "f"}, 2},
-		{"detect", map[string]interface{}{}, 1},
+		{"discover_tests", map[string]interface{}{}, 3},             // now includes --json --min
+		{"multigrep", map[string]interface{}{"keywords": "a,b"}, 5}, // now includes --json --min
+		{"analyze_deps", map[string]interface{}{"file": "f"}, 4},    // now includes --json --min
+		{"detect", map[string]interface{}{}, 3},                     // now includes --json --min
 		{"count", map[string]interface{}{"mode": "lines", "path": "f"}, 4},
 		{"summarize_dir", map[string]interface{}{"path": "p"}, 2},
-		{"deps", map[string]interface{}{"manifest": "m"}, 2},
-		{"git_context", map[string]interface{}{}, 1},
-		{"validate_plan", map[string]interface{}{"path": "p"}, 2},
-		{"partition_work", map[string]interface{}{"stories": "s"}, 3},
+		{"deps", map[string]interface{}{"manifest": "m"}, 4},          // now includes --json --min
+		{"git_context", map[string]interface{}{}, 3},                  // now includes --json --min
+		{"validate_plan", map[string]interface{}{"path": "p"}, 4},     // now includes --json --min
+		{"partition_work", map[string]interface{}{"stories": "s"}, 5}, // now includes --json --min
 		{"repo_root", map[string]interface{}{}, 1},
-		{"extract_relevant", map[string]interface{}{"context": "c"}, 3},
-		{"plan_type", map[string]interface{}{}, 1},
-		{"git_changes", map[string]interface{}{}, 1},
+		{"extract_relevant", map[string]interface{}{"context": "c"}, 5}, // now includes --json --min
+		{"plan_type", map[string]interface{}{}, 3},                      // now includes --json --min
+		{"git_changes", map[string]interface{}{}, 3},                    // now includes --json --min
 	}
 
 	for _, tt := range tests {
@@ -743,29 +783,24 @@ func TestBuildPlanTypeArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "empty",
+			name: "empty (defaults to json+min)",
 			args: map[string]interface{}{},
-			want: []string{"plan-type"},
+			want: []string{"plan-type", "--json", "--min"},
 		},
 		{
-			name: "with path",
+			name: "with path (defaults to json+min)",
 			args: map[string]interface{}{"path": "/plan"},
-			want: []string{"plan-type", "--path", "/plan"},
+			want: []string{"plan-type", "--path", "/plan", "--json", "--min"},
 		},
 		{
-			name: "with json",
-			args: map[string]interface{}{"json": true},
-			want: []string{"plan-type", "--json"},
-		},
-		{
-			name: "with min",
-			args: map[string]interface{}{"min": true},
-			want: []string{"plan-type", "--min"},
-		},
-		{
-			name: "with all flags",
+			name: "with all flags explicitly",
 			args: map[string]interface{}{"path": "/plan", "json": true, "min": true},
 			want: []string{"plan-type", "--path", "/plan", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"json": false, "min": false},
+			want: []string{"plan-type"},
 		},
 	}
 
@@ -786,39 +821,34 @@ func TestBuildGitChangesArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "empty",
+			name: "empty (defaults to json+min)",
 			args: map[string]interface{}{},
-			want: []string{"git-changes"},
+			want: []string{"git-changes", "--json", "--min"},
 		},
 		{
-			name: "with path",
+			name: "with path (defaults to json+min)",
 			args: map[string]interface{}{"path": ".planning/"},
-			want: []string{"git-changes", "--path", ".planning/"},
+			want: []string{"git-changes", "--path", ".planning/", "--json", "--min"},
 		},
 		{
-			name: "exclude untracked",
+			name: "exclude untracked (defaults to json+min)",
 			args: map[string]interface{}{"include_untracked": false},
-			want: []string{"git-changes", "--include-untracked=false"},
+			want: []string{"git-changes", "--include-untracked=false", "--json", "--min"},
 		},
 		{
-			name: "staged only",
+			name: "staged only (defaults to json+min)",
 			args: map[string]interface{}{"staged_only": true},
-			want: []string{"git-changes", "--staged-only"},
-		},
-		{
-			name: "with json",
-			args: map[string]interface{}{"json": true},
-			want: []string{"git-changes", "--json"},
-		},
-		{
-			name: "with min",
-			args: map[string]interface{}{"min": true},
-			want: []string{"git-changes", "--min"},
+			want: []string{"git-changes", "--staged-only", "--json", "--min"},
 		},
 		{
 			name: "all options",
 			args: map[string]interface{}{"path": ".planning/", "include_untracked": false, "staged_only": true, "json": true, "min": true},
 			want: []string{"git-changes", "--path", ".planning/", "--include-untracked=false", "--staged-only", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"json": false, "min": false},
+			want: []string{"git-changes"},
 		},
 	}
 
@@ -857,60 +887,52 @@ func TestBuildContextArgs(t *testing.T) {
 			want: []string{"context", "set", "--dir", "/tmp/mycontext", "MY_VAR", "hello world"},
 		},
 		{
-			name: "get operation",
+			name: "get operation (defaults to json+min)",
 			args: map[string]interface{}{
 				"operation": "get",
 				"dir":       "/tmp/mycontext",
 				"key":       "MY_VAR",
 			},
-			want: []string{"context", "get", "--dir", "/tmp/mycontext", "MY_VAR"},
+			want: []string{"context", "get", "--dir", "/tmp/mycontext", "MY_VAR", "--json", "--min"},
 		},
 		{
-			name: "get with default",
+			name: "get with default (defaults to json+min)",
 			args: map[string]interface{}{
 				"operation": "get",
 				"dir":       "/tmp/mycontext",
 				"key":       "MISSING",
 				"default":   "fallback",
 			},
-			want: []string{"context", "get", "--dir", "/tmp/mycontext", "MISSING", "--default", "fallback"},
+			want: []string{"context", "get", "--dir", "/tmp/mycontext", "MISSING", "--default", "fallback", "--json", "--min"},
 		},
 		{
-			name: "get with json",
+			name: "get with json+min disabled",
 			args: map[string]interface{}{
 				"operation": "get",
 				"dir":       "/tmp/mycontext",
 				"key":       "MY_VAR",
-				"json":      true,
+				"json":      false,
+				"min":       false,
 			},
-			want: []string{"context", "get", "--dir", "/tmp/mycontext", "MY_VAR", "--json"},
+			want: []string{"context", "get", "--dir", "/tmp/mycontext", "MY_VAR"},
 		},
 		{
-			name: "get with min",
-			args: map[string]interface{}{
-				"operation": "get",
-				"dir":       "/tmp/mycontext",
-				"key":       "MY_VAR",
-				"min":       true,
-			},
-			want: []string{"context", "get", "--dir", "/tmp/mycontext", "MY_VAR", "--min"},
-		},
-		{
-			name: "list operation",
+			name: "list operation (defaults to json+min)",
 			args: map[string]interface{}{
 				"operation": "list",
 				"dir":       "/tmp/mycontext",
+			},
+			want: []string{"context", "list", "--dir", "/tmp/mycontext", "--json", "--min"},
+		},
+		{
+			name: "list with json+min disabled",
+			args: map[string]interface{}{
+				"operation": "list",
+				"dir":       "/tmp/mycontext",
+				"json":      false,
+				"min":       false,
 			},
 			want: []string{"context", "list", "--dir", "/tmp/mycontext"},
-		},
-		{
-			name: "list with json",
-			args: map[string]interface{}{
-				"operation": "list",
-				"dir":       "/tmp/mycontext",
-				"json":      true,
-			},
-			want: []string{"context", "list", "--dir", "/tmp/mycontext", "--json"},
 		},
 		{
 			name: "dump operation",
