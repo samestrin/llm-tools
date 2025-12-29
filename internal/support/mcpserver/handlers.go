@@ -208,6 +208,12 @@ func buildMultiexistsArgs(args map[string]interface{}) []string {
 		cmdArgs = append(cmdArgs, "--verbose")
 	}
 	cmdArgs = append(cmdArgs, "--no-fail")
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
 	return cmdArgs
 }
 
@@ -339,6 +345,12 @@ func buildCountArgs(args map[string]interface{}) []string {
 	}
 	if pattern, ok := args["pattern"].(string); ok {
 		cmdArgs = append(cmdArgs, "--pattern", pattern)
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }

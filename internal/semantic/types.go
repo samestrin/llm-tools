@@ -1,0 +1,131 @@
+package semantic
+
+import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// ChunkType represents the type of code chunk
+type ChunkType int
+
+const (
+	ChunkFunction ChunkType = iota
+	ChunkMethod
+	ChunkStruct
+	ChunkInterface
+	ChunkFile
+)
+
+// String returns the string representation of ChunkType
+func (ct ChunkType) String() string {
+	switch ct {
+	case ChunkFunction:
+		return "function"
+	case ChunkMethod:
+		return "method"
+	case ChunkStruct:
+		return "struct"
+	case ChunkInterface:
+		return "interface"
+	case ChunkFile:
+		return "file"
+	default:
+		return "unknown"
+	}
+}
+
+// ParseChunkType parses a string into a ChunkType
+func ParseChunkType(s string) (ChunkType, error) {
+	switch strings.ToLower(s) {
+	case "function":
+		return ChunkFunction, nil
+	case "method":
+		return ChunkMethod, nil
+	case "struct":
+		return ChunkStruct, nil
+	case "interface":
+		return ChunkInterface, nil
+	case "file":
+		return ChunkFile, nil
+	default:
+		return ChunkFunction, fmt.Errorf("unknown chunk type: %q", s)
+	}
+}
+
+// MarshalJSON implements json.Marshaler for ChunkType
+func (ct ChunkType) MarshalJSON() ([]byte, error) {
+	return json.Marshal(ct.String())
+}
+
+// UnmarshalJSON implements json.Unmarshaler for ChunkType
+func (ct *ChunkType) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	parsed, err := ParseChunkType(s)
+	if err != nil {
+		return err
+	}
+	*ct = parsed
+	return nil
+}
+
+// Chunk represents a semantic unit of code (function, struct, etc.)
+type Chunk struct {
+	ID        string    `json:"id"`
+	FilePath  string    `json:"file_path"`
+	Type      ChunkType `json:"type"`
+	Name      string    `json:"name"`
+	Signature string    `json:"signature,omitempty"`
+	Content   string    `json:"content"`
+	StartLine int       `json:"start_line"`
+	EndLine   int       `json:"end_line"`
+	Language  string    `json:"language"`
+}
+
+// GenerateID creates a deterministic ID for the chunk based on its content
+func (c *Chunk) GenerateID() string {
+	data := fmt.Sprintf("%s:%s:%d", c.FilePath, c.Name, c.StartLine)
+	hash := sha256.Sum256([]byte(data))
+	return fmt.Sprintf("%x", hash[:8])
+}
+
+// SearchResult represents a chunk with its similarity score
+type SearchResult struct {
+	Chunk     Chunk     `json:"chunk"`
+	Score     float32   `json:"score"`
+	Embedding []float32 `json:"-"` // Not included in JSON output
+}
+
+// MinimalJSON returns a compact JSON representation for --min output
+func (sr SearchResult) MinimalJSON() string {
+	minimal := map[string]interface{}{
+		"f": sr.Chunk.FilePath,
+		"n": sr.Chunk.Name,
+		"l": sr.Chunk.StartLine,
+		"s": sr.Score,
+	}
+	data, _ := json.Marshal(minimal)
+	return string(data)
+}
+
+// IndexStats holds statistics about the semantic index
+type IndexStats struct {
+	FilesIndexed   int    `json:"files_indexed"`
+	ChunksTotal    int    `json:"chunks_total"`
+	EmbeddingModel string `json:"embedding_model"`
+	IndexSizeBytes int64  `json:"index_size_bytes"`
+	LastUpdated    string `json:"last_updated"`
+}
+
+// IndexHealth represents the health status of the index
+type IndexHealth struct {
+	Status        string     `json:"status"` // "healthy", "stale", "missing"
+	Stats         IndexStats `json:"stats"`
+	StaleFiles    int        `json:"stale_files"`
+	NewFiles      int        `json:"new_files"`
+	ModifiedFiles int        `json:"modified_files"`
+}
