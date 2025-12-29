@@ -149,6 +149,10 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildGitChangesArgs(args), nil
 	case "context":
 		return buildContextArgs(args), nil
+	case "context_multiset":
+		return buildContextMultiSetArgs(args), nil
+	case "context_multiget":
+		return buildContextMultiGetArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -618,4 +622,55 @@ func getInt(args map[string]interface{}, key string) (int, bool) {
 		return int(v), true
 	}
 	return 0, false
+}
+
+func buildContextMultiSetArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"context", "multiset"}
+
+	// Add --dir flag (required)
+	if dir, ok := args["dir"].(string); ok {
+		cmdArgs = append(cmdArgs, "--dir", dir)
+	}
+
+	// Convert pairs object to KEY VALUE arguments
+	if pairs, ok := args["pairs"].(map[string]interface{}); ok {
+		for key, value := range pairs {
+			cmdArgs = append(cmdArgs, key)
+			if v, ok := value.(string); ok {
+				cmdArgs = append(cmdArgs, v)
+			} else {
+				cmdArgs = append(cmdArgs, fmt.Sprintf("%v", value))
+			}
+		}
+	}
+
+	return cmdArgs
+}
+
+func buildContextMultiGetArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"context", "multiget"}
+
+	// Add --dir flag (required)
+	if dir, ok := args["dir"].(string); ok {
+		cmdArgs = append(cmdArgs, "--dir", dir)
+	}
+
+	// Add keys as positional arguments
+	if keys, ok := args["keys"].([]interface{}); ok {
+		for _, k := range keys {
+			if s, ok := k.(string); ok {
+				cmdArgs = append(cmdArgs, s)
+			}
+		}
+	}
+
+	// Output format flags
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
 }
