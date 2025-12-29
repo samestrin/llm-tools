@@ -187,6 +187,7 @@ func TestListDirectorySort(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "aaa.txt"), []byte("a"), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "bbb.txt"), []byte("bb"), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "ccc.txt"), []byte("ccc"), 0644)
+	os.Mkdir(filepath.Join(tmpDir, "dir1"), 0755)
 
 	server, _ := NewServer([]string{tmpDir})
 
@@ -212,6 +213,22 @@ func TestListDirectorySort(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "sort by type",
+			args: map[string]interface{}{
+				"path":    tmpDir,
+				"sort_by": "type",
+			},
+			wantErr: false,
+		},
+		{
+			name: "sort by time",
+			args: map[string]interface{}{
+				"path":    tmpDir,
+				"sort_by": "time",
+			},
+			wantErr: false,
+		},
+		{
 			name: "sort reverse",
 			args: map[string]interface{}{
 				"path":    tmpDir,
@@ -230,5 +247,25 @@ func TestListDirectorySort(t *testing.T) {
 			}
 			_ = result
 		})
+	}
+}
+
+func TestListDirectoryMissingPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	_, err := server.handleListDirectory(map[string]interface{}{})
+	if err == nil {
+		t.Error("handleListDirectory() should error when path is missing")
+	}
+}
+
+func TestGetDirectoryTreeMissingPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	_, err := server.handleGetDirectoryTree(map[string]interface{}{})
+	if err == nil {
+		t.Error("handleGetDirectoryTree() should error when path is missing")
 	}
 }

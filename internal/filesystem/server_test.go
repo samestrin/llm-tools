@@ -75,3 +75,39 @@ func TestServerVersion(t *testing.T) {
 		t.Error("Version() returned empty string")
 	}
 }
+
+func TestServerAllowedDirs(t *testing.T) {
+	allowedDirs := []string{"/tmp", "/home"}
+	server, _ := NewServer(allowedDirs)
+
+	got := server.AllowedDirs()
+	if len(got) != len(allowedDirs) {
+		t.Errorf("AllowedDirs() length = %v, want %v", len(got), len(allowedDirs))
+	}
+	for i, dir := range allowedDirs {
+		if got[i] != dir {
+			t.Errorf("AllowedDirs()[%d] = %v, want %v", i, got[i], dir)
+		}
+	}
+}
+
+func TestServerAllowedDirsEmpty(t *testing.T) {
+	server, _ := NewServer(nil)
+	got := server.AllowedDirs()
+	if got != nil && len(got) != 0 {
+		t.Errorf("AllowedDirs() for nil input should be empty, got %v", got)
+	}
+}
+
+func TestServerMultipleAllowedDirs(t *testing.T) {
+	allowedDirs := []string{"/tmp", "/home", "/var"}
+	server, _ := NewServer(allowedDirs)
+
+	if server.ToolCount() != 27 {
+		t.Errorf("ToolCount() = %d, want 27", server.ToolCount())
+	}
+
+	if server.Name() != "llm-filesystem" {
+		t.Errorf("Name() = %q, want %q", server.Name(), "llm-filesystem")
+	}
+}

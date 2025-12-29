@@ -300,6 +300,37 @@ func TestSearchAndReplace(t *testing.T) {
 	}
 }
 
+func TestEditMultipleBlocks(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	// This is a delegation test - it delegates to handleEditBlocks
+	path := filepath.Join(tmpDir, "multi_blocks.txt")
+	os.WriteFile(path, []byte("Hello World"), 0644)
+
+	result, err := server.handleEditMultipleBlocks(map[string]interface{}{
+		"path": path,
+		"edits": []interface{}{
+			map[string]interface{}{
+				"old_string": "Hello",
+				"new_string": "Hi",
+			},
+		},
+	})
+	if err != nil {
+		t.Errorf("handleEditMultipleBlocks() error = %v", err)
+	}
+
+	if !strings.Contains(result, "success") && !strings.Contains(result, "true") {
+		t.Errorf("handleEditMultipleBlocks() should indicate success")
+	}
+
+	content, _ := os.ReadFile(path)
+	if !strings.Contains(string(content), "Hi") {
+		t.Errorf("File content should contain 'Hi', got %s", string(content))
+	}
+}
+
 func TestEditFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -381,4 +412,271 @@ func TestEditFile(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEditBlockErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "missing path",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+		{
+			name: "missing old_string",
+			args: map[string]interface{}{
+				"path":       filepath.Join(tmpDir, "test.txt"),
+				"new_string": "new",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleEditBlock(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleEditBlock() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestEditFileErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "missing path",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+		{
+			name: "missing operation",
+			args: map[string]interface{}{
+				"path": filepath.Join(tmpDir, "test.txt"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleEditFile(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleEditFile() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestEditBlocksErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "missing path",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+		{
+			name: "missing edits",
+			args: map[string]interface{}{
+				"path": filepath.Join(tmpDir, "test.txt"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleEditBlocks(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleEditBlocks() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSafeEditErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "missing path",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleSafeEdit(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleSafeEdit() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSearchAndReplaceErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "missing path",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+		{
+			name: "missing pattern",
+			args: map[string]interface{}{
+				"path":        tmpDir,
+				"replacement": "new",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleSearchAndReplace(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleSearchAndReplace() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSearchAndReplaceDryRun(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	// Create test file
+	testFile := filepath.Join(tmpDir, "dryrun.txt")
+	originalContent := "hello world hello"
+	os.WriteFile(testFile, []byte(originalContent), 0644)
+
+	// Run with dry_run = true
+	result, err := server.handleSearchAndReplace(map[string]interface{}{
+		"path":        tmpDir,
+		"pattern":     "hello",
+		"replacement": "goodbye",
+		"dry_run":     true,
+	})
+	if err != nil {
+		t.Errorf("handleSearchAndReplace() dry_run error = %v", err)
+	}
+
+	// Verify file was NOT modified
+	content, _ := os.ReadFile(testFile)
+	if string(content) != originalContent {
+		t.Errorf("Dry run should not modify file, got %s", content)
+	}
+
+	// Result should show changes would be made
+	if !strings.Contains(result, "Modified") {
+		t.Errorf("Result should indicate modifications: %s", result)
+	}
+}
+
+func TestSearchAndReplaceFileTypes(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	// Create files with different extensions
+	goFile := filepath.Join(tmpDir, "test.go")
+	txtFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(goFile, []byte("foo bar foo"), 0644)
+	os.WriteFile(txtFile, []byte("foo bar foo"), 0644)
+
+	// Only replace in .go files
+	_, err := server.handleSearchAndReplace(map[string]interface{}{
+		"path":        tmpDir,
+		"pattern":     "foo",
+		"replacement": "baz",
+		"file_types":  []interface{}{".go"},
+	})
+	if err != nil {
+		t.Errorf("handleSearchAndReplace() file_types error = %v", err)
+	}
+
+	// Verify .go file was modified
+	goContent, _ := os.ReadFile(goFile)
+	if !strings.Contains(string(goContent), "baz") {
+		t.Errorf(".go file should be modified")
+	}
+
+	// Verify .txt file was NOT modified
+	txtContent, _ := os.ReadFile(txtFile)
+	if strings.Contains(string(txtContent), "baz") {
+		t.Errorf(".txt file should not be modified")
+	}
+}
+
+func TestSearchAndReplaceInvalidRegex(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	_, err := server.handleSearchAndReplace(map[string]interface{}{
+		"path":        tmpDir,
+		"pattern":     "[invalid(regex",
+		"replacement": "new",
+		"regex":       true,
+	})
+	if err == nil {
+		t.Error("handleSearchAndReplace() should error on invalid regex")
+	}
+}
+
+func TestEditFileAppendMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	testFile := filepath.Join(tmpDir, "append_test.txt")
+	os.WriteFile(testFile, []byte("line1\nline2\nline3"), 0644)
+
+	// Test append operation
+	result, err := server.handleEditFile(map[string]interface{}{
+		"path":      testFile,
+		"operation": "insert",
+		"line":      float64(4),
+		"content":   "line4",
+	})
+	if err != nil {
+		t.Errorf("handleEditFile() append error = %v", err)
+	}
+
+	content, _ := os.ReadFile(testFile)
+	if !strings.Contains(string(content), "line4") {
+		t.Errorf("File should contain line4: %s", string(content))
+	}
+
+	_ = result
 }

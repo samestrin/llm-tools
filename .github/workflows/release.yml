@@ -49,6 +49,13 @@ jobs:
           GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o dist/llm-clarification-darwin-arm64 ./cmd/llm-clarification
           GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o dist/llm-clarification-windows-amd64.exe ./cmd/llm-clarification
 
+          # llm-filesystem
+          GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o dist/llm-filesystem-linux-amd64 ./cmd/llm-filesystem
+          GOOS=linux GOARCH=arm64 go build -ldflags "-s -w" -o dist/llm-filesystem-linux-arm64 ./cmd/llm-filesystem
+          GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o dist/llm-filesystem-darwin-amd64 ./cmd/llm-filesystem
+          GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o dist/llm-filesystem-darwin-arm64 ./cmd/llm-filesystem
+          GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o dist/llm-filesystem-windows-amd64.exe ./cmd/llm-filesystem
+
       - name: Generate checksums
         run: |
           cd dist
@@ -65,4 +72,5 @@ jobs:
           files: |
             dist/llm-support-*
             dist/llm-clarification-*
+            dist/llm-filesystem-*
             dist/SHA256SUMS.txt

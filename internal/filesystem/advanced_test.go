@@ -262,3 +262,243 @@ func TestSyncDirectories(t *testing.T) {
 
 	_ = result
 }
+
+func TestCompressFilesWithDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a directory with files
+	subDir := filepath.Join(tmpDir, "mydir")
+	os.MkdirAll(subDir, 0755)
+	os.WriteFile(filepath.Join(subDir, "nested1.txt"), []byte("nested 1"), 0644)
+	os.WriteFile(filepath.Join(subDir, "nested2.txt"), []byte("nested 2"), 0644)
+
+	server, _ := NewServer([]string{tmpDir})
+
+	// Test compressing a directory
+	result, err := server.handleCompressFiles(map[string]interface{}{
+		"paths":  []interface{}{subDir},
+		"output": filepath.Join(tmpDir, "dir_archive.zip"),
+		"format": "zip",
+	})
+	if err != nil {
+		t.Errorf("handleCompressFiles() with directory error = %v", err)
+	}
+
+	// Verify archive was created
+	if _, err := os.Stat(filepath.Join(tmpDir, "dir_archive.zip")); os.IsNotExist(err) {
+		t.Errorf("Archive file was not created")
+	}
+	_ = result
+}
+
+func TestCompressFilesErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name: "missing paths",
+			args: map[string]interface{}{
+				"output": filepath.Join(tmpDir, "test.zip"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing output",
+			args: map[string]interface{}{
+				"paths": []interface{}{filepath.Join(tmpDir, "file.txt")},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleCompressFiles(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleCompressFiles() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestExtractArchiveErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name: "missing archive",
+			args: map[string]interface{}{
+				"destination": filepath.Join(tmpDir, "dest"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "nonexistent archive",
+			args: map[string]interface{}{
+				"archive":     filepath.Join(tmpDir, "nonexistent.zip"),
+				"destination": filepath.Join(tmpDir, "dest"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleExtractArchive(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleExtractArchive() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSyncDirectoriesErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name: "missing source",
+			args: map[string]interface{}{
+				"destination": filepath.Join(tmpDir, "dest"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing destination",
+			args: map[string]interface{}{
+				"source": filepath.Join(tmpDir, "src"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleSyncDirectories(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleSyncDirectories() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGetDiskUsageErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "missing path",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleGetDiskUsage(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleGetDiskUsage() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestFindLargeFilesErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "missing path",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleFindLargeFiles(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleFindLargeFiles() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestCompressTarGzWithDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a directory with nested files
+	subDir := filepath.Join(tmpDir, "archive_dir")
+	os.MkdirAll(filepath.Join(subDir, "nested"), 0755)
+	os.WriteFile(filepath.Join(subDir, "file1.txt"), []byte("content 1"), 0644)
+	os.WriteFile(filepath.Join(subDir, "nested", "file2.txt"), []byte("content 2"), 0644)
+
+	server, _ := NewServer([]string{tmpDir})
+
+	// Test tar.gz with directory
+	result, err := server.handleCompressFiles(map[string]interface{}{
+		"paths":  []interface{}{subDir},
+		"output": filepath.Join(tmpDir, "dir_archive.tar.gz"),
+		"format": "tar.gz",
+	})
+	if err != nil {
+		t.Errorf("handleCompressFiles() with directory tar.gz error = %v", err)
+	}
+
+	// Verify archive was created
+	if _, err := os.Stat(filepath.Join(tmpDir, "dir_archive.tar.gz")); os.IsNotExist(err) {
+		t.Errorf("tar.gz archive file was not created")
+	}
+
+	_ = result
+}
+
+func TestCompressTarGzMultipleFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create multiple files
+	os.WriteFile(filepath.Join(tmpDir, "tar1.txt"), []byte("tar content 1"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "tar2.txt"), []byte("tar content 2"), 0644)
+
+	server, _ := NewServer([]string{tmpDir})
+
+	result, err := server.handleCompressFiles(map[string]interface{}{
+		"paths":  []interface{}{filepath.Join(tmpDir, "tar1.txt"), filepath.Join(tmpDir, "tar2.txt")},
+		"output": filepath.Join(tmpDir, "multi.tar.gz"),
+		"format": "tar.gz",
+	})
+	if err != nil {
+		t.Errorf("handleCompressFiles() with multiple tar.gz error = %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(tmpDir, "multi.tar.gz")); os.IsNotExist(err) {
+		t.Errorf("tar.gz archive file was not created")
+	}
+
+	_ = result
+}

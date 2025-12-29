@@ -266,3 +266,232 @@ func TestBatchFileOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestMoveFileErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name: "missing source",
+			args: map[string]interface{}{
+				"destination": filepath.Join(tmpDir, "dest.txt"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing destination",
+			args: map[string]interface{}{
+				"source": filepath.Join(tmpDir, "src.txt"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "nonexistent source",
+			args: map[string]interface{}{
+				"source":      filepath.Join(tmpDir, "nonexistent.txt"),
+				"destination": filepath.Join(tmpDir, "dest.txt"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleMoveFile(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleMoveFile() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestCopyFileErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name: "missing source",
+			args: map[string]interface{}{
+				"destination": filepath.Join(tmpDir, "dest.txt"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "missing destination",
+			args: map[string]interface{}{
+				"source": filepath.Join(tmpDir, "src.txt"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleCopyFile(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleCopyFile() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestBatchFileOperationsWithMove(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	// Create test file
+	os.WriteFile(filepath.Join(tmpDir, "move_batch.txt"), []byte("move"), 0644)
+
+	result, err := server.handleBatchFileOperations(map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"operation":   "move",
+				"source":      filepath.Join(tmpDir, "move_batch.txt"),
+				"destination": filepath.Join(tmpDir, "moved_batch.txt"),
+			},
+		},
+	})
+	if err != nil {
+		t.Errorf("handleBatchFileOperations() with move error = %v", err)
+	}
+
+	// Verify source no longer exists
+	if _, err := os.Stat(filepath.Join(tmpDir, "move_batch.txt")); !os.IsNotExist(err) {
+		t.Error("Source file should have been moved")
+	}
+
+	_ = result
+}
+
+func TestBatchFileOperationsWithDelete(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	// Create test file
+	os.WriteFile(filepath.Join(tmpDir, "delete_batch.txt"), []byte("delete"), 0644)
+
+	result, err := server.handleBatchFileOperations(map[string]interface{}{
+		"operations": []interface{}{
+			map[string]interface{}{
+				"operation": "delete",
+				"path":      filepath.Join(tmpDir, "delete_batch.txt"),
+			},
+		},
+	})
+	if err != nil {
+		t.Errorf("handleBatchFileOperations() with delete error = %v", err)
+	}
+
+	// Verify file was deleted
+	if _, err := os.Stat(filepath.Join(tmpDir, "delete_batch.txt")); !os.IsNotExist(err) {
+		t.Error("File should have been deleted")
+	}
+
+	_ = result
+}
+
+func TestBatchFileOperationsErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "missing operations",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+		{
+			name: "unknown operation type",
+			args: map[string]interface{}{
+				"operations": []interface{}{
+					map[string]interface{}{
+						"operation": "unknown",
+						"path":      filepath.Join(tmpDir, "file.txt"),
+					},
+				},
+			},
+			wantErr: false, // Might not fail, just skip unknown ops
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleBatchFileOperations(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleBatchFileOperations() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestMoveDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	// Create source directory with files
+	srcDir := filepath.Join(tmpDir, "move_src_dir")
+	os.MkdirAll(srcDir, 0755)
+	os.WriteFile(filepath.Join(srcDir, "file.txt"), []byte("content"), 0644)
+
+	dstDir := filepath.Join(tmpDir, "move_dst_dir")
+
+	result, err := server.handleMoveFile(map[string]interface{}{
+		"source":      srcDir,
+		"destination": dstDir,
+	})
+	if err != nil {
+		t.Errorf("handleMoveFile() directory error = %v", err)
+	}
+
+	// Verify source no longer exists
+	if _, err := os.Stat(srcDir); !os.IsNotExist(err) {
+		t.Error("Source directory should have been moved")
+	}
+
+	// Verify destination exists
+	if _, err := os.Stat(dstDir); os.IsNotExist(err) {
+		t.Error("Destination directory should exist")
+	}
+
+	_ = result
+}
+
+func TestDeleteFileErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "missing path",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleDeleteFile(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleDeleteFile() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

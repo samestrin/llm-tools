@@ -263,3 +263,113 @@ func processData() {
 		})
 	}
 }
+
+func TestSearchFilesErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "missing path",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+		{
+			name: "missing pattern",
+			args: map[string]interface{}{
+				"path": tmpDir,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleSearchFiles(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleSearchFiles() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSearchCodeErrorCases(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "missing path",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+		{
+			name: "missing pattern",
+			args: map[string]interface{}{
+				"path": tmpDir,
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.handleSearchCode(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleSearchCode() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestSearchFilesWithLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create multiple files
+	for i := 0; i < 10; i++ {
+		os.WriteFile(filepath.Join(tmpDir, filepath.Base(tmpDir)+string(rune('a'+i))+".txt"), []byte("content"), 0644)
+	}
+
+	server, _ := NewServer([]string{tmpDir})
+
+	result, err := server.handleSearchFiles(map[string]interface{}{
+		"path":    tmpDir,
+		"pattern": "*.txt",
+		"limit":   float64(3),
+	})
+	if err != nil {
+		t.Errorf("handleSearchFiles() error = %v", err)
+	}
+
+	// Should limit results
+	_ = result
+}
+
+func TestSearchCodeWithMaxResults(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create file with many matches
+	content := strings.Repeat("match here\n", 20)
+	os.WriteFile(filepath.Join(tmpDir, "many.txt"), []byte(content), 0644)
+
+	server, _ := NewServer([]string{tmpDir})
+
+	result, err := server.handleSearchCode(map[string]interface{}{
+		"path":        tmpDir,
+		"pattern":     "match",
+		"max_results": float64(5),
+	})
+	if err != nil {
+		t.Errorf("handleSearchCode() error = %v", err)
+	}
+
+	_ = result
+}
