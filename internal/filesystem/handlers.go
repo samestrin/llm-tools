@@ -72,33 +72,14 @@ func (s *Server) handleListAllowedDirectories(args map[string]interface{}) (stri
 	return fmt.Sprintf(`{"allowed_directories": %q}`, s.allowedDirs), nil
 }
 
-func (s *Server) handleReadFile(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_read_file")
-}
-
-func (s *Server) handleReadMultipleFiles(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_read_multiple_files")
-}
-
-func (s *Server) handleWriteFile(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_write_file")
-}
-
-func (s *Server) handleLargeWriteFile(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_large_write_file")
-}
-
-func (s *Server) handleListDirectory(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_list_directory")
-}
-
-func (s *Server) handleGetFileInfo(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_get_file_info")
-}
-
-func (s *Server) handleCreateDirectory(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_create_directory")
-}
+// handleReadFile - implemented in read.go
+// handleReadMultipleFiles - implemented in read.go
+// handleWriteFile - implemented in write.go
+// handleLargeWriteFile - implemented in write.go
+// handleGetFileInfo - implemented in write.go
+// handleCreateDirectory - implemented in write.go
+// handleListDirectory - implemented in directory.go
+// handleGetDirectoryTree - implemented in directory.go
 
 func (s *Server) handleSearchFiles(args map[string]interface{}) (string, error) {
 	return "", fmt.Errorf("not implemented: fast_search_files")
@@ -106,10 +87,6 @@ func (s *Server) handleSearchFiles(args map[string]interface{}) (string, error) 
 
 func (s *Server) handleSearchCode(args map[string]interface{}) (string, error) {
 	return "", fmt.Errorf("not implemented: fast_search_code")
-}
-
-func (s *Server) handleGetDirectoryTree(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_get_directory_tree")
 }
 
 func (s *Server) handleEditBlock(args map[string]interface{}) (string, error) {
@@ -128,9 +105,7 @@ func (s *Server) handleEditBlocks(args map[string]interface{}) (string, error) {
 	return "", fmt.Errorf("not implemented: fast_edit_blocks")
 }
 
-func (s *Server) handleExtractLines(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_extract_lines")
-}
+// handleExtractLines - implemented in read.go
 
 func (s *Server) handleCopyFile(args map[string]interface{}) (string, error) {
 	return "", fmt.Errorf("not implemented: fast_copy_file")

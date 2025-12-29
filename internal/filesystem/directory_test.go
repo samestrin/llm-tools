@@ -101,6 +101,7 @@ func TestGetDirectoryTree(t *testing.T) {
 
 	// Create nested structure
 	os.MkdirAll(filepath.Join(tmpDir, "level1", "level2", "level3"), 0755)
+	os.MkdirAll(filepath.Join(tmpDir, ".hidden_dir"), 0755)
 	os.WriteFile(filepath.Join(tmpDir, "root.txt"), []byte("content"), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "level1", "l1.txt"), []byte("content"), 0644)
 	os.WriteFile(filepath.Join(tmpDir, "level1", "level2", "l2.txt"), []byte("content"), 0644)

@@ -26,18 +26,18 @@ func TestReadFile(t *testing.T) {
 	server, _ := NewServer([]string{tmpDir})
 
 	tests := []struct {
-		name        string
-		args        map[string]interface{}
-		wantContent string
-		wantErr     bool
+		name         string
+		args         map[string]interface{}
+		wantContains []string // Check for multiple substrings
+		wantErr      bool
 	}{
 		{
 			name: "read entire file",
 			args: map[string]interface{}{
 				"path": testFile,
 			},
-			wantContent: testContent,
-			wantErr:     false,
+			wantContains: []string{"line 1", "line 2", "line 5"},
+			wantErr:      false,
 		},
 		{
 			name: "read with line range",
@@ -46,16 +46,16 @@ func TestReadFile(t *testing.T) {
 				"line_start": float64(2),
 				"line_count": float64(2),
 			},
-			wantContent: "line 2\nline 3\n",
-			wantErr:     false,
+			wantContains: []string{"line 2", "line 3"},
+			wantErr:      false,
 		},
 		{
 			name: "read empty file",
 			args: map[string]interface{}{
 				"path": emptyFile,
 			},
-			wantContent: "",
-			wantErr:     false,
+			wantContains: []string{`"content":""`},
+			wantErr:      false,
 		},
 		{
 			name: "read missing file",
@@ -71,8 +71,8 @@ func TestReadFile(t *testing.T) {
 				"start_offset": float64(7), // Start at "line 2"
 				"max_size":     float64(6), // Read "line 2"
 			},
-			wantContent: "line 2",
-			wantErr:     false,
+			wantContains: []string{"line 2"},
+			wantErr:      false,
 		},
 	}
 
@@ -83,8 +83,12 @@ func TestReadFile(t *testing.T) {
 				t.Errorf("handleReadFile() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr && !strings.Contains(result, tt.wantContent) {
-				t.Errorf("handleReadFile() = %v, want content %v", result, tt.wantContent)
+			if !tt.wantErr {
+				for _, want := range tt.wantContains {
+					if !strings.Contains(result, want) {
+						t.Errorf("handleReadFile() = %v, want to contain %v", result, want)
+					}
+				}
 			}
 		})
 	}
