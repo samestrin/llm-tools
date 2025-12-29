@@ -36,10 +36,15 @@ Fast lookup for all commands with examples.
 | 28 | `extract-relevant` | Extract relevant content | `llm-support extract-relevant --path docs/` |
 | 29 | `summarize-dir` | Summarize directory | `llm-support summarize-dir --path src/` |
 | 30 | `git-context` | Get git context | `llm-support git-context` |
-| 31 | `repo-root` | Find git repo root | `llm-support repo-root --validate` |
-| 32 | `report` | Generate reports | `llm-support report --template report.md` |
-| 33 | `deps` | Show dependencies | `llm-support deps package.json` |
-| 34 | `highest` | Find highest numbered dir/file | `llm-support highest --path .planning/plans` |
+| 31 | `git-changes` | Count git working tree changes | `llm-support git-changes --path .planning/` |
+| 32 | `repo-root` | Find git repo root | `llm-support repo-root --validate` |
+| 33 | `report` | Generate reports | `llm-support report --template report.md` |
+| 34 | `deps` | Show dependencies | `llm-support deps package.json` |
+| 35 | `highest` | Find highest numbered dir/file | `llm-support highest --path .planning/plans` |
+| 36 | `init-temp` | Initialize temp directory | `llm-support init-temp --name mysession` |
+| 37 | `plan-type` | Extract plan type | `llm-support plan-type --path .planning/plans/1.0/` |
+| 38 | `context` | Manage prompt variables | `llm-support context set --dir /tmp MY_VAR "value"` |
+| 39 | `args` | Parse arguments | `llm-support args @path/to/plan/` |
 
 ---
 
@@ -566,6 +571,106 @@ llm-support highest --path .planning/plans --json
 
 ---
 
+## Session Management
+
+### context - Manage Prompt Variables
+
+Persistent key-value storage for prompt variables across executions.
+
+```bash
+# Initialize context in temp directory
+llm-support init-temp --name mysession
+llm-support context init --dir .planning/.temp/mysession
+
+# Store values
+llm-support context set --dir .planning/.temp/mysession MY_VAR "hello"
+llm-support context set --dir .planning/.temp/mysession TIMESTAMP "2025-12-29"
+
+# Retrieve values
+llm-support context get --dir .planning/.temp/mysession MY_VAR
+llm-support context get --dir .planning/.temp/mysession MY_VAR --min
+llm-support context get --dir .planning/.temp/mysession MISSING --default "fallback"
+
+# List all values
+llm-support context list --dir .planning/.temp/mysession
+llm-support context list --dir .planning/.temp/mysession --json
+
+# Source into shell
+eval "$(llm-support context dump --dir .planning/.temp/mysession)"
+
+# Clear all values
+llm-support context clear --dir .planning/.temp/mysession
+```
+
+**Subcommands:** init, set, get, list, dump, clear
+
+### git-changes - Git Working Tree Changes
+
+```bash
+# Count all changes
+llm-support git-changes
+
+# Filter to specific path
+llm-support git-changes --path .planning/
+
+# Staged only
+llm-support git-changes --staged-only
+
+# Just the count
+llm-support git-changes --min
+
+# JSON output
+llm-support git-changes --json
+```
+
+**Output fields:** COUNT, FILES
+
+### init-temp - Initialize Temp Directory
+
+```bash
+# Create temp directory (cleans existing)
+llm-support init-temp --name design-sprint
+
+# Preserve existing files
+llm-support init-temp --name cache --preserve
+
+# JSON output
+llm-support init-temp --name test --json
+```
+
+**Output fields:** TEMP_DIR, STATUS, CLEANED
+
+### plan-type - Extract Plan Type
+
+```bash
+# Get plan type
+llm-support plan-type --path .planning/plans/1.0_feature/
+
+# Just the type string
+llm-support plan-type --min
+
+# JSON output
+llm-support plan-type --json
+```
+
+**Valid types:** feature, bugfix, test-remediation, tech-debt, infrastructure
+
+**Output fields:** TYPE, LABEL, ICON, SOURCE
+
+### args - Parse Arguments
+
+```bash
+# Parse positional arguments
+llm-support args file1.txt file2.txt
+
+# Parse file references
+llm-support args @.planning/plans/1.0_feature/
+```
+
+**Output fields:** POSITIONAL, FLAG_NAME
+
+---
+
 ## Flag Reference
 
 | Flag | Commands | Purpose |
@@ -648,6 +753,6 @@ llm-support highest --path .planning/plans --json
 
 ---
 
-**Version:** 1.1.0 | **Go:** 1.22+ | **License:** MIT
+**Version:** 1.2.0 | **Go:** 1.22+ | **License:** MIT
 
 See [README.md](../README.md) for full documentation.
