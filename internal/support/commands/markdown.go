@@ -2,25 +2,113 @@ package commands
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
 	mdHeaderLevel     string
 	mdHeaderPlain     bool
+	mdHeaderJSON      bool
+	mdHeaderMinimal   bool
 	mdTasksSummary    bool
+	mdTasksJSON       bool
+	mdTasksMinimal    bool
 	mdSectionHeader   bool
+	mdSectionJSON     bool
+	mdSectionMinimal  bool
 	mdFrontmatterJSON bool
+	mdFrontmatterMin  bool
 	mdCodeLanguage    string
 	mdCodeListOnly    bool
+	mdCodeJSON        bool
+	mdCodeMinimal     bool
 )
+
+// MdHeaderEntry represents a markdown header
+type MdHeaderEntry struct {
+	Level int    `json:"level,omitempty"`
+	L     *int   `json:"l,omitempty"`
+	Text  string `json:"text,omitempty"`
+	T     string `json:"t,omitempty"`
+}
+
+// MdHeadersResult holds the headers extraction result
+type MdHeadersResult struct {
+	File    string          `json:"file,omitempty"`
+	F       string          `json:"f,omitempty"`
+	Headers []MdHeaderEntry `json:"headers,omitempty"`
+	H       []MdHeaderEntry `json:"h,omitempty"`
+}
+
+// MdTasksResult holds the tasks extraction result
+type MdTasksResult struct {
+	File           string    `json:"file,omitempty"`
+	F              string    `json:"f,omitempty"`
+	TotalTasks     int       `json:"total_tasks,omitempty"`
+	TT             *int      `json:"tt,omitempty"`
+	Completed      int       `json:"completed,omitempty"`
+	Cp             *int      `json:"cp,omitempty"`
+	Incomplete     int       `json:"incomplete,omitempty"`
+	Inc            *int      `json:"inc,omitempty"`
+	CompletionRate float64   `json:"completion_rate,omitempty"`
+	CR             *float64  `json:"cr,omitempty"`
+	Tasks          []MdTask  `json:"tasks,omitempty"`
+	Ts             []MdTask  `json:"ts,omitempty"`
+}
+
+// MdTask represents a single task
+type MdTask struct {
+	Text string `json:"text,omitempty"`
+	T    string `json:"t,omitempty"`
+	Done bool   `json:"done,omitempty"`
+	D    *bool  `json:"d,omitempty"`
+}
+
+// MdSectionResult holds the section extraction result
+type MdSectionResult struct {
+	File    string `json:"file,omitempty"`
+	F       string `json:"f,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Ti      string `json:"ti,omitempty"`
+	Content string `json:"content,omitempty"`
+	C       string `json:"c,omitempty"`
+}
+
+// MdFrontmatterResult holds the frontmatter extraction result
+type MdFrontmatterResult struct {
+	File   string            `json:"file,omitempty"`
+	F      string            `json:"f,omitempty"`
+	Raw    string            `json:"raw,omitempty"`
+	R      string            `json:"r,omitempty"`
+	Parsed map[string]string `json:"parsed,omitempty"`
+	P      map[string]string `json:"p,omitempty"`
+}
+
+// MdCodeBlock represents a code block
+type MdCodeBlock struct {
+	Number   int    `json:"number,omitempty"`
+	N        *int   `json:"n,omitempty"`
+	Language string `json:"language,omitempty"`
+	L        string `json:"l,omitempty"`
+	Code     string `json:"code,omitempty"`
+	C        string `json:"c,omitempty"`
+}
+
+// MdCodeblocksResult holds the codeblocks extraction result
+type MdCodeblocksResult struct {
+	File   string        `json:"file,omitempty"`
+	F      string        `json:"f,omitempty"`
+	Blocks []MdCodeBlock `json:"blocks,omitempty"`
+	B      []MdCodeBlock `json:"b,omitempty"`
+}
 
 // newMarkdownCmd creates the markdown parent command with subcommands
 func newMarkdownCmd() *cobra.Command {
@@ -48,6 +136,8 @@ func newMdHeadersCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&mdHeaderLevel, "level", "", "Filter by level (e.g., '2' or '1,2')")
 	cmd.Flags().BoolVar(&mdHeaderPlain, "plain", false, "Output header text only")
+	cmd.Flags().BoolVar(&mdHeaderJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&mdHeaderMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -59,6 +149,8 @@ func newMdTasksCmd() *cobra.Command {
 		RunE:  runMdTasks,
 	}
 	cmd.Flags().BoolVar(&mdTasksSummary, "summary", false, "Show summary only")
+	cmd.Flags().BoolVar(&mdTasksJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&mdTasksMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -70,6 +162,8 @@ func newMdSectionCmd() *cobra.Command {
 		RunE:  runMdSection,
 	}
 	cmd.Flags().BoolVar(&mdSectionHeader, "include-header", false, "Include section header")
+	cmd.Flags().BoolVar(&mdSectionJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&mdSectionMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -80,7 +174,8 @@ func newMdFrontmatterCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE:  runMdFrontmatter,
 	}
-	cmd.Flags().BoolVar(&mdFrontmatterJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&mdFrontmatterJSON, "json", false, "Output as JSON (also parses YAML to JSON)")
+	cmd.Flags().BoolVar(&mdFrontmatterMin, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -93,11 +188,14 @@ func newMdCodeblocksCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&mdCodeLanguage, "language", "", "Filter by language")
 	cmd.Flags().BoolVar(&mdCodeListOnly, "list", false, "List blocks only")
+	cmd.Flags().BoolVar(&mdCodeJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&mdCodeMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
 func runMdHeaders(cmd *cobra.Command, args []string) error {
-	content, err := os.ReadFile(args[0])
+	filePath := args[0]
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
@@ -117,6 +215,8 @@ func runMdHeaders(cmd *cobra.Command, args []string) error {
 	pattern := regexp.MustCompile(`(?m)^(#{1,6})\s+(.+)$`)
 	matches := pattern.FindAllStringSubmatch(string(content), -1)
 
+	// Collect headers
+	var headers []MdHeaderEntry
 	for _, match := range matches {
 		hashes := match[1]
 		text := match[2]
@@ -127,19 +227,42 @@ func runMdHeaders(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		if mdHeaderPlain {
-			fmt.Fprintln(cmd.OutOrStdout(), text)
-		} else {
-			indent := strings.Repeat("  ", level-1)
-			fmt.Fprintf(cmd.OutOrStdout(), "%s%s %s\n", indent, hashes, text)
-		}
+		headers = append(headers, MdHeaderEntry{
+			Level: level,
+			Text:  text,
+		})
 	}
 
-	return nil
+	// Build result
+	var result MdHeadersResult
+	if mdHeaderMinimal {
+		minHeaders := make([]MdHeaderEntry, len(headers))
+		for i, h := range headers {
+			lvl := h.Level
+			minHeaders[i] = MdHeaderEntry{L: &lvl, T: h.Text}
+		}
+		result = MdHeadersResult{F: filePath, H: minHeaders}
+	} else {
+		result = MdHeadersResult{File: filePath, Headers: headers}
+	}
+
+	formatter := output.New(mdHeaderJSON, mdHeaderMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		for _, h := range headers {
+			hashes := strings.Repeat("#", h.Level)
+			if mdHeaderPlain {
+				fmt.Fprintln(w, h.Text)
+			} else {
+				indent := strings.Repeat("  ", h.Level-1)
+				fmt.Fprintf(w, "%s%s %s\n", indent, hashes, h.Text)
+			}
+		}
+	})
 }
 
 func runMdTasks(cmd *cobra.Command, args []string) error {
-	content, err := os.ReadFile(args[0])
+	filePath := args[0]
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
@@ -149,46 +272,81 @@ func runMdTasks(cmd *cobra.Command, args []string) error {
 
 	total := len(matches)
 	completed := 0
+	var tasks []MdTask
 	for _, match := range matches {
-		if strings.ToLower(match[1]) == "x" {
+		done := strings.ToLower(match[1]) == "x"
+		if done {
 			completed++
 		}
+		tasks = append(tasks, MdTask{Text: match[2], Done: done})
 	}
 
-	if mdTasksSummary {
-		percentage := 0.0
-		if total > 0 {
-			percentage = float64(completed) / float64(total) * 100
+	incomplete := total - completed
+	percentage := 0.0
+	if total > 0 {
+		percentage = float64(completed) / float64(total) * 100
+	}
+
+	// Build result
+	var result MdTasksResult
+	if mdTasksMinimal {
+		minTasks := make([]MdTask, len(tasks))
+		for i, t := range tasks {
+			d := t.Done
+			minTasks[i] = MdTask{T: t.Text, D: &d}
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "TOTAL_TASKS: %d\n", total)
-		fmt.Fprintf(cmd.OutOrStdout(), "COMPLETED: %d\n", completed)
-		fmt.Fprintf(cmd.OutOrStdout(), "INCOMPLETE: %d\n", total-completed)
-		fmt.Fprintf(cmd.OutOrStdout(), "COMPLETION_RATE: %.1f%%\n", percentage)
+		result = MdTasksResult{
+			F:   filePath,
+			TT:  &total,
+			Cp:  &completed,
+			Inc: &incomplete,
+			CR:  &percentage,
+		}
+		if !mdTasksSummary {
+			result.Ts = minTasks
+		}
 	} else {
-		for _, match := range matches {
-			done := strings.ToLower(match[1]) == "x"
-			task := match[2]
-			status := "☐"
-			if done {
-				status = "✓"
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", status, task)
+		result = MdTasksResult{
+			File:           filePath,
+			TotalTasks:     total,
+			Completed:      completed,
+			Incomplete:     incomplete,
+			CompletionRate: percentage,
 		}
-
-		if total > 0 {
-			percentage := float64(completed) / float64(total) * 100
-			fmt.Fprintln(cmd.OutOrStdout())
-			fmt.Fprintf(cmd.OutOrStdout(), "TOTAL_TASKS: %d\n", total)
-			fmt.Fprintf(cmd.OutOrStdout(), "COMPLETED: %d (%.1f%%)\n", completed, percentage)
-			fmt.Fprintf(cmd.OutOrStdout(), "INCOMPLETE: %d\n", total-completed)
+		if !mdTasksSummary {
+			result.Tasks = tasks
 		}
 	}
 
-	return nil
+	formatter := output.New(mdTasksJSON, mdTasksMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		if mdTasksSummary {
+			fmt.Fprintf(w, "TOTAL_TASKS: %d\n", total)
+			fmt.Fprintf(w, "COMPLETED: %d\n", completed)
+			fmt.Fprintf(w, "INCOMPLETE: %d\n", incomplete)
+			fmt.Fprintf(w, "COMPLETION_RATE: %.1f%%\n", percentage)
+		} else {
+			for _, t := range tasks {
+				status := "☐"
+				if t.Done {
+					status = "✓"
+				}
+				fmt.Fprintf(w, "%s %s\n", status, t.Text)
+			}
+
+			if total > 0 {
+				fmt.Fprintln(w)
+				fmt.Fprintf(w, "TOTAL_TASKS: %d\n", total)
+				fmt.Fprintf(w, "COMPLETED: %d (%.1f%%)\n", completed, percentage)
+				fmt.Fprintf(w, "INCOMPLETE: %d\n", incomplete)
+			}
+		}
+	})
 }
 
 func runMdSection(cmd *cobra.Command, args []string) error {
-	content, err := os.ReadFile(args[0])
+	filePath := args[0]
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
@@ -206,6 +364,7 @@ func runMdSection(cmd *cobra.Command, args []string) error {
 
 	headerLevel := len(text[match[2]:match[3]]) // Length of # symbols
 	startPos := match[1]
+	headerLine := text[match[0]:match[1]]
 
 	// Find next header of same or higher level
 	nextPattern := regexp.MustCompile(`(?m)^#{1,` + strconv.Itoa(headerLevel) + `}\s+.+$`)
@@ -221,17 +380,27 @@ func runMdSection(cmd *cobra.Command, args []string) error {
 
 	sectionContent = strings.TrimSpace(sectionContent)
 
-	if mdSectionHeader {
-		fmt.Fprintln(cmd.OutOrStdout(), text[match[0]:match[1]])
-		fmt.Fprintln(cmd.OutOrStdout())
+	// Build result
+	var result MdSectionResult
+	if mdSectionMinimal {
+		result = MdSectionResult{F: filePath, Ti: sectionTitle, C: sectionContent}
+	} else {
+		result = MdSectionResult{File: filePath, Title: sectionTitle, Content: sectionContent}
 	}
 
-	fmt.Fprintln(cmd.OutOrStdout(), sectionContent)
-	return nil
+	formatter := output.New(mdSectionJSON, mdSectionMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		if mdSectionHeader {
+			fmt.Fprintln(w, headerLine)
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintln(w, sectionContent)
+	})
 }
 
 func runMdFrontmatter(cmd *cobra.Command, args []string) error {
-	content, err := os.ReadFile(args[0])
+	filePath := args[0]
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
@@ -245,30 +414,36 @@ func runMdFrontmatter(cmd *cobra.Command, args []string) error {
 
 	frontmatter := match[1]
 
-	if mdFrontmatterJSON {
-		// Parse simple YAML frontmatter to JSON
-		result := make(map[string]string)
-		scanner := bufio.NewScanner(strings.NewReader(frontmatter))
-		for scanner.Scan() {
-			line := scanner.Text()
-			if idx := strings.Index(line, ":"); idx != -1 {
-				key := strings.TrimSpace(line[:idx])
-				value := strings.TrimSpace(line[idx+1:])
-				value = strings.Trim(value, "\"'")
-				result[key] = value
-			}
+	// Parse simple YAML frontmatter to map
+	parsed := make(map[string]string)
+	scanner := bufio.NewScanner(strings.NewReader(frontmatter))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if idx := strings.Index(line, ":"); idx != -1 {
+			key := strings.TrimSpace(line[:idx])
+			value := strings.TrimSpace(line[idx+1:])
+			value = strings.Trim(value, "\"'")
+			parsed[key] = value
 		}
-		output, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Fprintln(cmd.OutOrStdout(), string(output))
-	} else {
-		fmt.Fprintln(cmd.OutOrStdout(), frontmatter)
 	}
 
-	return nil
+	// Build result
+	var result MdFrontmatterResult
+	if mdFrontmatterMin {
+		result = MdFrontmatterResult{F: filePath, R: frontmatter, P: parsed}
+	} else {
+		result = MdFrontmatterResult{File: filePath, Raw: frontmatter, Parsed: parsed}
+	}
+
+	formatter := output.New(mdFrontmatterJSON, mdFrontmatterMin, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		fmt.Fprintln(w, frontmatter)
+	})
 }
 
 func runMdCodeblocks(cmd *cobra.Command, args []string) error {
-	content, err := os.ReadFile(args[0])
+	filePath := args[0]
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
@@ -276,6 +451,7 @@ func runMdCodeblocks(cmd *cobra.Command, args []string) error {
 	pattern := regexp.MustCompile("(?s)```(\\w*)\\n(.*?)```")
 	matches := pattern.FindAllStringSubmatch(string(content), -1)
 
+	var blocks []MdCodeBlock
 	blockNum := 0
 	for _, match := range matches {
 		language := match[1]
@@ -287,27 +463,56 @@ func runMdCodeblocks(cmd *cobra.Command, args []string) error {
 		}
 
 		blockNum++
+		lang := language
+		if lang == "" {
+			lang = "(no language)"
+		}
 
+		blocks = append(blocks, MdCodeBlock{
+			Number:   blockNum,
+			Language: lang,
+			Code:     strings.TrimRight(code, "\n"),
+		})
+	}
+
+	// Build result
+	var result MdCodeblocksResult
+	if mdCodeMinimal {
+		minBlocks := make([]MdCodeBlock, len(blocks))
+		for i, b := range blocks {
+			num := b.Number
+			minBlocks[i] = MdCodeBlock{N: &num, L: b.Language}
+			if !mdCodeListOnly {
+				minBlocks[i].C = b.Code
+			}
+		}
+		result = MdCodeblocksResult{F: filePath, B: minBlocks}
+	} else {
 		if mdCodeListOnly {
-			lang := language
-			if lang == "" {
-				lang = "(no language)"
+			listBlocks := make([]MdCodeBlock, len(blocks))
+			for i, b := range blocks {
+				listBlocks[i] = MdCodeBlock{Number: b.Number, Language: b.Language}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Block %d: %s\n", blockNum, lang)
+			result = MdCodeblocksResult{File: filePath, Blocks: listBlocks}
 		} else {
-			lang := language
-			if lang == "" {
-				lang = "(no language)"
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("=", 60))
-			fmt.Fprintf(cmd.OutOrStdout(), "CODE BLOCK %d: %s\n", blockNum, lang)
-			fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("=", 60))
-			fmt.Fprintln(cmd.OutOrStdout(), strings.TrimRight(code, "\n"))
-			fmt.Fprintln(cmd.OutOrStdout())
+			result = MdCodeblocksResult{File: filePath, Blocks: blocks}
 		}
 	}
 
-	return nil
+	formatter := output.New(mdCodeJSON, mdCodeMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		for _, b := range blocks {
+			if mdCodeListOnly {
+				fmt.Fprintf(w, "Block %d: %s\n", b.Number, b.Language)
+			} else {
+				fmt.Fprintln(w, strings.Repeat("=", 60))
+				fmt.Fprintf(w, "CODE BLOCK %d: %s\n", b.Number, b.Language)
+				fmt.Fprintln(w, strings.Repeat("=", 60))
+				fmt.Fprintln(w, b.Code)
+				fmt.Fprintln(w)
+			}
+		}
+	})
 }
 
 func init() {

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
+	"github.com/samestrin/llm-tools/pkg/output"
 
 	"github.com/spf13/cobra"
 )
@@ -21,12 +23,16 @@ var detectConflictsCmd = &cobra.Command{
 }
 
 var (
-	conflictsFile string
+	conflictsFile    string
+	conflictsJSON    bool
+	conflictsMinimal bool
 )
 
 func init() {
 	rootCmd.AddCommand(detectConflictsCmd)
 	detectConflictsCmd.Flags().StringVarP(&conflictsFile, "file", "f", "", "Tracking file path (required)")
+	detectConflictsCmd.Flags().BoolVar(&conflictsJSON, "json", false, "Output as JSON")
+	detectConflictsCmd.Flags().BoolVar(&conflictsMinimal, "min", false, "Output in minimal/token-optimized format")
 	detectConflictsCmd.MarkFlagRequired("file")
 }
 
@@ -78,7 +84,8 @@ func runDetectConflicts(cmd *cobra.Command, args []string) error {
 			ConflictCount: 0,
 			Note:          "Not enough entries to detect conflicts",
 		}
-		return outputJSON(cmd, result)
+		formatter := output.New(conflictsJSON, conflictsMinimal, cmd.OutOrStdout())
+		return formatter.Print(result, printConflictsText)
 	}
 
 	// Get LLM client
@@ -141,7 +148,26 @@ func runDetectConflicts(cmd *cobra.Command, args []string) error {
 		ConflictCount: llmResult.ConflictCount,
 	}
 
-	return outputJSON(cmd, result)
+	formatter := output.New(conflictsJSON, conflictsMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, printConflictsText)
+}
+
+func printConflictsText(w io.Writer, data interface{}) {
+	r := data.(ConflictsResult)
+	fmt.Fprintf(w, "STATUS: %s\n", r.Status)
+	fmt.Fprintf(w, "CONFLICT_COUNT: %d\n", r.ConflictCount)
+	if r.Note != "" {
+		fmt.Fprintf(w, "NOTE: %s\n", r.Note)
+	}
+	for i, c := range r.Conflicts {
+		fmt.Fprintf(w, "\nCONFLICT %d:\n", i+1)
+		fmt.Fprintf(w, "  SEVERITY: %s\n", c.Severity)
+		fmt.Fprintf(w, "  REASON: %s\n", c.Reason)
+		fmt.Fprintf(w, "  SUGGESTION: %s\n", c.Suggestion)
+		for _, e := range c.Entries {
+			fmt.Fprintf(w, "  - %s: %s\n", e.ID, e.Question)
+		}
+	}
 }
 
 func buildConflictsPrompt(entries []tracking.Entry) string {

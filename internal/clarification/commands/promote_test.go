@@ -57,11 +57,13 @@ func TestPromoteCmd_Success(t *testing.T) {
 	promoteCmd.Flags().StringVar(&promoteID, "id", "", "Entry ID to promote")
 	promoteCmd.Flags().StringVar(&promoteTarget, "target", "", "Target file (default: CLAUDE.md)")
 	promoteCmd.Flags().BoolVar(&promoteForce, "force", false, "Force re-promotion")
+	promoteCmd.Flags().BoolVar(&promoteJSON, "json", false, "Output as JSON")
+	promoteCmd.Flags().BoolVar(&promoteMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&promoteCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"promote-clarification", "-f", trackingPath, "--id", "clr-20250115-abc123", "--target", targetPath})
+	cmd.SetArgs([]string{"promote-clarification", "-f", trackingPath, "--id", "clr-20250115-abc123", "--target", targetPath, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("promote-clarification failed: %v", err)
@@ -203,11 +205,13 @@ func TestPromoteCmd_ForceRePromote(t *testing.T) {
 	promoteCmd.Flags().StringVar(&promoteID, "id", "", "Entry ID to promote")
 	promoteCmd.Flags().StringVar(&promoteTarget, "target", "", "Target file")
 	promoteCmd.Flags().BoolVar(&promoteForce, "force", false, "Force re-promotion")
+	promoteCmd.Flags().BoolVar(&promoteJSON, "json", false, "Output as JSON")
+	promoteCmd.Flags().BoolVar(&promoteMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&promoteCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"promote-clarification", "-f", trackingPath, "--id", "clr-20250115-abc123", "--target", targetPath, "--force"})
+	cmd.SetArgs([]string{"promote-clarification", "-f", trackingPath, "--id", "clr-20250115-abc123", "--target", targetPath, "--force", "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("promote-clarification --force failed: %v", err)
@@ -312,11 +316,13 @@ func TestPromoteCmd_JSONOutput(t *testing.T) {
 	promoteCmd.Flags().StringVar(&promoteID, "id", "", "Entry ID to promote")
 	promoteCmd.Flags().StringVar(&promoteTarget, "target", "", "Target file")
 	promoteCmd.Flags().BoolVar(&promoteForce, "force", false, "Force re-promotion")
+	promoteCmd.Flags().BoolVar(&promoteJSON, "json", false, "Output as JSON")
+	promoteCmd.Flags().BoolVar(&promoteMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&promoteCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"promote-clarification", "-f", trackingPath, "--id", "clr-20250115-abc123", "--target", targetPath})
+	cmd.SetArgs([]string{"promote-clarification", "-f", trackingPath, "--id", "clr-20250115-abc123", "--target", targetPath, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("promote-clarification failed: %v", err)

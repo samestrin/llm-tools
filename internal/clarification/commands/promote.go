@@ -2,14 +2,15 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
+	"github.com/samestrin/llm-tools/pkg/output"
 
 	"github.com/spf13/cobra"
 )
@@ -22,10 +23,12 @@ var promoteClarificationCmd = &cobra.Command{
 }
 
 var (
-	promoteFile   string
-	promoteID     string
-	promoteTarget string
-	promoteForce  bool
+	promoteFile    string
+	promoteID      string
+	promoteTarget  string
+	promoteForce   bool
+	promoteJSON    bool
+	promoteMinimal bool
 )
 
 func init() {
@@ -34,6 +37,8 @@ func init() {
 	promoteClarificationCmd.Flags().StringVar(&promoteID, "id", "", "Entry ID to promote (required)")
 	promoteClarificationCmd.Flags().StringVar(&promoteTarget, "target", "CLAUDE.md", "Target file for promotion")
 	promoteClarificationCmd.Flags().BoolVar(&promoteForce, "force", false, "Force re-promotion of already promoted entry")
+	promoteClarificationCmd.Flags().BoolVar(&promoteJSON, "json", false, "Output as JSON")
+	promoteClarificationCmd.Flags().BoolVar(&promoteMinimal, "min", false, "Output in minimal/token-optimized format")
 	promoteClarificationCmd.MarkFlagRequired("file")
 	promoteClarificationCmd.MarkFlagRequired("id")
 }
@@ -106,13 +111,16 @@ func runPromoteClarification(cmd *cobra.Command, args []string) error {
 		Message: message,
 	}
 
-	output, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal result: %w", err)
-	}
+	formatter := output.New(promoteJSON, promoteMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, printPromoteText)
+}
 
-	fmt.Fprintln(cmd.OutOrStdout(), string(output))
-	return nil
+func printPromoteText(w io.Writer, data interface{}) {
+	r := data.(PromoteResult)
+	fmt.Fprintf(w, "STATUS: %s\n", r.Status)
+	fmt.Fprintf(w, "ID: %s\n", r.ID)
+	fmt.Fprintf(w, "TARGET: %s\n", r.Target)
+	fmt.Fprintf(w, "MESSAGE: %s\n", r.Message)
 }
 
 // formatForClaudeMD formats a clarification entry for CLAUDE.md.

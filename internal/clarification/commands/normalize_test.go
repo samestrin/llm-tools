@@ -14,11 +14,13 @@ func TestNormalizeClarificationCmd_Success(t *testing.T) {
 	normalizeCmd := *normalizeClarificationCmd
 	normalizeCmd.ResetFlags()
 	normalizeCmd.Flags().StringVarP(&normalizeQuestion, "question", "q", "", "Question to normalize")
+	normalizeCmd.Flags().BoolVar(&normalizeJSON, "json", false, "Output as JSON")
+	normalizeCmd.Flags().BoolVar(&normalizeMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&normalizeCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"normalize-clarification", "-q", "what framework we should use?"})
+	cmd.SetArgs([]string{"normalize-clarification", "-q", "what framework we should use?", "--json"})
 
 	// Set mock LLM client
 	SetLLMClient(&MockLLMClient{

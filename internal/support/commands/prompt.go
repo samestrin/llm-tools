@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +34,29 @@ var (
 	promptCacheTTL    int
 	promptRefresh     bool
 	promptStrip       bool
+	promptJSON        bool
+	promptMinimal     bool
 )
+
+// PromptResult represents the result of a prompt execution
+type PromptResult struct {
+	Status       string `json:"status,omitempty"`
+	S            string `json:"s,omitempty"`
+	Attempts     int    `json:"attempts,omitempty"`
+	A            *int   `json:"a,omitempty"`
+	Cached       bool   `json:"cached,omitempty"`
+	Ca           *bool  `json:"ca,omitempty"`
+	CacheAge     int    `json:"cache_age,omitempty"`
+	CAg          *int   `json:"cag,omitempty"`
+	OutputFile   string `json:"output_file,omitempty"`
+	OF           string `json:"of,omitempty"`
+	OutputLength int    `json:"output_length,omitempty"`
+	OL           *int   `json:"ol,omitempty"`
+	Response     string `json:"response,omitempty"`
+	R            string `json:"r,omitempty"`
+	LastError    string `json:"last_error,omitempty"`
+	LE           string `json:"le,omitempty"`
+}
 
 // newPromptCmd creates the prompt command
 func newPromptCmd() *cobra.Command {
@@ -71,6 +95,8 @@ Features:
 	cmd.Flags().IntVar(&promptCacheTTL, "cache-ttl", 3600, "Cache TTL in seconds")
 	cmd.Flags().BoolVar(&promptRefresh, "refresh", false, "Force refresh cached response")
 	cmd.Flags().BoolVar(&promptStrip, "strip", false, "Strip whitespace from file variable values")
+	cmd.Flags().BoolVar(&promptJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&promptMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	return cmd
 }
@@ -182,15 +208,16 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 					if err := os.WriteFile(promptOutput, []byte(response), 0644); err != nil {
 						return fmt.Errorf("failed to write output: %w", err)
 					}
-					fmt.Fprintln(cmd.OutOrStdout(), "STATUS: SUCCESS")
-					fmt.Fprintln(cmd.OutOrStdout(), "CACHED: TRUE")
-					fmt.Fprintf(cmd.OutOrStdout(), "CACHE_AGE: %ds\n", age)
-					fmt.Fprintf(cmd.OutOrStdout(), "OUTPUT_FILE: %s\n", promptOutput)
-					fmt.Fprintf(cmd.OutOrStdout(), "OUTPUT_LENGTH: %d\n", len(response))
-				} else {
-					fmt.Fprint(cmd.OutOrStdout(), response)
 				}
-				return nil
+				return outputPromptResult(cmd, PromptResult{
+					Status:       "SUCCESS",
+					Attempts:     0,
+					Cached:       true,
+					CacheAge:     age,
+					OutputFile:   promptOutput,
+					OutputLength: len(response),
+					Response:     response,
+				})
 			}
 		}
 	}
@@ -252,26 +279,22 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 	}
 
 	if lastError != "" && response == "" {
-		out := cmd.OutOrStdout()
-		if promptOutput != "" {
-			out = cmd.ErrOrStderr()
-		}
-		fmt.Fprintln(out, "STATUS: FAILED")
-		fmt.Fprintf(out, "ATTEMPTS: %d\n", attempts)
-		fmt.Fprintf(out, "LAST_ERROR: %s\n", lastError)
+		outputPromptResult(cmd, PromptResult{
+			Status:    "FAILED",
+			Attempts:  attempts,
+			LastError: lastError,
+		})
 		return fmt.Errorf("prompt execution failed")
 	}
 
 	// Final validation
 	valid, validationError := validateLLMResponse(response, promptMinLen, promptMustContain, promptNoErrorChk)
 	if !valid {
-		out := cmd.OutOrStdout()
-		if promptOutput != "" {
-			out = cmd.ErrOrStderr()
-		}
-		fmt.Fprintln(out, "STATUS: FAILED")
-		fmt.Fprintf(out, "ATTEMPTS: %d\n", attempts)
-		fmt.Fprintf(out, "LAST_ERROR: %s\n", validationError)
+		outputPromptResult(cmd, PromptResult{
+			Status:    "FAILED",
+			Attempts:  attempts,
+			LastError: validationError,
+		})
 		return fmt.Errorf("response validation failed")
 	}
 
@@ -285,16 +308,81 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 		if err := os.WriteFile(promptOutput, []byte(response), 0644); err != nil {
 			return fmt.Errorf("failed to write output: %w", err)
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "STATUS: SUCCESS")
-		fmt.Fprintf(cmd.OutOrStdout(), "ATTEMPTS: %d\n", attempts)
-		fmt.Fprintln(cmd.OutOrStdout(), "CACHED: FALSE")
-		fmt.Fprintf(cmd.OutOrStdout(), "OUTPUT_FILE: %s\n", promptOutput)
-		fmt.Fprintf(cmd.OutOrStdout(), "OUTPUT_LENGTH: %d\n", len(response))
-	} else {
-		fmt.Fprint(cmd.OutOrStdout(), response)
 	}
 
-	return nil
+	return outputPromptResult(cmd, PromptResult{
+		Status:       "SUCCESS",
+		Attempts:     attempts,
+		Cached:       false,
+		OutputFile:   promptOutput,
+		OutputLength: len(response),
+		Response:     response,
+	})
+}
+
+func outputPromptResult(cmd *cobra.Command, result PromptResult) error {
+	// Build the appropriate result struct
+	var finalResult PromptResult
+	if promptMinimal {
+		attempts := result.Attempts
+		cached := result.Cached
+		cacheAge := result.CacheAge
+		outputLen := result.OutputLength
+		finalResult = PromptResult{
+			S:   result.Status,
+			A:   &attempts,
+			Ca:  &cached,
+			CAg: &cacheAge,
+			OF:  result.OutputFile,
+			OL:  &outputLen,
+			R:   result.Response,
+			LE:  result.LastError,
+		}
+	} else {
+		finalResult = result
+	}
+
+	// If outputFile is set, don't include response in JSON (it's in the file)
+	if result.OutputFile != "" && !promptJSON && !promptMinimal {
+		// For text output with file, show metadata only
+		formatter := output.New(promptJSON, promptMinimal, cmd.OutOrStdout())
+		return formatter.Print(finalResult, func(w io.Writer, data interface{}) {
+			fmt.Fprintf(w, "STATUS: %s\n", result.Status)
+			if result.Attempts > 0 {
+				fmt.Fprintf(w, "ATTEMPTS: %d\n", result.Attempts)
+			}
+			fmt.Fprintf(w, "CACHED: %v\n", strings.ToUpper(fmt.Sprintf("%t", result.Cached)))
+			if result.CacheAge > 0 {
+				fmt.Fprintf(w, "CACHE_AGE: %ds\n", result.CacheAge)
+			}
+			if result.OutputFile != "" {
+				fmt.Fprintf(w, "OUTPUT_FILE: %s\n", result.OutputFile)
+			}
+			if result.OutputLength > 0 {
+				fmt.Fprintf(w, "OUTPUT_LENGTH: %d\n", result.OutputLength)
+			}
+			if result.LastError != "" {
+				fmt.Fprintf(w, "LAST_ERROR: %s\n", result.LastError)
+			}
+		})
+	}
+
+	// Standard output (to stdout) or JSON/minimal mode
+	formatter := output.New(promptJSON, promptMinimal, cmd.OutOrStdout())
+	return formatter.Print(finalResult, func(w io.Writer, data interface{}) {
+		// For text output without file, just print the response
+		if result.OutputFile == "" && result.Response != "" {
+			fmt.Fprint(w, result.Response)
+		} else if result.Status == "FAILED" {
+			fmt.Fprintf(w, "STATUS: %s\n", result.Status)
+			if result.Attempts > 0 {
+				fmt.Fprintf(w, "ATTEMPTS: %d\n", result.Attempts)
+			}
+			if result.LastError != "" {
+				fmt.Fprintf(w, "LAST_ERROR: %s\n", result.LastError)
+			}
+		}
+	})
 }
 
 func substituteTemplate(template string, variables map[string]string) string {

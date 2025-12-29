@@ -39,6 +39,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"no_gitignore": {
 						"type": "boolean",
 						"description": "Include gitignored files"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				}
 			}`),
@@ -71,6 +79,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"files_only": {
 						"type": "boolean",
 						"description": "Only show filenames, not matches"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["pattern", "paths"]
@@ -92,6 +108,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"verbose": {
 						"type": "boolean",
 						"description": "Show file type (file/directory/symlink)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["paths"]
@@ -112,6 +136,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"query": {
 						"type": "string",
 						"description": "Query path (e.g., .users[0].name)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["file", "query"]
@@ -136,6 +168,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"plain": {
 						"type": "boolean",
 						"description": "Output text only (no markdown formatting)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["file"]
@@ -161,6 +201,14 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "string",
 						"enum": ["brackets", "braces"],
 						"description": "Variable syntax: brackets [[var]] or braces {{var}}"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["file"]
@@ -181,6 +229,10 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				}
 			}`),
@@ -221,6 +273,10 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "boolean",
 						"description": "Output as JSON"
 					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					},
 					"output_dir": {
 						"type": "string",
 						"description": "Write per-keyword results to directory"
@@ -244,6 +300,10 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["file"]
@@ -264,6 +324,10 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				}
 			}`),
@@ -292,6 +356,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"pattern": {
 						"type": "string",
 						"description": "Glob pattern (for files mode)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["mode", "path"]
@@ -325,6 +397,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"max_tokens": {
 						"type": "integer",
 						"description": "Maximum tokens in output"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["path"]
@@ -350,6 +430,10 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["manifest"]
@@ -382,6 +466,10 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				}
 			}`),
@@ -401,6 +489,10 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["path"]
@@ -429,6 +521,10 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				}
 			}`),
@@ -448,6 +544,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"validate": {
 						"type": "boolean",
 						"description": "Also verify .git directory exists"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				}
 			}`),
@@ -483,6 +587,10 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["context"]
@@ -516,6 +624,10 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				}
 			}`),

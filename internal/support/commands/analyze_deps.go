@@ -1,18 +1,22 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
-var analyzeDepsJSON bool
+var (
+	analyzeDepsJSON    bool
+	analyzeDepsMinimal bool
+)
 
 // newAnalyzeDepsCmd creates the analyze-deps command
 func newAnalyzeDepsCmd() *cobra.Command {
@@ -34,8 +38,27 @@ Output:
 	}
 
 	cmd.Flags().BoolVar(&analyzeDepsJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&analyzeDepsMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	return cmd
+}
+
+// AnalyzeDepsResult represents the JSON output of the analyze-deps command.
+type AnalyzeDepsResult struct {
+	// Standard mode fields (always included when not minimal)
+	FilesRead   []string `json:"files_read,omitempty"`
+	FilesModify []string `json:"files_modify,omitempty"`
+	FilesCreate []string `json:"files_create,omitempty"`
+	Directories []string `json:"directories,omitempty"`
+	TotalFiles  *int     `json:"total_files,omitempty"`
+	Confidence  string   `json:"confidence,omitempty"`
+	// Minimal mode fields
+	FR    []string `json:"fr,omitempty"`
+	FM    []string `json:"fm,omitempty"`
+	FC    []string `json:"fc,omitempty"`
+	Dirs  []string `json:"dirs,omitempty"`
+	Total *int     `json:"total,omitempty"`
+	Conf  string   `json:"conf,omitempty"`
 }
 
 func runAnalyzeDeps(cmd *cobra.Command, args []string) error {
@@ -149,28 +172,78 @@ func runAnalyzeDeps(cmd *cobra.Command, args []string) error {
 		confidence = "medium"
 	}
 
-	// Output
-	if analyzeDepsJSON {
-		output := map[string]interface{}{
-			"files_read":   readList,
-			"files_modify": modifyList,
-			"files_create": createList,
-			"directories":  dirList,
-			"total_files":  totalFiles,
-			"confidence":   confidence,
-		}
-		data, _ := json.MarshalIndent(output, "", "  ")
-		fmt.Fprintln(cmd.OutOrStdout(), string(data))
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "FILES_READ: %s\n", formatList(readList))
-		fmt.Fprintf(cmd.OutOrStdout(), "FILES_MODIFY: %s\n", formatList(modifyList))
-		fmt.Fprintf(cmd.OutOrStdout(), "FILES_CREATE: %s\n", formatList(createList))
-		fmt.Fprintf(cmd.OutOrStdout(), "DIRECTORIES: %s\n", formatList(dirList))
-		fmt.Fprintf(cmd.OutOrStdout(), "TOTAL_FILES: %d\n", totalFiles)
-		fmt.Fprintf(cmd.OutOrStdout(), "CONFIDENCE: %s\n", confidence)
+	// Build result - ensure empty slices are initialized (not nil) for JSON output
+	if readList == nil {
+		readList = []string{}
+	}
+	if modifyList == nil {
+		modifyList = []string{}
+	}
+	if createList == nil {
+		createList = []string{}
+	}
+	if dirList == nil {
+		dirList = []string{}
 	}
 
-	return nil
+	var result AnalyzeDepsResult
+	if analyzeDepsMinimal {
+		result = AnalyzeDepsResult{
+			FR:    readList,
+			FM:    modifyList,
+			FC:    createList,
+			Dirs:  dirList,
+			Total: &totalFiles,
+			Conf:  confidence,
+		}
+	} else {
+		result = AnalyzeDepsResult{
+			FilesRead:   readList,
+			FilesModify: modifyList,
+			FilesCreate: createList,
+			Directories: dirList,
+			TotalFiles:  &totalFiles,
+			Confidence:  confidence,
+		}
+	}
+
+	formatter := output.New(analyzeDepsJSON, analyzeDepsMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(AnalyzeDepsResult)
+		fr := r.FilesRead
+		if r.FR != nil {
+			fr = r.FR
+		}
+		fm := r.FilesModify
+		if r.FM != nil {
+			fm = r.FM
+		}
+		fc := r.FilesCreate
+		if r.FC != nil {
+			fc = r.FC
+		}
+		dirs := r.Directories
+		if r.Dirs != nil {
+			dirs = r.Dirs
+		}
+		var total int
+		if r.TotalFiles != nil {
+			total = *r.TotalFiles
+		} else if r.Total != nil {
+			total = *r.Total
+		}
+		conf := r.Confidence
+		if r.Conf != "" {
+			conf = r.Conf
+		}
+
+		fmt.Fprintf(w, "FILES_READ: %s\n", formatList(fr))
+		fmt.Fprintf(w, "FILES_MODIFY: %s\n", formatList(fm))
+		fmt.Fprintf(w, "FILES_CREATE: %s\n", formatList(fc))
+		fmt.Fprintf(w, "DIRECTORIES: %s\n", formatList(dirs))
+		fmt.Fprintf(w, "TOTAL_FILES: %d\n", total)
+		fmt.Fprintf(w, "CONFIDENCE: %s\n", conf)
+	})
 }
 
 func isValidFilePath(path string) bool {

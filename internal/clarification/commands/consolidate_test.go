@@ -46,11 +46,13 @@ func TestSuggestConsolidationCmd_FoundSuggestions(t *testing.T) {
 	consCmd := *suggestConsolidationCmd
 	consCmd.ResetFlags()
 	consCmd.Flags().StringVarP(&consolidateFile, "file", "f", "", "Tracking file path")
+	consCmd.Flags().BoolVar(&consolidateJSON, "json", false, "Output as JSON")
+	consCmd.Flags().BoolVar(&consolidateMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&consCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"suggest-consolidation", "-f", trackingPath})
+	cmd.SetArgs([]string{"suggest-consolidation", "-f", trackingPath, "--json"})
 
 	// Set mock LLM client
 	SetLLMClient(&MockLLMClient{
@@ -104,11 +106,13 @@ func TestSuggestConsolidationCmd_TooFewEntries(t *testing.T) {
 	consCmd := *suggestConsolidationCmd
 	consCmd.ResetFlags()
 	consCmd.Flags().StringVarP(&consolidateFile, "file", "f", "", "Tracking file path")
+	consCmd.Flags().BoolVar(&consolidateJSON, "json", false, "Output as JSON")
+	consCmd.Flags().BoolVar(&consolidateMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&consCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"suggest-consolidation", "-f", trackingPath})
+	cmd.SetArgs([]string{"suggest-consolidation", "-f", trackingPath, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("suggest-consolidation failed: %v", err)

@@ -3,18 +3,42 @@ package commands
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	importSource string
-	importTarget string
-	importMode   string
-	importQuiet  bool
+	importSource  string
+	importTarget  string
+	importMode    string
+	importQuiet   bool
+	importJSON    bool
+	importMinimal bool
 )
+
+// ImportMemoryResult holds the import result
+type ImportMemoryResult struct {
+	Source    string `json:"source,omitempty"`
+	Src       string `json:"src,omitempty"`
+	Target    string `json:"target,omitempty"`
+	Tgt       string `json:"tgt,omitempty"`
+	Mode      string `json:"mode,omitempty"`
+	M         string `json:"m,omitempty"`
+	Processed int    `json:"processed,omitempty"`
+	Pr        *int   `json:"pr,omitempty"`
+	Created   int    `json:"created,omitempty"`
+	Cr        *int   `json:"cr,omitempty"`
+	Updated   int    `json:"updated,omitempty"`
+	Upd       *int   `json:"upd,omitempty"`
+	Skipped   int    `json:"skipped,omitempty"`
+	Sk        *int   `json:"sk,omitempty"`
+	Errors    int    `json:"errors,omitempty"`
+	Er        *int   `json:"er,omitempty"`
+}
 
 // NewImportMemoryCmd creates a new import-memory command.
 func NewImportMemoryCmd() *cobra.Command {
@@ -35,6 +59,8 @@ Import modes:
 	cmd.Flags().StringVarP(&importTarget, "target", "t", "", "Target storage file (required)")
 	cmd.Flags().StringVarP(&importMode, "mode", "m", "append", "Import mode: append, overwrite, merge")
 	cmd.Flags().BoolVarP(&importQuiet, "quiet", "q", false, "Suppress output")
+	cmd.Flags().BoolVar(&importJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&importMinimal, "min", false, "Output in minimal/token-optimized format")
 	cmd.MarkFlagRequired("source")
 	cmd.MarkFlagRequired("target")
 
@@ -86,18 +112,50 @@ func runImportMemory(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("import failed: %w", err)
 	}
 
-	if !importQuiet {
-		fmt.Fprintf(cmd.OutOrStdout(), "Import complete:\n")
-		fmt.Fprintf(cmd.OutOrStdout(), "  Processed: %d\n", result.Processed)
-		fmt.Fprintf(cmd.OutOrStdout(), "  Created:   %d\n", result.Created)
-		fmt.Fprintf(cmd.OutOrStdout(), "  Updated:   %d\n", result.Updated)
-		fmt.Fprintf(cmd.OutOrStdout(), "  Skipped:   %d\n", result.Skipped)
-		if len(result.Errors) > 0 {
-			fmt.Fprintf(cmd.OutOrStdout(), "  Errors:    %d\n", len(result.Errors))
+	// Build output result
+	errorCount := len(result.Errors)
+	var outputResult ImportMemoryResult
+	if importMinimal {
+		outputResult = ImportMemoryResult{
+			Src: importSource,
+			Tgt: importTarget,
+			M:   importMode,
+			Pr:  &result.Processed,
+			Cr:  &result.Created,
+			Upd: &result.Updated,
+			Sk:  &result.Skipped,
+			Er:  &errorCount,
+		}
+	} else {
+		outputResult = ImportMemoryResult{
+			Source:    importSource,
+			Target:    importTarget,
+			Mode:      importMode,
+			Processed: result.Processed,
+			Created:   result.Created,
+			Updated:   result.Updated,
+			Skipped:   result.Skipped,
+			Errors:    errorCount,
 		}
 	}
 
-	return nil
+	if importQuiet && !importJSON && !importMinimal {
+		return nil
+	}
+
+	formatter := output.New(importJSON, importMinimal, cmd.OutOrStdout())
+	return formatter.Print(outputResult, func(w io.Writer, data interface{}) {
+		if !importQuiet {
+			fmt.Fprintf(w, "Import complete:\n")
+			fmt.Fprintf(w, "  Processed: %d\n", result.Processed)
+			fmt.Fprintf(w, "  Created:   %d\n", result.Created)
+			fmt.Fprintf(w, "  Updated:   %d\n", result.Updated)
+			fmt.Fprintf(w, "  Skipped:   %d\n", result.Skipped)
+			if errorCount > 0 {
+				fmt.Fprintf(w, "  Errors:    %d\n", errorCount)
+			}
+		}
+	})
 }
 
 func parseImportMode(mode string) (storage.ImportMode, error) {

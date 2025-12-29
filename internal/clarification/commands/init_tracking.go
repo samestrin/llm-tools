@@ -2,14 +2,15 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
+	"github.com/samestrin/llm-tools/pkg/output"
 
 	"github.com/spf13/cobra"
 )
@@ -22,14 +23,18 @@ var initTrackingCmd = &cobra.Command{
 }
 
 var (
-	initOutput string
-	initForce  bool
+	initOutput  string
+	initForce   bool
+	initJSON    bool
+	initMinimal bool
 )
 
 func init() {
 	rootCmd.AddCommand(initTrackingCmd)
 	initTrackingCmd.Flags().StringVarP(&initOutput, "output", "o", "", "Output file path (required)")
 	initTrackingCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite if exists")
+	initTrackingCmd.Flags().BoolVar(&initJSON, "json", false, "Output as JSON")
+	initTrackingCmd.Flags().BoolVar(&initMinimal, "min", false, "Output in minimal/token-optimized format")
 	initTrackingCmd.MarkFlagRequired("output")
 }
 
@@ -84,18 +89,18 @@ func runInitTracking(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close()
 
-	// Output JSON result
+	// Output result
 	result := InitResult{
 		Status:  "created",
 		File:    outputPath,
 		Message: "Storage initialized successfully",
 	}
 
-	output, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal result: %w", err)
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout(), string(output))
-	return nil
+	formatter := output.New(initJSON, initMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(InitResult)
+		fmt.Fprintf(w, "STATUS: %s\n", r.Status)
+		fmt.Fprintf(w, "FILE: %s\n", r.File)
+		fmt.Fprintf(w, "MESSAGE: %s\n", r.Message)
+	})
 }

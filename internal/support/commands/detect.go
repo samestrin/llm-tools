@@ -1,18 +1,30 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	detectJSON bool
-	detectPath string
+	detectJSON    bool
+	detectPath    string
+	detectMinimal bool
 )
+
+// DetectResult represents the project detection result
+type DetectResult struct {
+	Stack          string `json:"stack,omitempty"`
+	Language       string `json:"language,omitempty"`
+	PackageManager string `json:"package_manager,omitempty"`
+	Framework      string `json:"framework,omitempty"`
+	HasTests       bool   `json:"has_tests"`
+	PytestAvail    bool   `json:"pytest_available"`
+}
 
 // newDetectCmd creates the detect command
 func newDetectCmd() *cobra.Command {
@@ -34,6 +46,7 @@ Output fields:
 
 	cmd.Flags().StringVar(&detectPath, "path", ".", "Project path to analyze")
 	cmd.Flags().BoolVar(&detectJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&detectMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	return cmd
 }
@@ -154,20 +167,28 @@ func runDetect(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Output
-	if detectJSON {
-		output, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Fprintln(cmd.OutOrStdout(), string(output))
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "STACK: %s\n", result["stack"])
-		fmt.Fprintf(cmd.OutOrStdout(), "LANGUAGE: %s\n", result["language"])
-		fmt.Fprintf(cmd.OutOrStdout(), "PACKAGE_MANAGER: %s\n", result["package_manager"])
-		fmt.Fprintf(cmd.OutOrStdout(), "FRAMEWORK: %s\n", result["framework"])
-		fmt.Fprintf(cmd.OutOrStdout(), "HAS_TESTS: %v\n", result["has_tests"])
-		fmt.Fprintf(cmd.OutOrStdout(), "PYTEST_AVAILABLE: %v\n", result["pytest_available"])
+	// Build structured result
+	detectResult := DetectResult{
+		Stack:          result["stack"].(string),
+		Language:       result["language"].(string),
+		PackageManager: result["package_manager"].(string),
+		Framework:      result["framework"].(string),
+		HasTests:       result["has_tests"].(bool),
+		PytestAvail:    result["pytest_available"].(bool),
 	}
 
-	return nil
+	formatter := output.New(detectJSON, detectMinimal, cmd.OutOrStdout())
+	return formatter.Print(detectResult, printDetectText)
+}
+
+func printDetectText(w io.Writer, data interface{}) {
+	r := data.(DetectResult)
+	fmt.Fprintf(w, "STACK: %s\n", r.Stack)
+	fmt.Fprintf(w, "LANGUAGE: %s\n", r.Language)
+	fmt.Fprintf(w, "PACKAGE_MANAGER: %s\n", r.PackageManager)
+	fmt.Fprintf(w, "FRAMEWORK: %s\n", r.Framework)
+	fmt.Fprintf(w, "HAS_TESTS: %v\n", r.HasTests)
+	fmt.Fprintf(w, "PYTEST_AVAILABLE: %v\n", r.PytestAvail)
 }
 
 func fileExists(path string) bool {

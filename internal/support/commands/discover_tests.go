@@ -1,19 +1,35 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	discoverTestsJSON bool
-	discoverTestsPath string
+	discoverTestsJSON    bool
+	discoverTestsPath    string
+	discoverTestsMinimal bool
 )
+
+// DiscoverTestsResult represents the test discovery result
+type DiscoverTestsResult struct {
+	Pattern        string `json:"pattern,omitempty"`
+	Framework      string `json:"framework,omitempty"`
+	TestRunner     string `json:"test_runner,omitempty"`
+	ConfigFile     string `json:"config_file,omitempty"`
+	SourceDir      string `json:"source_dir,omitempty"`
+	TestDir        string `json:"test_dir,omitempty"`
+	E2eDir         string `json:"e2e_dir,omitempty"`
+	UnitTestCount  int    `json:"unit_test_count"`
+	E2eTestCount   int    `json:"e2e_test_count"`
+	TotalTestCount int    `json:"total_test_count"`
+}
 
 // newDiscoverTestsCmd creates the discover-tests command
 func newDiscoverTestsCmd() *cobra.Command {
@@ -38,6 +54,7 @@ Output fields:
 
 	cmd.Flags().StringVar(&discoverTestsPath, "path", ".", "Project path to analyze")
 	cmd.Flags().BoolVar(&discoverTestsJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&discoverTestsMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	return cmd
 }
@@ -179,24 +196,36 @@ func runDiscoverTests(cmd *cobra.Command, args []string) error {
 	// Calculate total
 	result["total_test_count"] = result["unit_test_count"].(int) + result["e2e_test_count"].(int)
 
-	// Output
-	if discoverTestsJSON {
-		output, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Fprintln(cmd.OutOrStdout(), string(output))
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "PATTERN: %s\n", result["pattern"])
-		fmt.Fprintf(cmd.OutOrStdout(), "FRAMEWORK: %s\n", result["framework"])
-		fmt.Fprintf(cmd.OutOrStdout(), "TEST_RUNNER: %s\n", result["test_runner"])
-		fmt.Fprintf(cmd.OutOrStdout(), "CONFIG_FILE: %s\n", result["config_file"])
-		fmt.Fprintf(cmd.OutOrStdout(), "SOURCE_DIR: %s\n", result["source_dir"])
-		fmt.Fprintf(cmd.OutOrStdout(), "TEST_DIR: %s\n", result["test_dir"])
-		fmt.Fprintf(cmd.OutOrStdout(), "E2E_DIR: %s\n", result["e2e_dir"])
-		fmt.Fprintf(cmd.OutOrStdout(), "UNIT_TEST_COUNT: %d\n", result["unit_test_count"])
-		fmt.Fprintf(cmd.OutOrStdout(), "E2E_TEST_COUNT: %d\n", result["e2e_test_count"])
-		fmt.Fprintf(cmd.OutOrStdout(), "TOTAL_TEST_COUNT: %d\n", result["total_test_count"])
+	// Build structured result
+	discoverResult := DiscoverTestsResult{
+		Pattern:        result["pattern"].(string),
+		Framework:      result["framework"].(string),
+		TestRunner:     result["test_runner"].(string),
+		ConfigFile:     result["config_file"].(string),
+		SourceDir:      result["source_dir"].(string),
+		TestDir:        result["test_dir"].(string),
+		E2eDir:         result["e2e_dir"].(string),
+		UnitTestCount:  result["unit_test_count"].(int),
+		E2eTestCount:   result["e2e_test_count"].(int),
+		TotalTestCount: result["total_test_count"].(int),
 	}
 
-	return nil
+	formatter := output.New(discoverTestsJSON, discoverTestsMinimal, cmd.OutOrStdout())
+	return formatter.Print(discoverResult, printDiscoverTestsText)
+}
+
+func printDiscoverTestsText(w io.Writer, data interface{}) {
+	r := data.(DiscoverTestsResult)
+	fmt.Fprintf(w, "PATTERN: %s\n", r.Pattern)
+	fmt.Fprintf(w, "FRAMEWORK: %s\n", r.Framework)
+	fmt.Fprintf(w, "TEST_RUNNER: %s\n", r.TestRunner)
+	fmt.Fprintf(w, "CONFIG_FILE: %s\n", r.ConfigFile)
+	fmt.Fprintf(w, "SOURCE_DIR: %s\n", r.SourceDir)
+	fmt.Fprintf(w, "TEST_DIR: %s\n", r.TestDir)
+	fmt.Fprintf(w, "E2E_DIR: %s\n", r.E2eDir)
+	fmt.Fprintf(w, "UNIT_TEST_COUNT: %d\n", r.UnitTestCount)
+	fmt.Fprintf(w, "E2E_TEST_COUNT: %d\n", r.E2eTestCount)
+	fmt.Fprintf(w, "TOTAL_TEST_COUNT: %d\n", r.TotalTestCount)
 }
 
 func countTestFiles(dir string) int {

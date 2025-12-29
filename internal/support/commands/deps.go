@@ -4,18 +4,21 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	depsType string
-	depsJSON bool
+	depsType    string
+	depsJSON    bool
+	depsMinimal bool
 )
 
 // Dependency represents a single dependency with its version
@@ -58,6 +61,7 @@ Examples:
 
 	cmd.Flags().StringVar(&depsType, "type", "all", "Dependency type: all, prod, dev")
 	cmd.Flags().BoolVar(&depsJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&depsMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	return cmd
 }
@@ -115,24 +119,21 @@ func runDeps(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output
-	if depsJSON {
-		output, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Fprintln(cmd.OutOrStdout(), string(output))
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "MANIFEST: %s\n", result.Manifest)
-		fmt.Fprintf(cmd.OutOrStdout(), "TYPE: %s\n", result.ManifestType)
-		fmt.Fprintf(cmd.OutOrStdout(), "DEPENDENCIES: %d\n", len(result.Dependencies))
-		fmt.Fprintln(cmd.OutOrStdout(), "---")
-		for _, dep := range result.Dependencies {
+	formatter := output.New(depsJSON, depsMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(DepsResult)
+		fmt.Fprintf(w, "MANIFEST: %s\n", r.Manifest)
+		fmt.Fprintf(w, "TYPE: %s\n", r.ManifestType)
+		fmt.Fprintf(w, "DEPENDENCIES: %d\n", len(r.Dependencies))
+		fmt.Fprintln(w, "---")
+		for _, dep := range r.Dependencies {
 			if dep.Version != "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s (%s)\n", dep.Name, dep.Version, dep.Type)
+				fmt.Fprintf(w, "%s: %s (%s)\n", dep.Name, dep.Version, dep.Type)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s (%s)\n", dep.Name, dep.Type)
+				fmt.Fprintf(w, "%s (%s)\n", dep.Name, dep.Type)
 			}
 		}
-	}
-
-	return nil
+	})
 }
 
 func parsePackageJSON(path string) (DepsResult, error) {

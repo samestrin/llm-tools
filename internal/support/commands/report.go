@@ -2,19 +2,39 @@ package commands
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	reportTitle  string
-	reportStatus string
-	reportStats  []string
-	reportOutput string
+	reportTitle   string
+	reportStatus  string
+	reportStats   []string
+	reportOutput  string
+	reportJSON    bool
+	reportMinimal bool
 )
+
+// ReportResult holds the report generation result
+type ReportResult struct {
+	Title     string            `json:"title,omitempty"`
+	Ti        string            `json:"ti,omitempty"`
+	Status    string            `json:"status,omitempty"`
+	S         string            `json:"s,omitempty"`
+	Stats     map[string]string `json:"stats,omitempty"`
+	St        map[string]string `json:"st,omitempty"`
+	Timestamp string            `json:"timestamp,omitempty"`
+	TS        string            `json:"ts,omitempty"`
+	Content   string            `json:"content,omitempty"`
+	C         string            `json:"c,omitempty"`
+	OutputFile string           `json:"output_file,omitempty"`
+	OF        string            `json:"of,omitempty"`
+}
 
 // newReportCmd creates the report command
 func newReportCmd() *cobra.Command {
@@ -39,6 +59,8 @@ Examples:
 	cmd.Flags().StringVar(&reportStatus, "status", "", "Report status: success, partial, failed (required)")
 	cmd.Flags().StringArrayVar(&reportStats, "stat", []string{}, "Statistics in KEY=VALUE format (can be repeated)")
 	cmd.Flags().StringVarP(&reportOutput, "output", "o", "", "Output file (default: stdout)")
+	cmd.Flags().BoolVar(&reportJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&reportMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	cmd.MarkFlagRequired("title")
 	cmd.MarkFlagRequired("status")
@@ -82,18 +104,59 @@ func runReport(cmd *cobra.Command, args []string) error {
 
 	// Generate report
 	report := generateReport(reportTitle, reportStatus, stats)
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
 
-	// Output
+	// Output to file if specified
 	if reportOutput != "" {
 		if err := os.WriteFile(reportOutput, []byte(report), 0644); err != nil {
 			return fmt.Errorf("failed to write report: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Report written to: %s\n", reportOutput)
-	} else {
-		fmt.Fprint(cmd.OutOrStdout(), report)
+
+		var result ReportResult
+		if reportMinimal {
+			result = ReportResult{
+				Ti: reportTitle,
+				S:  reportStatus,
+				OF: reportOutput,
+			}
+		} else {
+			result = ReportResult{
+				Title:      reportTitle,
+				Status:     reportStatus,
+				OutputFile: reportOutput,
+			}
+		}
+
+		formatter := output.New(reportJSON, reportMinimal, cmd.OutOrStdout())
+		return formatter.Print(result, func(w io.Writer, data interface{}) {
+			fmt.Fprintf(w, "Report written to: %s\n", reportOutput)
+		})
 	}
 
-	return nil
+	// Build result for stdout
+	var result ReportResult
+	if reportMinimal {
+		result = ReportResult{
+			Ti: reportTitle,
+			S:  reportStatus,
+			St: stats,
+			TS: timestamp,
+			C:  report,
+		}
+	} else {
+		result = ReportResult{
+			Title:     reportTitle,
+			Status:    reportStatus,
+			Stats:     stats,
+			Timestamp: timestamp,
+			Content:   report,
+		}
+	}
+
+	formatter := output.New(reportJSON, reportMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		fmt.Fprint(w, report)
+	})
 }
 
 func generateReport(title, status string, stats map[string]string) string {
