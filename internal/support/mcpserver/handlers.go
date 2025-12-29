@@ -257,8 +257,11 @@ func buildDiscoverTestsArgs(args map[string]interface{}) []string {
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }
@@ -283,8 +286,11 @@ func buildMultigrepArgs(args map[string]interface{}) []string {
 	if getBool(args, "definitions_only") {
 		cmdArgs = append(cmdArgs, "--definitions-only")
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	if dir, ok := args["output_dir"].(string); ok {
 		cmdArgs = append(cmdArgs, "--output-dir", dir)
@@ -297,8 +303,11 @@ func buildAnalyzeDepsArgs(args map[string]interface{}) []string {
 	if file, ok := args["file"].(string); ok {
 		cmdArgs = append(cmdArgs, file)
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }
@@ -308,8 +317,11 @@ func buildDetectArgs(args map[string]interface{}) []string {
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }
@@ -359,8 +371,11 @@ func buildDepsArgs(args map[string]interface{}) []string {
 	if t, ok := args["type"].(string); ok {
 		cmdArgs = append(cmdArgs, "--type", t)
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }
@@ -379,8 +394,11 @@ func buildGitContextArgs(args map[string]interface{}) []string {
 	if max, ok := getInt(args, "max_commits"); ok {
 		cmdArgs = append(cmdArgs, "--max-commits", strconv.Itoa(max))
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }
@@ -390,8 +408,11 @@ func buildValidatePlanArgs(args map[string]interface{}) []string {
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }
@@ -407,8 +428,11 @@ func buildPartitionWorkArgs(args map[string]interface{}) []string {
 	if getBool(args, "verbose") {
 		cmdArgs = append(cmdArgs, "--verbose")
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }
@@ -441,8 +465,11 @@ func buildExtractRelevantArgs(args map[string]interface{}) []string {
 	if timeout, ok := getInt(args, "timeout"); ok {
 		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(timeout))
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }
@@ -461,8 +488,11 @@ func buildHighestArgs(args map[string]interface{}) []string {
 	if prefix, ok := args["prefix"].(string); ok {
 		cmdArgs = append(cmdArgs, "--prefix", prefix)
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }
@@ -472,10 +502,10 @@ func buildPlanTypeArgs(args map[string]interface{}) []string {
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
 	}
-	if getBool(args, "min") {
+	if getBoolDefault(args, "min", true) {
 		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
@@ -493,10 +523,10 @@ func buildGitChangesArgs(args map[string]interface{}) []string {
 	if getBool(args, "staged_only") {
 		cmdArgs = append(cmdArgs, "--staged-only")
 	}
-	if getBool(args, "json") {
+	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
 	}
-	if getBool(args, "min") {
+	if getBoolDefault(args, "min", true) {
 		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
@@ -530,15 +560,18 @@ func buildContextArgs(args map[string]interface{}) []string {
 		if defaultVal, ok := args["default"].(string); ok {
 			cmdArgs = append(cmdArgs, "--default", defaultVal)
 		}
-		if getBool(args, "json") {
+		if getBoolDefault(args, "json", true) {
 			cmdArgs = append(cmdArgs, "--json")
 		}
-		if getBool(args, "min") {
+		if getBoolDefault(args, "min", true) {
 			cmdArgs = append(cmdArgs, "--min")
 		}
 	case "list":
-		if getBool(args, "json") {
+		if getBoolDefault(args, "json", true) {
 			cmdArgs = append(cmdArgs, "--json")
+		}
+		if getBoolDefault(args, "min", true) {
+			cmdArgs = append(cmdArgs, "--min")
 		}
 	}
 
@@ -552,6 +585,15 @@ func getBool(args map[string]interface{}, key string) bool {
 		return v
 	}
 	return false
+}
+
+// getBoolDefault returns the bool value for key, or defaultVal if not set.
+// Used for json/min flags that should default to true in MCP context.
+func getBoolDefault(args map[string]interface{}, key string, defaultVal bool) bool {
+	if v, ok := args[key].(bool); ok {
+		return v
+	}
+	return defaultVal
 }
 
 func getInt(args map[string]interface{}, key string) (int, bool) {

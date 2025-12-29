@@ -6,6 +6,7 @@ import (
 )
 
 func TestBuildMatchArgs(t *testing.T) {
+	// Default behavior includes --json --min
 	args := map[string]interface{}{
 		"question":     "What testing framework?",
 		"entries_file": "tracking.yaml",
@@ -13,10 +14,22 @@ func TestBuildMatchArgs(t *testing.T) {
 	}
 
 	got := buildMatchArgs(args)
-	want := []string{"match-clarification", "--question", "What testing framework?", "--entries-file", "tracking.yaml", "--timeout", "60"}
+	want := []string{"match-clarification", "--question", "What testing framework?", "--entries-file", "tracking.yaml", "--timeout", "60", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildMatchArgs() = %v, want %v", got, want)
+	}
+
+	// Test with json+min disabled
+	argsNoFlags := map[string]interface{}{
+		"question": "What testing framework?",
+		"json":     false,
+		"min":      false,
+	}
+	gotNoFlags := buildMatchArgs(argsNoFlags)
+	wantNoFlags := []string{"match-clarification", "--question", "What testing framework?"}
+	if !reflect.DeepEqual(gotNoFlags, wantNoFlags) {
+		t.Errorf("buildMatchArgs(disabled) = %v, want %v", gotNoFlags, wantNoFlags)
 	}
 }
 
@@ -27,14 +40,19 @@ func TestBuildInitArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "basic init",
+			name: "basic init (defaults to json+min)",
 			args: map[string]interface{}{"output": "tracking.yaml"},
-			want: []string{"init-tracking", "--output", "tracking.yaml"},
+			want: []string{"init-tracking", "--output", "tracking.yaml", "--json", "--min"},
 		},
 		{
-			name: "with force",
+			name: "with force (defaults to json+min)",
 			args: map[string]interface{}{"output": "tracking.yaml", "force": true},
-			want: []string{"init-tracking", "--output", "tracking.yaml", "--force"},
+			want: []string{"init-tracking", "--output", "tracking.yaml", "--force", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"output": "tracking.yaml", "json": false, "min": false},
+			want: []string{"init-tracking", "--output", "tracking.yaml"},
 		},
 	}
 
@@ -81,6 +99,7 @@ func TestBuildAddArgs(t *testing.T) {
 }
 
 func TestBuildPromoteArgs(t *testing.T) {
+	// Default behavior includes --json --min
 	args := map[string]interface{}{
 		"tracking_file": "tracking.yaml",
 		"id":            "clarify-001",
@@ -89,7 +108,7 @@ func TestBuildPromoteArgs(t *testing.T) {
 	}
 
 	got := buildPromoteArgs(args)
-	want := []string{"promote-clarification", "--tracking-file", "tracking.yaml", "--id", "clarify-001", "--target", "CLAUDE.md", "--force"}
+	want := []string{"promote-clarification", "--tracking-file", "tracking.yaml", "--id", "clarify-001", "--target", "CLAUDE.md", "--force", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildPromoteArgs() = %v, want %v", got, want)
@@ -103,19 +122,23 @@ func TestBuildListArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "basic list",
+			name: "basic list (defaults to json+min)",
 			args: map[string]interface{}{"tracking_file": "tracking.yaml"},
-			want: []string{"list-entries", "tracking.yaml"},
+			want: []string{"list-entries", "tracking.yaml", "--json", "--min"},
 		},
 		{
-			name: "with filters",
+			name: "with filters (defaults to json+min)",
 			args: map[string]interface{}{
 				"tracking_file":   "tracking.yaml",
 				"status":          "pending",
 				"min_occurrences": float64(3),
-				"json_output":     true,
 			},
-			want: []string{"list-entries", "tracking.yaml", "--status", "pending", "--min-occurrences", "3", "--json"},
+			want: []string{"list-entries", "tracking.yaml", "--status", "pending", "--min-occurrences", "3", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"tracking_file": "tracking.yaml", "json": false, "min": false},
+			want: []string{"list-entries", "tracking.yaml"},
 		},
 	}
 
@@ -130,13 +153,14 @@ func TestBuildListArgs(t *testing.T) {
 }
 
 func TestBuildDetectConflictsArgs(t *testing.T) {
+	// Default behavior includes --json --min
 	args := map[string]interface{}{
 		"tracking_file": "tracking.yaml",
 		"timeout":       float64(45),
 	}
 
 	got := buildDetectConflictsArgs(args)
-	want := []string{"detect-conflicts", "tracking.yaml", "--timeout", "45"}
+	want := []string{"detect-conflicts", "tracking.yaml", "--timeout", "45", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildDetectConflictsArgs() = %v, want %v", got, want)
@@ -144,13 +168,14 @@ func TestBuildDetectConflictsArgs(t *testing.T) {
 }
 
 func TestBuildValidateArgs(t *testing.T) {
+	// Default behavior includes --json --min
 	args := map[string]interface{}{
 		"tracking_file": "tracking.yaml",
 		"context":       "React frontend project",
 	}
 
 	got := buildValidateArgs(args)
-	want := []string{"validate-clarifications", "tracking.yaml", "--context", "React frontend project"}
+	want := []string{"validate-clarifications", "tracking.yaml", "--context", "React frontend project", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildValidateArgs() = %v, want %v", got, want)
@@ -158,13 +183,14 @@ func TestBuildValidateArgs(t *testing.T) {
 }
 
 func TestBuildClusterArgs(t *testing.T) {
+	// Default behavior includes --json --min
 	args := map[string]interface{}{
 		"questions_file": "questions.txt",
 		"timeout":        float64(30),
 	}
 
 	got := buildClusterArgs(args)
-	want := []string{"cluster-clarifications", "--questions-file", "questions.txt", "--timeout", "30"}
+	want := []string{"cluster-clarifications", "--questions-file", "questions.txt", "--timeout", "30", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildClusterArgs() = %v, want %v", got, want)
@@ -172,12 +198,13 @@ func TestBuildClusterArgs(t *testing.T) {
 }
 
 func TestBuildClusterArgsWithJSON(t *testing.T) {
+	// Default behavior includes --json --min
 	args := map[string]interface{}{
 		"questions_json": `["q1","q2"]`,
 	}
 
 	got := buildClusterArgs(args)
-	want := []string{"cluster-clarifications", "--questions-json", `["q1","q2"]`}
+	want := []string{"cluster-clarifications", "--questions-json", `["q1","q2"]`, "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildClusterArgs() = %v, want %v", got, want)
@@ -185,13 +212,14 @@ func TestBuildClusterArgsWithJSON(t *testing.T) {
 }
 
 func TestBuildMatchArgsWithEntriesJSON(t *testing.T) {
+	// Default behavior includes --json --min
 	args := map[string]interface{}{
 		"question":     "What framework?",
 		"entries_json": `[{"q":"test","a":"answer"}]`,
 	}
 
 	got := buildMatchArgs(args)
-	want := []string{"match-clarification", "--question", "What framework?", "--entries-json", `[{"q":"test","a":"answer"}]`}
+	want := []string{"match-clarification", "--question", "What framework?", "--entries-json", `[{"q":"test","a":"answer"}]`, "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildMatchArgs() = %v, want %v", got, want)
@@ -199,13 +227,14 @@ func TestBuildMatchArgsWithEntriesJSON(t *testing.T) {
 }
 
 func TestBuildValidateArgsWithTimeout(t *testing.T) {
+	// Default behavior includes --json --min
 	args := map[string]interface{}{
 		"tracking_file": "tracking.yaml",
 		"timeout":       float64(90),
 	}
 
 	got := buildValidateArgs(args)
-	want := []string{"validate-clarifications", "tracking.yaml", "--timeout", "90"}
+	want := []string{"validate-clarifications", "tracking.yaml", "--timeout", "90", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildValidateArgs() = %v, want %v", got, want)
@@ -365,19 +394,24 @@ func TestBuildDeleteArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "basic delete",
+			name: "basic delete (defaults to json+min)",
 			args: map[string]interface{}{"file": "tracking.db", "id": "entry-001"},
-			want: []string{"delete-clarification", "--file", "tracking.db", "--id", "entry-001"},
+			want: []string{"delete-clarification", "--file", "tracking.db", "--id", "entry-001", "--json", "--min"},
 		},
 		{
-			name: "with force and quiet",
+			name: "with force and quiet (defaults to json+min)",
 			args: map[string]interface{}{
 				"file":  "tracking.db",
 				"id":    "entry-002",
 				"force": true,
 				"quiet": true,
 			},
-			want: []string{"delete-clarification", "--file", "tracking.db", "--id", "entry-002", "--force", "--quiet"},
+			want: []string{"delete-clarification", "--file", "tracking.db", "--id", "entry-002", "--force", "--quiet", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"file": "tracking.db", "id": "entry-001", "json": false, "min": false},
+			want: []string{"delete-clarification", "--file", "tracking.db", "--id", "entry-001"},
 		},
 	}
 
@@ -398,18 +432,23 @@ func TestBuildExportArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "basic export",
+			name: "basic export (defaults to json+min)",
 			args: map[string]interface{}{"source": "data.db", "output": "export.yaml"},
-			want: []string{"export-memory", "--source", "data.db", "--output", "export.yaml"},
+			want: []string{"export-memory", "--source", "data.db", "--output", "export.yaml", "--json", "--min"},
 		},
 		{
-			name: "with quiet",
+			name: "with quiet (defaults to json+min)",
 			args: map[string]interface{}{
 				"source": "data.db",
 				"output": "export.yaml",
 				"quiet":  true,
 			},
-			want: []string{"export-memory", "--source", "data.db", "--output", "export.yaml", "--quiet"},
+			want: []string{"export-memory", "--source", "data.db", "--output", "export.yaml", "--quiet", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"source": "data.db", "output": "export.yaml", "json": false, "min": false},
+			want: []string{"export-memory", "--source", "data.db", "--output", "export.yaml"},
 		},
 	}
 
@@ -430,19 +469,24 @@ func TestBuildImportArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "basic import",
+			name: "basic import (defaults to json+min)",
 			args: map[string]interface{}{"source": "data.yaml", "target": "data.db"},
-			want: []string{"import-memory", "--source", "data.yaml", "--target", "data.db"},
+			want: []string{"import-memory", "--source", "data.yaml", "--target", "data.db", "--json", "--min"},
 		},
 		{
-			name: "with mode and quiet",
+			name: "with mode and quiet (defaults to json+min)",
 			args: map[string]interface{}{
 				"source": "data.yaml",
 				"target": "data.db",
 				"mode":   "merge",
 				"quiet":  true,
 			},
-			want: []string{"import-memory", "--source", "data.yaml", "--target", "data.db", "--mode", "merge", "--quiet"},
+			want: []string{"import-memory", "--source", "data.yaml", "--target", "data.db", "--mode", "merge", "--quiet", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"source": "data.yaml", "target": "data.db", "json": false, "min": false},
+			want: []string{"import-memory", "--source", "data.yaml", "--target", "data.db"},
 		},
 	}
 
@@ -463,27 +507,32 @@ func TestBuildOptimizeArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "basic optimize",
+			name: "basic optimize (defaults to json+min)",
 			args: map[string]interface{}{"file": "data.db"},
-			want: []string{"optimize-memory", "--file", "data.db"},
+			want: []string{"optimize-memory", "--file", "data.db", "--json", "--min"},
 		},
 		{
-			name: "with vacuum and stats",
+			name: "with vacuum and stats (defaults to json+min)",
 			args: map[string]interface{}{
 				"file":   "data.db",
 				"vacuum": true,
 				"stats":  true,
 			},
-			want: []string{"optimize-memory", "--file", "data.db", "--vacuum", "--stats"},
+			want: []string{"optimize-memory", "--file", "data.db", "--vacuum", "--stats", "--json", "--min"},
 		},
 		{
-			name: "with prune_stale",
+			name: "with prune_stale (defaults to json+min)",
 			args: map[string]interface{}{
 				"file":        "data.db",
 				"prune_stale": "30d",
 				"quiet":       true,
 			},
-			want: []string{"optimize-memory", "--file", "data.db", "--prune-stale", "30d", "--quiet"},
+			want: []string{"optimize-memory", "--file", "data.db", "--prune-stale", "30d", "--quiet", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"file": "data.db", "json": false, "min": false},
+			want: []string{"optimize-memory", "--file", "data.db"},
 		},
 	}
 
@@ -504,19 +553,24 @@ func TestBuildReconcileArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "basic reconcile",
+			name: "basic reconcile (defaults to json+min)",
 			args: map[string]interface{}{"file": "data.db", "project_root": "/path/to/project"},
-			want: []string{"reconcile-memory", "--file", "data.db", "--project-root", "/path/to/project"},
+			want: []string{"reconcile-memory", "--file", "data.db", "--project-root", "/path/to/project", "--json", "--min"},
 		},
 		{
-			name: "with dry_run and quiet",
+			name: "with dry_run and quiet (defaults to json+min)",
 			args: map[string]interface{}{
 				"file":         "data.db",
 				"project_root": "/path/to/project",
 				"dry_run":      true,
 				"quiet":        true,
 			},
-			want: []string{"reconcile-memory", "--file", "data.db", "--project-root", "/path/to/project", "--dry-run", "--quiet"},
+			want: []string{"reconcile-memory", "--file", "data.db", "--project-root", "/path/to/project", "--dry-run", "--quiet", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"file": "data.db", "project_root": "/path/to/project", "json": false, "min": false},
+			want: []string{"reconcile-memory", "--file", "data.db", "--project-root", "/path/to/project"},
 		},
 	}
 
