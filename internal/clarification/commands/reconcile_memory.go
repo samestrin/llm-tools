@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +20,27 @@ var (
 	reconcileProjectRoot string
 	reconcileDryRun      bool
 	reconcileQuiet       bool
+	reconcileJSON        bool
+	reconcileMinimal     bool
 )
+
+// ReconcileMemoryResult holds the reconciliation result
+type ReconcileMemoryResult struct {
+	File          string   `json:"file,omitempty"`
+	F             string   `json:"f,omitempty"`
+	ProjectRoot   string   `json:"project_root,omitempty"`
+	PR            string   `json:"pr,omitempty"`
+	DryRun        bool     `json:"dry_run,omitempty"`
+	DR            *bool    `json:"dr,omitempty"`
+	TotalScanned  int      `json:"total_scanned,omitempty"`
+	TS            *int     `json:"ts,omitempty"`
+	StaleFound    int      `json:"stale_found,omitempty"`
+	SF            *int     `json:"sf,omitempty"`
+	StaleEntries  []string `json:"stale_entries,omitempty"`
+	SE            []string `json:"se,omitempty"`
+	MarkedAsStale int      `json:"marked_as_stale,omitempty"`
+	MS            *int     `json:"ms,omitempty"`
+}
 
 // NewReconcileMemoryCmd creates a new reconcile-memory command.
 func NewReconcileMemoryCmd() *cobra.Command {
@@ -37,6 +59,8 @@ Use --dry-run to preview changes without modifying the database.`,
 	cmd.Flags().StringVarP(&reconcileProjectRoot, "project-root", "p", "", "Project root directory (required)")
 	cmd.Flags().BoolVar(&reconcileDryRun, "dry-run", false, "Show changes without applying")
 	cmd.Flags().BoolVarP(&reconcileQuiet, "quiet", "q", false, "Suppress output")
+	cmd.Flags().BoolVar(&reconcileJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&reconcileMinimal, "min", false, "Output in minimal/token-optimized format")
 	cmd.MarkFlagRequired("file")
 	cmd.MarkFlagRequired("project-root")
 
@@ -70,16 +94,9 @@ func runReconcileMemory(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to list entries: %w", err)
 	}
 
-	if !reconcileQuiet {
-		if reconcileDryRun {
-			fmt.Fprintln(cmd.OutOrStdout(), "[DRY RUN] Scanning for stale references...")
-		} else {
-			fmt.Fprintln(cmd.OutOrStdout(), "Scanning for stale references...")
-		}
-	}
-
 	var staleEntries []tracking.Entry
 	var staleDetails []string
+	var staleIDs []string
 
 	for _, entry := range entries {
 		// Extract file references from entry
@@ -90,45 +107,79 @@ func runReconcileMemory(cmd *cobra.Command, args []string) error {
 			fullPath := filepath.Join(reconcileProjectRoot, ref)
 			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 				staleEntries = append(staleEntries, entry)
+				staleIDs = append(staleIDs, entry.ID)
 				staleDetails = append(staleDetails, fmt.Sprintf("  - %s: references '%s' (not found)", entry.ID, ref))
 				break // Only count entry once even if multiple stale refs
 			}
 		}
 	}
 
-	if !reconcileQuiet {
-		if len(staleEntries) == 0 {
-			fmt.Fprintln(cmd.OutOrStdout(), "No stale references found")
-			return nil
-		}
-
-		fmt.Fprintf(cmd.OutOrStdout(), "Found %d entries with stale references:\n", len(staleEntries))
-		for _, detail := range staleDetails {
-			fmt.Fprintln(cmd.OutOrStdout(), detail)
+	// Apply changes (unless dry-run)
+	markedCount := 0
+	if !reconcileDryRun && len(staleEntries) > 0 {
+		for _, entry := range staleEntries {
+			entry.Status = "stale"
+			if err := store.Update(ctx, &entry); err == nil {
+				markedCount++
+			}
 		}
 	}
 
-	// Apply changes (unless dry-run)
-	if !reconcileDryRun {
-		for _, entry := range staleEntries {
-			entry.Status = "stale"
-			if err := store.Update(ctx, &entry); err != nil {
-				if !reconcileQuiet {
-					fmt.Fprintf(cmd.OutOrStdout(), "Warning: failed to mark entry %s as stale: %v\n", entry.ID, err)
+	// Build output result
+	totalScanned := len(entries)
+	staleFound := len(staleEntries)
+	var result ReconcileMemoryResult
+	if reconcileMinimal {
+		result = ReconcileMemoryResult{
+			F:  reconcileFile,
+			PR: reconcileProjectRoot,
+			DR: &reconcileDryRun,
+			TS: &totalScanned,
+			SF: &staleFound,
+			SE: staleIDs,
+			MS: &markedCount,
+		}
+	} else {
+		result = ReconcileMemoryResult{
+			File:          reconcileFile,
+			ProjectRoot:   reconcileProjectRoot,
+			DryRun:        reconcileDryRun,
+			TotalScanned:  totalScanned,
+			StaleFound:    staleFound,
+			StaleEntries:  staleIDs,
+			MarkedAsStale: markedCount,
+		}
+	}
+
+	if reconcileQuiet && !reconcileJSON && !reconcileMinimal {
+		return nil
+	}
+
+	formatter := output.New(reconcileJSON, reconcileMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		if !reconcileQuiet {
+			if reconcileDryRun {
+				fmt.Fprintln(w, "[DRY RUN] Scanning for stale references...")
+			} else {
+				fmt.Fprintln(w, "Scanning for stale references...")
+			}
+
+			if len(staleEntries) == 0 {
+				fmt.Fprintln(w, "No stale references found")
+			} else {
+				fmt.Fprintf(w, "Found %d entries with stale references:\n", len(staleEntries))
+				for _, detail := range staleDetails {
+					fmt.Fprintln(w, detail)
+				}
+
+				if !reconcileDryRun {
+					fmt.Fprintf(w, "\nMarked %d entries as stale\n", markedCount)
+				} else {
+					fmt.Fprintln(w, "\n[DRY RUN] No changes made")
 				}
 			}
 		}
-
-		if !reconcileQuiet {
-			fmt.Fprintf(cmd.OutOrStdout(), "\nMarked %d entries as stale\n", len(staleEntries))
-		}
-	} else {
-		if !reconcileQuiet {
-			fmt.Fprintln(cmd.OutOrStdout(), "\n[DRY RUN] No changes made")
-		}
-	}
-
-	return nil
+	})
 }
 
 // extractFileReferences extracts potential file path references from an entry.

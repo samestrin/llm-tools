@@ -3,22 +3,36 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	templateData   string
-	templateVars   []string
-	templateEnv    bool
-	templateStrict bool
-	templateSyntax string
-	templateOutput string
-	templateStrip  bool
+	templateData    string
+	templateVars    []string
+	templateEnv     bool
+	templateStrict  bool
+	templateSyntax  string
+	templateOutput  string
+	templateStrip   bool
+	templateJSON    bool
+	templateMinimal bool
 )
+
+// TemplateResult holds the template processing result
+type TemplateResult struct {
+	OutputFile string `json:"output_file,omitempty"`
+	OF         string `json:"of,omitempty"`
+	Content    string `json:"content,omitempty"`
+	C          string `json:"c,omitempty"`
+	Status     string `json:"status,omitempty"`
+	S          string `json:"s,omitempty"`
+}
 
 // newTemplateCmd creates the template command
 func newTemplateCmd() *cobra.Command {
@@ -40,6 +54,8 @@ Example: {{name|Guest}} uses "Guest" if name is not defined.`,
 	cmd.Flags().StringVar(&templateSyntax, "syntax", "braces", "Syntax: braces ({{var}}) or brackets ([[var]])")
 	cmd.Flags().StringVarP(&templateOutput, "output", "o", "", "Output file (default: stdout)")
 	cmd.Flags().BoolVar(&templateStrip, "strip", false, "Strip whitespace from file values")
+	cmd.Flags().BoolVar(&templateJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&templateMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	return cmd
 }
@@ -154,11 +170,47 @@ func runTemplate(cmd *cobra.Command, args []string) error {
 		if err := os.WriteFile(templateOutput, []byte(result), 0644); err != nil {
 			return fmt.Errorf("failed to write output: %w", err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "✓ Template written to: %s\n", templateOutput)
-	} else {
-		fmt.Fprint(cmd.OutOrStdout(), result)
+
+		// Build result struct
+		var res TemplateResult
+		if templateMinimal {
+			res = TemplateResult{
+				OF: templateOutput,
+				S:  "success",
+			}
+		} else {
+			res = TemplateResult{
+				OutputFile: templateOutput,
+				Status:     "success",
+			}
+		}
+
+		formatter := output.New(templateJSON, templateMinimal, cmd.OutOrStdout())
+		return formatter.Print(res, func(w io.Writer, data interface{}) {
+			fmt.Fprintf(w, "✓ Template written to: %s\n", templateOutput)
+		})
 	}
 
+	// Stdout output - use Formatter for JSON/minimal, otherwise raw content
+	if templateJSON || templateMinimal {
+		var res TemplateResult
+		if templateMinimal {
+			res = TemplateResult{
+				C: result,
+				S: "success",
+			}
+		} else {
+			res = TemplateResult{
+				Content: result,
+				Status:  "success",
+			}
+		}
+		formatter := output.New(templateJSON, templateMinimal, cmd.OutOrStdout())
+		return formatter.Print(res, nil)
+	}
+
+	// Default: raw output
+	fmt.Fprint(cmd.OutOrStdout(), result)
 	return nil
 }
 

@@ -2,15 +2,34 @@ package commands
 
 import (
 	"fmt"
+	"io"
 	"os"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
 	multiexistsVerbose bool
 	multiexistsNoFail  bool
+	multiexistsJSON    bool
+	multiexistsMinimal bool
 )
+
+// MultiexistsEntry represents a single path check result
+type MultiexistsEntry struct {
+	Path   string `json:"path,omitempty"`
+	Exists bool   `json:"exists"`
+	Type   string `json:"type,omitempty"`
+}
+
+// MultiexistsResult represents the complete check result
+type MultiexistsResult struct {
+	Entries      []MultiexistsEntry `json:"entries,omitempty"`
+	AllExist     bool               `json:"all_exist"`
+	ExistCount   int                `json:"exist_count"`
+	MissingCount int                `json:"missing_count"`
+}
 
 // newMultiexistsCmd creates the multiexists command
 func newMultiexistsCmd() *cobra.Command {
@@ -32,72 +51,52 @@ Summary:
 	}
 	cmd.Flags().BoolVarP(&multiexistsVerbose, "verbose", "v", false, "Show file types")
 	cmd.Flags().BoolVar(&multiexistsNoFail, "no-fail", false, "Don't exit with error if files are missing")
+	cmd.Flags().BoolVar(&multiexistsJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&multiexistsMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
 func runMultiexists(cmd *cobra.Command, args []string) error {
-	type result struct {
-		path     string
-		exists   bool
-		fileType string
-	}
-
-	var results []result
+	var entries []MultiexistsEntry
 	for _, pathStr := range args {
-		r := result{path: pathStr}
+		entry := MultiexistsEntry{Path: pathStr}
 
 		info, err := os.Stat(pathStr)
 		if err == nil {
-			r.exists = true
+			entry.Exists = true
 			if info.IsDir() {
-				r.fileType = "directory"
+				entry.Type = "directory"
 			} else if info.Mode()&os.ModeSymlink != 0 {
-				r.fileType = "symlink"
+				entry.Type = "symlink"
 			} else {
-				r.fileType = "file"
+				entry.Type = "file"
 			}
 		}
 
-		results = append(results, r)
+		entries = append(entries, entry)
 	}
 
-	// Print results
-	for _, r := range results {
-		check := "✓"
-		status := "EXISTS"
-		if !r.exists {
-			check = "✗"
-			status = "MISSING"
-		}
-
-		if multiexistsVerbose && r.fileType != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s (%s)\n", check, r.path, status, r.fileType)
-		} else if r.fileType == "directory" {
-			// Always show directories with type
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s/: %s (directory)\n", check, r.path, status)
-		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s\n", check, r.path, status)
-		}
-	}
-
-	// Print summary
+	// Calculate summary
 	existCount := 0
-	for _, r := range results {
-		if r.exists {
+	for _, e := range entries {
+		if e.Exists {
 			existCount++
 		}
 	}
-	missingCount := len(results) - existCount
+	missingCount := len(entries) - existCount
 	allExist := missingCount == 0
 
-	fmt.Fprintln(cmd.OutOrStdout())
-	if allExist {
-		fmt.Fprintln(cmd.OutOrStdout(), "ALL_EXIST: TRUE")
-	} else {
-		fmt.Fprintln(cmd.OutOrStdout(), "ALL_EXIST: FALSE")
+	result := MultiexistsResult{
+		Entries:      entries,
+		AllExist:     allExist,
+		ExistCount:   existCount,
+		MissingCount: missingCount,
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "MISSING_COUNT: %d\n", missingCount)
-	fmt.Fprintf(cmd.OutOrStdout(), "EXIST_COUNT: %d\n", existCount)
+
+	formatter := output.New(multiexistsJSON, multiexistsMinimal, cmd.OutOrStdout())
+	if err := formatter.Print(result, printMultiexistsText); err != nil {
+		return err
+	}
 
 	// Exit with error if files are missing (unless --no-fail)
 	if !allExist && !multiexistsNoFail {
@@ -105,6 +104,39 @@ func runMultiexists(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func printMultiexistsText(w io.Writer, data interface{}) {
+	result := data.(MultiexistsResult)
+
+	// Print entries
+	for _, e := range result.Entries {
+		check := "✓"
+		status := "EXISTS"
+		if !e.Exists {
+			check = "✗"
+			status = "MISSING"
+		}
+
+		if multiexistsVerbose && e.Type != "" {
+			fmt.Fprintf(w, "%s %s: %s (%s)\n", check, e.Path, status, e.Type)
+		} else if e.Type == "directory" {
+			// Always show directories with type
+			fmt.Fprintf(w, "%s %s/: %s (directory)\n", check, e.Path, status)
+		} else {
+			fmt.Fprintf(w, "%s %s: %s\n", check, e.Path, status)
+		}
+	}
+
+	// Print summary
+	fmt.Fprintln(w)
+	if result.AllExist {
+		fmt.Fprintln(w, "ALL_EXIST: TRUE")
+	} else {
+		fmt.Fprintln(w, "ALL_EXIST: FALSE")
+	}
+	fmt.Fprintf(w, "MISSING_COUNT: %d\n", result.MissingCount)
+	fmt.Fprintf(w, "EXIST_COUNT: %d\n", result.ExistCount)
 }
 
 func init() {

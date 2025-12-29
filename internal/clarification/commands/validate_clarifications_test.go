@@ -52,11 +52,13 @@ func TestValidateClarificationsCmd_AllValid(t *testing.T) {
 	valCmd.ResetFlags()
 	valCmd.Flags().StringVarP(&validateFile, "file", "f", "", "Tracking file path")
 	valCmd.Flags().StringVarP(&validateContext, "context", "c", "", "Project context")
+	valCmd.Flags().BoolVar(&validateClarsJSON, "json", false, "Output as JSON")
+	valCmd.Flags().BoolVar(&validateClarsMin, "min", false, "Output in minimal format")
 	cmd.AddCommand(&valCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"validate-clarifications", "-f", trackingPath, "-c", "Node.js project with Vitest"})
+	cmd.SetArgs([]string{"validate-clarifications", "-f", trackingPath, "-c", "Node.js project with Vitest", "--json"})
 
 	// Set mock LLM client
 	SetLLMClient(&MockLLMClient{
@@ -118,11 +120,13 @@ func TestValidateClarificationsCmd_SomeStale(t *testing.T) {
 	valCmd.ResetFlags()
 	valCmd.Flags().StringVarP(&validateFile, "file", "f", "", "Tracking file path")
 	valCmd.Flags().StringVarP(&validateContext, "context", "c", "", "Project context")
+	valCmd.Flags().BoolVar(&validateClarsJSON, "json", false, "Output as JSON")
+	valCmd.Flags().BoolVar(&validateClarsMin, "min", false, "Output in minimal format")
 	cmd.AddCommand(&valCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"validate-clarifications", "-f", trackingPath, "-c", "Node.js project"})
+	cmd.SetArgs([]string{"validate-clarifications", "-f", trackingPath, "-c", "Node.js project", "--json"})
 
 	// Set mock LLM client
 	SetLLMClient(&MockLLMClient{
@@ -171,11 +175,13 @@ func TestValidateClarificationsCmd_NoEntries(t *testing.T) {
 	valCmd.ResetFlags()
 	valCmd.Flags().StringVarP(&validateFile, "file", "f", "", "Tracking file path")
 	valCmd.Flags().StringVarP(&validateContext, "context", "c", "", "Project context")
+	valCmd.Flags().BoolVar(&validateClarsJSON, "json", false, "Output as JSON")
+	valCmd.Flags().BoolVar(&validateClarsMin, "min", false, "Output in minimal format")
 	cmd.AddCommand(&valCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"validate-clarifications", "-f", trackingPath})
+	cmd.SetArgs([]string{"validate-clarifications", "-f", trackingPath, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("validate-clarifications failed: %v", err)

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
+	"github.com/samestrin/llm-tools/pkg/output"
 
 	"github.com/spf13/cobra"
 )
@@ -23,12 +25,16 @@ var identifyCandidatesCmd = &cobra.Command{
 var (
 	candidatesFile           string
 	candidatesMinOccurrences int
+	candidatesJSON           bool
+	candidatesMinimal        bool
 )
 
 func init() {
 	rootCmd.AddCommand(identifyCandidatesCmd)
 	identifyCandidatesCmd.Flags().StringVarP(&candidatesFile, "file", "f", "", "Tracking file path (required)")
 	identifyCandidatesCmd.Flags().IntVar(&candidatesMinOccurrences, "min-occurrences", 3, "Minimum occurrences to consider")
+	identifyCandidatesCmd.Flags().BoolVar(&candidatesJSON, "json", false, "Output as JSON")
+	identifyCandidatesCmd.Flags().BoolVar(&candidatesMinimal, "min", false, "Output in minimal/token-optimized format")
 	identifyCandidatesCmd.MarkFlagRequired("file")
 }
 
@@ -75,7 +81,8 @@ func runIdentifyCandidates(cmd *cobra.Command, args []string) error {
 			Candidates: []Candidate{},
 			Total:      0,
 		}
-		return outputJSON(cmd, result)
+		formatter := output.New(candidatesJSON, candidatesMinimal, cmd.OutOrStdout())
+		return formatter.Print(result, printCandidatesText)
 	}
 
 	// Get LLM client
@@ -133,7 +140,20 @@ func runIdentifyCandidates(cmd *cobra.Command, args []string) error {
 		Total:      len(candidates),
 	}
 
-	return outputJSON(cmd, result)
+	formatter := output.New(candidatesJSON, candidatesMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, printCandidatesText)
+}
+
+func printCandidatesText(w io.Writer, data interface{}) {
+	r := data.(CandidatesResult)
+	fmt.Fprintf(w, "STATUS: %s\n", r.Status)
+	fmt.Fprintf(w, "TOTAL: %d\n", r.Total)
+	for _, c := range r.Candidates {
+		fmt.Fprintf(w, "\n%s (confidence: %.2f)\n", c.ID, c.Confidence)
+		fmt.Fprintf(w, "  QUESTION: %s\n", c.Question)
+		fmt.Fprintf(w, "  OCCURRENCES: %d\n", c.Occurrences)
+		fmt.Fprintf(w, "  REASON: %s\n", c.Reason)
+	}
 }
 
 func buildCandidatesPrompt(entries []tracking.Entry) string {

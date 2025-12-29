@@ -3,6 +3,7 @@ package commands
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/samestrin/llm-tools/internal/support/gitignore"
 	"github.com/samestrin/llm-tools/internal/support/utils"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +23,45 @@ var (
 	summarizeDirMaxLines    int
 	summarizeDirNoGitignore bool
 	summarizeDirPath        string
+	summarizeDirJSON        bool
+	summarizeDirMinimal     bool
 )
+
+// SummarizeDirFileInfo represents file info in the result
+type SummarizeDirFileInfo struct {
+	Path string `json:"path,omitempty"`
+	P    string `json:"p,omitempty"`
+	Size int64  `json:"size,omitempty"`
+	S    *int64 `json:"s,omitempty"`
+	Ext  string `json:"ext,omitempty"`
+	E    string `json:"e,omitempty"`
+}
+
+// SummarizeDirResult represents the summarize-dir result
+type SummarizeDirResult struct {
+	Directory   string                 `json:"directory,omitempty"`
+	Dir         string                 `json:"dir,omitempty"`
+	Format      string                 `json:"format,omitempty"`
+	Fmt         string                 `json:"fmt,omitempty"`
+	Directories []string               `json:"directories,omitempty"`
+	Dirs        []string               `json:"dirs,omitempty"`
+	Files       []SummarizeDirFileInfo `json:"files,omitempty"`
+	F           []SummarizeDirFileInfo `json:"f,omitempty"`
+	FileCount   int                    `json:"file_count,omitempty"`
+	FC          *int                   `json:"fc,omitempty"`
+	DirCount    int                    `json:"dir_count,omitempty"`
+	DC          *int                   `json:"dc,omitempty"`
+	Contents    []FileContent          `json:"contents,omitempty"`
+	C           []FileContent          `json:"c,omitempty"`
+}
+
+// FileContent represents file content for outline/full modes
+type FileContent struct {
+	Path    string `json:"path,omitempty"`
+	P       string `json:"p,omitempty"`
+	Content string `json:"content,omitempty"`
+	C       string `json:"c,omitempty"`
+}
 
 // newSummarizeDirCmd creates the summarize-dir command
 func newSummarizeDirCmd() *cobra.Command {
@@ -45,6 +85,8 @@ Formats:
 	cmd.Flags().IntVar(&summarizeDirMaxTokens, "max-tokens", 4000, "Approximate max tokens")
 	cmd.Flags().IntVar(&summarizeDirMaxLines, "lines", 10, "Max lines per file in outline mode")
 	cmd.Flags().BoolVar(&summarizeDirNoGitignore, "no-gitignore", false, "Disable .gitignore filtering")
+	cmd.Flags().BoolVar(&summarizeDirJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&summarizeDirMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -81,8 +123,6 @@ func runSummarizeDir(cmd *cobra.Command, args []string) error {
 }
 
 func summarizeTree(cmd *cobra.Command, path string, ignorer *gitignore.Parser) error {
-	fmt.Fprintf(cmd.OutOrStdout(), "DIRECTORY: %s\n\n", path)
-
 	type fileInfo struct {
 		path string
 		size int64
@@ -135,35 +175,75 @@ func summarizeTree(cmd *cobra.Command, path string, ignorer *gitignore.Parser) e
 
 	filepath.Walk(path, walkFn)
 
-	// Print directories
-	fmt.Fprintln(cmd.OutOrStdout(), "DIRECTORIES:")
 	sort.Strings(dirs)
-	for _, d := range dirs {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s/\n", d)
-	}
-
-	// Print files by extension
-	fmt.Fprintln(cmd.OutOrStdout(), "\nFILES:")
 	sort.Slice(files, func(i, j int) bool {
 		return files[i].path < files[j].path
 	})
 
-	for _, f := range files {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s (%s)\n", f.path, utils.FormatSize(f.size))
+	// Build result
+	fileCount := len(files)
+	dirCount := len(dirs)
+
+	var result SummarizeDirResult
+	if summarizeDirMinimal {
+		fileInfos := make([]SummarizeDirFileInfo, len(files))
+		for i, f := range files {
+			size := f.size
+			fileInfos[i] = SummarizeDirFileInfo{
+				P: f.path,
+				S: &size,
+				E: f.ext,
+			}
+		}
+		result = SummarizeDirResult{
+			Dir:  path,
+			Fmt:  "tree",
+			Dirs: dirs,
+			F:    fileInfos,
+			FC:   &fileCount,
+			DC:   &dirCount,
+		}
+	} else {
+		fileInfos := make([]SummarizeDirFileInfo, len(files))
+		for i, f := range files {
+			fileInfos[i] = SummarizeDirFileInfo{
+				Path: f.path,
+				Size: f.size,
+				Ext:  f.ext,
+			}
+		}
+		result = SummarizeDirResult{
+			Directory:   path,
+			Format:      "tree",
+			Directories: dirs,
+			Files:       fileInfos,
+			FileCount:   fileCount,
+			DirCount:    dirCount,
+		}
 	}
 
-	// Summary
-	fmt.Fprintf(cmd.OutOrStdout(), "\nSUMMARY: %d directories, %d files\n", len(dirs), len(files))
+	formatter := output.New(summarizeDirJSON, summarizeDirMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		fmt.Fprintf(w, "DIRECTORY: %s\n\n", path)
 
-	return nil
+		fmt.Fprintln(w, "DIRECTORIES:")
+		for _, d := range dirs {
+			fmt.Fprintf(w, "  %s/\n", d)
+		}
+
+		fmt.Fprintln(w, "\nFILES:")
+		for _, f := range files {
+			fmt.Fprintf(w, "  %s (%s)\n", f.path, utils.FormatSize(f.size))
+		}
+
+		fmt.Fprintf(w, "\nSUMMARY: %d directories, %d files\n", len(dirs), len(files))
+	})
 }
 
 func summarizeOutline(cmd *cobra.Command, path string, ignorer *gitignore.Parser) error {
-	fmt.Fprintf(cmd.OutOrStdout(), "DIRECTORY: %s\n", path)
-	fmt.Fprintf(cmd.OutOrStdout(), "FORMAT: outline (first %d lines per file)\n\n", summarizeDirMaxLines)
-
 	var totalChars int
 	maxChars := summarizeDirMaxTokens * 4 // Rough token-to-char ratio
+	var contents []FileContent
 
 	walkFn := func(filePath string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
@@ -200,10 +280,11 @@ func summarizeOutline(cmd *cobra.Command, path string, ignorer *gitignore.Parser
 		}
 
 		if len(lines) > 0 {
-			fmt.Fprintf(cmd.OutOrStdout(), "--- %s ---\n", relPath)
 			content := strings.Join(lines, "\n")
-			fmt.Fprintln(cmd.OutOrStdout(), content)
-			fmt.Fprintln(cmd.OutOrStdout())
+			contents = append(contents, FileContent{
+				Path:    relPath,
+				Content: content,
+			})
 			totalChars += len(content)
 		}
 
@@ -211,15 +292,47 @@ func summarizeOutline(cmd *cobra.Command, path string, ignorer *gitignore.Parser
 	}
 
 	filepath.Walk(path, walkFn)
-	return nil
+
+	// Build result
+	var result SummarizeDirResult
+	if summarizeDirMinimal {
+		minContents := make([]FileContent, len(contents))
+		for i, c := range contents {
+			minContents[i] = FileContent{
+				P: c.Path,
+				C: c.Content,
+			}
+		}
+		result = SummarizeDirResult{
+			Dir: path,
+			Fmt: "outline",
+			C:   minContents,
+		}
+	} else {
+		result = SummarizeDirResult{
+			Directory: path,
+			Format:    "outline",
+			Contents:  contents,
+		}
+	}
+
+	formatter := output.New(summarizeDirJSON, summarizeDirMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		fmt.Fprintf(w, "DIRECTORY: %s\n", path)
+		fmt.Fprintf(w, "FORMAT: outline (first %d lines per file)\n\n", summarizeDirMaxLines)
+
+		for _, c := range contents {
+			fmt.Fprintf(w, "--- %s ---\n", c.Path)
+			fmt.Fprintln(w, c.Content)
+			fmt.Fprintln(w)
+		}
+	})
 }
 
 func summarizeFull(cmd *cobra.Command, path string, ignorer *gitignore.Parser) error {
-	fmt.Fprintf(cmd.OutOrStdout(), "DIRECTORY: %s\n", path)
-	fmt.Fprintln(cmd.OutOrStdout(), "FORMAT: full (truncated to max tokens)")
-
 	var totalChars int
 	maxChars := summarizeDirMaxTokens * 4
+	var contents []FileContent
 
 	walkFn := func(filePath string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
@@ -258,16 +371,51 @@ func summarizeFull(cmd *cobra.Command, path string, ignorer *gitignore.Parser) e
 			text = text[:remaining] + "\n... (truncated)"
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "=== %s ===\n", relPath)
-		fmt.Fprintln(cmd.OutOrStdout(), text)
-		fmt.Fprintln(cmd.OutOrStdout())
+		contents = append(contents, FileContent{
+			Path:    relPath,
+			Content: text,
+		})
 
 		totalChars += len(text)
 		return nil
 	}
 
 	filepath.Walk(path, walkFn)
-	return nil
+
+	// Build result
+	var result SummarizeDirResult
+	if summarizeDirMinimal {
+		minContents := make([]FileContent, len(contents))
+		for i, c := range contents {
+			minContents[i] = FileContent{
+				P: c.Path,
+				C: c.Content,
+			}
+		}
+		result = SummarizeDirResult{
+			Dir: path,
+			Fmt: "full",
+			C:   minContents,
+		}
+	} else {
+		result = SummarizeDirResult{
+			Directory: path,
+			Format:    "full",
+			Contents:  contents,
+		}
+	}
+
+	formatter := output.New(summarizeDirJSON, summarizeDirMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		fmt.Fprintf(w, "DIRECTORY: %s\n", path)
+		fmt.Fprintln(w, "FORMAT: full (truncated to max tokens)")
+
+		for _, c := range contents {
+			fmt.Fprintf(w, "=== %s ===\n", c.Path)
+			fmt.Fprintln(w, c.Content)
+			fmt.Fprintln(w)
+		}
+	})
 }
 
 func init() {

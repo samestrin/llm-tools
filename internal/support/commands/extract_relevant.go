@@ -1,9 +1,10 @@
 package commands
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/samestrin/llm-tools/pkg/llmapi"
+	"github.com/samestrin/llm-tools/pkg/output"
 )
 
 var (
@@ -20,18 +22,26 @@ var (
 	extractRelevantOutput      string
 	extractRelevantTimeout     int
 	extractRelevantJSON        bool
+	extractRelevantMinimal     bool
 	extractRelevantPath        string
 )
 
 // ExtractRelevantResult holds the extraction result
 type ExtractRelevantResult struct {
-	Path            string   `json:"path"`
-	Context         string   `json:"context"`
-	ExtractedParts  []string `json:"extracted_parts"`
+	Path            string   `json:"path,omitempty"`
+	P               string   `json:"p,omitempty"`
+	Context         string   `json:"context,omitempty"`
+	Ctx             string   `json:"ctx,omitempty"`
+	ExtractedParts  []string `json:"extracted_parts,omitempty"`
+	EP              []string `json:"ep,omitempty"`
 	TotalFiles      int      `json:"total_files,omitempty"`
+	TF              *int     `json:"tf,omitempty"`
 	ProcessedFiles  int      `json:"processed_files,omitempty"`
+	PF              *int     `json:"pf,omitempty"`
 	Error           string   `json:"error,omitempty"`
+	E               string   `json:"e,omitempty"`
 	ProcessingTimeS float64  `json:"processing_time_s,omitempty"`
+	PTS             *float64 `json:"pts,omitempty"`
 }
 
 // newExtractRelevantCmd creates the extract-relevant command
@@ -63,6 +73,7 @@ API Configuration:
 	cmd.Flags().StringVarP(&extractRelevantOutput, "output", "o", "", "Output file (default: stdout)")
 	cmd.Flags().IntVar(&extractRelevantTimeout, "timeout", 60, "API call timeout in seconds")
 	cmd.Flags().BoolVar(&extractRelevantJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&extractRelevantMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	cmd.MarkFlagRequired("context")
 
@@ -294,38 +305,66 @@ func hasTextExtension(path string) bool {
 }
 
 func outputExtractResult(cmd *cobra.Command, result ExtractRelevantResult) error {
-	var output string
-
-	if extractRelevantJSON {
-		data, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal JSON: %w", err)
+	// Build the appropriate result struct
+	var finalResult ExtractRelevantResult
+	if extractRelevantMinimal {
+		tf := result.TotalFiles
+		pf := result.ProcessedFiles
+		pts := result.ProcessingTimeS
+		finalResult = ExtractRelevantResult{
+			P:   result.Path,
+			Ctx: result.Context,
+			EP:  result.ExtractedParts,
+			TF:  &tf,
+			PF:  &pf,
+			E:   result.Error,
+			PTS: &pts,
 		}
-		output = string(data)
 	} else {
-		// Plain text output - just the extracted content
-		if result.Error != "" {
-			output = fmt.Sprintf("ERROR: %s\n", result.Error)
-		} else if len(result.ExtractedParts) == 0 {
-			output = "No relevant content found.\n"
-		} else {
-			output = strings.Join(result.ExtractedParts, "\n\n---\n\n")
-		}
+		finalResult = result
 	}
 
-	// Write to file or stdout
+	// Write to file if output is specified
 	if extractRelevantOutput != "" {
-		if err := os.WriteFile(extractRelevantOutput, []byte(output), 0644); err != nil {
+		var outputContent string
+
+		if extractRelevantJSON || extractRelevantMinimal {
+			// Use formatter to get JSON output
+			var buf bytes.Buffer
+			formatter := output.New(true, extractRelevantMinimal, &buf)
+			formatter.Print(finalResult, nil)
+			outputContent = buf.String()
+		} else {
+			// Plain text output - just the extracted content
+			if result.Error != "" {
+				outputContent = fmt.Sprintf("ERROR: %s\n", result.Error)
+			} else if len(result.ExtractedParts) == 0 {
+				outputContent = "No relevant content found.\n"
+			} else {
+				outputContent = strings.Join(result.ExtractedParts, "\n\n---\n\n")
+			}
+		}
+
+		if err := os.WriteFile(extractRelevantOutput, []byte(outputContent), 0644); err != nil {
 			return fmt.Errorf("failed to write output: %w", err)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Extracted content written to: %s\n", extractRelevantOutput)
 		fmt.Fprintf(cmd.OutOrStdout(), "Files processed: %d/%d\n", result.ProcessedFiles, result.TotalFiles)
 		fmt.Fprintf(cmd.OutOrStdout(), "Processing time: %.2fs\n", result.ProcessingTimeS)
-	} else {
-		fmt.Fprint(cmd.OutOrStdout(), output)
+		return nil
 	}
 
-	return nil
+	// Output to stdout
+	formatter := output.New(extractRelevantJSON, extractRelevantMinimal, cmd.OutOrStdout())
+	return formatter.Print(finalResult, func(w io.Writer, data interface{}) {
+		if result.Error != "" {
+			fmt.Fprintf(w, "ERROR: %s\n", result.Error)
+		} else if len(result.ExtractedParts) == 0 {
+			fmt.Fprintln(w, "No relevant content found.")
+		} else {
+			fmt.Fprint(w, strings.Join(result.ExtractedParts, "\n\n---\n\n"))
+		}
+	})
 }
 
 func init() {

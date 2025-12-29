@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/samestrin/llm-tools/internal/support/gitignore"
 	"github.com/samestrin/llm-tools/internal/support/utils"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +20,24 @@ var (
 	listdirSizes       bool
 	listdirNoGitignore bool
 	listdirPath        string
+	listdirJSON        bool
+	listdirMinimal     bool
 )
+
+// ListdirEntry represents a single directory entry
+type ListdirEntry struct {
+	Name     string `json:"name,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+	Modified string `json:"modified,omitempty"`
+}
+
+// ListdirResult represents the directory listing result
+type ListdirResult struct {
+	Path    string         `json:"path,omitempty"`
+	Entries []ListdirEntry `json:"entries,omitempty"`
+	Empty   bool           `json:"empty,omitempty"`
+}
 
 // newListdirCmd creates the listdir command
 func newListdirCmd() *cobra.Command {
@@ -39,6 +58,8 @@ Types: file, dir`,
 	cmd.Flags().BoolVar(&listdirDates, "dates", false, "Show modification dates")
 	cmd.Flags().BoolVar(&listdirSizes, "sizes", false, "Show file sizes")
 	cmd.Flags().BoolVar(&listdirNoGitignore, "no-gitignore", false, "Disable .gitignore filtering")
+	cmd.Flags().BoolVar(&listdirJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&listdirMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -110,39 +131,67 @@ func runListdir(cmd *cobra.Command, args []string) error {
 		return results[i].name < results[j].name
 	})
 
-	// Output
-	if len(results) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "EMPTY_DIRECTORY")
-		return nil
+	// Build structured result
+	listdirResult := ListdirResult{
+		Path:  path,
+		Empty: len(results) == 0,
 	}
 
 	for _, e := range results {
+		entry := ListdirEntry{
+			Name: e.name,
+		}
+		if e.isDir {
+			entry.Type = "dir"
+		} else {
+			entry.Type = "file"
+			if listdirSizes {
+				entry.Size = e.size
+			}
+		}
+		if listdirDates {
+			entry.Modified = e.modified.Format("2006-01-02 15:04:05")
+		}
+		listdirResult.Entries = append(listdirResult.Entries, entry)
+	}
+
+	formatter := output.New(listdirJSON, listdirMinimal, cmd.OutOrStdout())
+	return formatter.Print(listdirResult, printListdirText)
+}
+
+func printListdirText(w io.Writer, data interface{}) {
+	result := data.(ListdirResult)
+
+	if result.Empty {
+		fmt.Fprintln(w, "EMPTY_DIRECTORY")
+		return
+	}
+
+	for _, e := range result.Entries {
 		var parts []string
 
 		// Type indicator
-		if e.isDir {
+		if e.Type == "dir" {
 			parts = append(parts, "[dir]")
 		} else {
 			parts = append(parts, "[file]")
 		}
 
 		// Name
-		parts = append(parts, e.name)
+		parts = append(parts, e.Name)
 
 		// Size (for files only)
-		if listdirSizes && !e.isDir {
-			parts = append(parts, utils.FormatSize(e.size))
+		if listdirSizes && e.Type == "file" && e.Size > 0 {
+			parts = append(parts, utils.FormatSize(e.Size))
 		}
 
 		// Date
-		if listdirDates {
-			parts = append(parts, e.modified.Format("2006-01-02 15:04:05"))
+		if e.Modified != "" {
+			parts = append(parts, e.Modified)
 		}
 
-		fmt.Fprintln(cmd.OutOrStdout(), strings.Join(parts, " "))
+		fmt.Fprintln(w, strings.Join(parts, " "))
 	}
-
-	return nil
 }
 
 func init() {

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
+	"github.com/samestrin/llm-tools/pkg/output"
 
 	"github.com/spf13/cobra"
 )
@@ -23,12 +25,16 @@ var matchClarificationCmd = &cobra.Command{
 var (
 	matchFile     string
 	matchQuestion string
+	matchJSON     bool
+	matchMinimal  bool
 )
 
 func init() {
 	rootCmd.AddCommand(matchClarificationCmd)
 	matchClarificationCmd.Flags().StringVarP(&matchFile, "file", "f", "", "Tracking file path (required)")
 	matchClarificationCmd.Flags().StringVarP(&matchQuestion, "question", "q", "", "Question to match (required)")
+	matchClarificationCmd.Flags().BoolVar(&matchJSON, "json", false, "Output as JSON")
+	matchClarificationCmd.Flags().BoolVar(&matchMinimal, "min", false, "Output in minimal/token-optimized format")
 	matchClarificationCmd.MarkFlagRequired("file")
 	matchClarificationCmd.MarkFlagRequired("question")
 }
@@ -93,7 +99,7 @@ func runMatchClarification(cmd *cobra.Command, args []string) error {
 			Status: "no_match",
 			Reason: "No existing clarifications to match against",
 		}
-		return outputJSON(cmd, result)
+		return outputMatchResult(cmd, result)
 	}
 
 	// Get LLM client
@@ -156,7 +162,31 @@ func runMatchClarification(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return outputJSON(cmd, result)
+	return outputMatchResult(cmd, result)
+}
+
+// outputMatchResult outputs the match result using the Formatter.
+func outputMatchResult(cmd *cobra.Command, result MatchResult) error {
+	formatter := output.New(matchJSON, matchMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(MatchResult)
+		fmt.Fprintf(w, "STATUS: %s\n", r.Status)
+		if r.MatchID != "" {
+			fmt.Fprintf(w, "MATCH_ID: %s\n", r.MatchID)
+		}
+		if r.Confidence > 0 {
+			fmt.Fprintf(w, "CONFIDENCE: %.2f\n", r.Confidence)
+		}
+		if r.Reason != "" {
+			fmt.Fprintf(w, "REASON: %s\n", r.Reason)
+		}
+		if r.Question != "" {
+			fmt.Fprintf(w, "QUESTION: %s\n", r.Question)
+		}
+		if r.Answer != "" {
+			fmt.Fprintf(w, "ANSWER: %s\n", r.Answer)
+		}
+	})
 }
 
 // buildMatchPrompt creates the prompt for matching.

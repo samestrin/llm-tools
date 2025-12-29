@@ -50,11 +50,13 @@ func TestIdentifyCandidatesCmd_FoundCandidates(t *testing.T) {
 	candCmd.ResetFlags()
 	candCmd.Flags().StringVarP(&candidatesFile, "file", "f", "", "Tracking file path")
 	candCmd.Flags().IntVar(&candidatesMinOccurrences, "min-occurrences", 3, "Minimum occurrences")
+	candCmd.Flags().BoolVar(&candidatesJSON, "json", false, "Output as JSON")
+	candCmd.Flags().BoolVar(&candidatesMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&candCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"identify-candidates", "-f", trackingPath})
+	cmd.SetArgs([]string{"identify-candidates", "-f", trackingPath, "--json"})
 
 	// Set mock LLM client
 	SetLLMClient(&MockLLMClient{
@@ -111,11 +113,13 @@ func TestIdentifyCandidatesCmd_NoCandidates(t *testing.T) {
 	candCmd.ResetFlags()
 	candCmd.Flags().StringVarP(&candidatesFile, "file", "f", "", "Tracking file path")
 	candCmd.Flags().IntVar(&candidatesMinOccurrences, "min-occurrences", 3, "Minimum occurrences")
+	candCmd.Flags().BoolVar(&candidatesJSON, "json", false, "Output as JSON")
+	candCmd.Flags().BoolVar(&candidatesMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&candCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"identify-candidates", "-f", trackingPath})
+	cmd.SetArgs([]string{"identify-candidates", "-f", trackingPath, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("identify-candidates failed: %v", err)

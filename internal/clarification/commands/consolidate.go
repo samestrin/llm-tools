@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
+	"github.com/samestrin/llm-tools/pkg/output"
 
 	"github.com/spf13/cobra"
 )
@@ -21,12 +23,16 @@ var suggestConsolidationCmd = &cobra.Command{
 }
 
 var (
-	consolidateFile string
+	consolidateFile    string
+	consolidateJSON    bool
+	consolidateMinimal bool
 )
 
 func init() {
 	rootCmd.AddCommand(suggestConsolidationCmd)
 	suggestConsolidationCmd.Flags().StringVarP(&consolidateFile, "file", "f", "", "Tracking file path (required)")
+	suggestConsolidationCmd.Flags().BoolVar(&consolidateJSON, "json", false, "Output as JSON")
+	suggestConsolidationCmd.Flags().BoolVar(&consolidateMinimal, "min", false, "Output in minimal/token-optimized format")
 	suggestConsolidationCmd.MarkFlagRequired("file")
 }
 
@@ -68,7 +74,8 @@ func runSuggestConsolidation(cmd *cobra.Command, args []string) error {
 			Suggestions: []ConsolidationSuggestion{},
 			Total:       0,
 		}
-		return outputJSON(cmd, result)
+		formatter := output.New(consolidateJSON, consolidateMinimal, cmd.OutOrStdout())
+		return formatter.Print(result, printConsolidationText)
 	}
 
 	// Get LLM client
@@ -110,7 +117,22 @@ func runSuggestConsolidation(cmd *cobra.Command, args []string) error {
 		Total:       len(llmResult.Suggestions),
 	}
 
-	return outputJSON(cmd, result)
+	formatter := output.New(consolidateJSON, consolidateMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, printConsolidationText)
+}
+
+func printConsolidationText(w io.Writer, data interface{}) {
+	r := data.(ConsolidationResult)
+	fmt.Fprintf(w, "STATUS: %s\n", r.Status)
+	fmt.Fprintf(w, "TOTAL: %d\n", r.Total)
+	for i, s := range r.Suggestions {
+		fmt.Fprintf(w, "\n[%d] Primary: %s\n", i+1, s.PrimaryID)
+		fmt.Fprintf(w, "    Merge: %v\n", s.MergeIDs)
+		fmt.Fprintf(w, "    Reason: %s\n", s.Reason)
+		if s.SuggestedMerge != "" {
+			fmt.Fprintf(w, "    Suggested: %s\n", s.SuggestedMerge)
+		}
+	}
 }
 
 func buildConsolidationPrompt(entries []tracking.Entry) string {

@@ -1,8 +1,8 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +20,7 @@ var (
 	highestType    string
 	highestPrefix  string
 	highestJSON    bool
+	highestMinimal bool
 )
 
 // HighestResult represents the output of the highest command
@@ -67,6 +69,7 @@ Examples:
 	cmd.Flags().StringVar(&highestType, "type", "both", "Type to search: dir, file, both")
 	cmd.Flags().StringVar(&highestPrefix, "prefix", "", "Filter to items starting with this prefix")
 	cmd.Flags().BoolVar(&highestJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&highestMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -120,23 +123,17 @@ func runHighest(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(candidates) == 0 {
-		if highestJSON {
-			result := HighestResult{
-				Highest:  "",
-				Name:     "",
-				FullPath: "",
-				Next:     "1",
-				Count:    0,
-			}
-			output, _ := json.MarshalIndent(result, "", "  ")
-			fmt.Fprintln(cmd.OutOrStdout(), string(output))
-		} else {
-			fmt.Fprintln(cmd.OutOrStdout(), "HIGHEST: ")
-			fmt.Fprintln(cmd.OutOrStdout(), "NAME: ")
-			fmt.Fprintln(cmd.OutOrStdout(), "NEXT: 1")
-			fmt.Fprintln(cmd.OutOrStdout(), "COUNT: 0")
+		result := HighestResult{
+			Highest:  "",
+			Name:     "",
+			FullPath: "",
+			Next:     "1",
+			Count:    0,
 		}
-		return nil
+		formatter := output.New(highestJSON, highestMinimal, cmd.OutOrStdout())
+		return formatter.Print(result, func(w io.Writer, data interface{}) {
+			printHighestResult(w, data.(HighestResult))
+		})
 	}
 
 	// Determine pattern
@@ -185,23 +182,17 @@ func runHighest(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(versioned) == 0 {
-		if highestJSON {
-			result := HighestResult{
-				Highest:  "",
-				Name:     "",
-				FullPath: "",
-				Next:     "1",
-				Count:    0,
-			}
-			output, _ := json.MarshalIndent(result, "", "  ")
-			fmt.Fprintln(cmd.OutOrStdout(), string(output))
-		} else {
-			fmt.Fprintln(cmd.OutOrStdout(), "HIGHEST: ")
-			fmt.Fprintln(cmd.OutOrStdout(), "NAME: ")
-			fmt.Fprintln(cmd.OutOrStdout(), "NEXT: 1")
-			fmt.Fprintln(cmd.OutOrStdout(), "COUNT: 0")
+		result := HighestResult{
+			Highest:  "",
+			Name:     "",
+			FullPath: "",
+			Next:     "1",
+			Count:    0,
 		}
-		return nil
+		formatter := output.New(highestJSON, highestMinimal, cmd.OutOrStdout())
+		return formatter.Print(result, func(w io.Writer, data interface{}) {
+			printHighestResult(w, data.(HighestResult))
+		})
 	}
 
 	// Sort by version (descending)
@@ -212,25 +203,25 @@ func runHighest(cmd *cobra.Command, args []string) error {
 	highest := versioned[0]
 	next := calculateNext(highest.version, highestPrefix)
 
-	if highestJSON {
-		result := HighestResult{
-			Highest:  highest.version,
-			Name:     highest.entry.Name(),
-			FullPath: filepath.Join(searchPath, highest.entry.Name()),
-			Next:     next,
-			Count:    len(versioned),
-		}
-		output, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Fprintln(cmd.OutOrStdout(), string(output))
-	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "HIGHEST: %s\n", highest.version)
-		fmt.Fprintf(cmd.OutOrStdout(), "NAME: %s\n", highest.entry.Name())
-		fmt.Fprintf(cmd.OutOrStdout(), "FULL_PATH: %s\n", filepath.Join(searchPath, highest.entry.Name()))
-		fmt.Fprintf(cmd.OutOrStdout(), "NEXT: %s\n", next)
-		fmt.Fprintf(cmd.OutOrStdout(), "COUNT: %d\n", len(versioned))
+	result := HighestResult{
+		Highest:  highest.version,
+		Name:     highest.entry.Name(),
+		FullPath: filepath.Join(searchPath, highest.entry.Name()),
+		Next:     next,
+		Count:    len(versioned),
 	}
+	formatter := output.New(highestJSON, highestMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		printHighestResult(w, data.(HighestResult))
+	})
+}
 
-	return nil
+func printHighestResult(w io.Writer, r HighestResult) {
+	fmt.Fprintf(w, "HIGHEST: %s\n", r.Highest)
+	fmt.Fprintf(w, "NAME: %s\n", r.Name)
+	fmt.Fprintf(w, "FULL_PATH: %s\n", r.FullPath)
+	fmt.Fprintf(w, "NEXT: %s\n", r.Next)
+	fmt.Fprintf(w, "COUNT: %d\n", r.Count)
 }
 
 // detectPattern determines the best pattern based on directory path context

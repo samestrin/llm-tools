@@ -5,13 +5,29 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
-var encodeEncoding string
+var (
+	encodeEncoding string
+	encodeJSON     bool
+	encodeMinimal  bool
+)
+
+// EncodeResult represents the result of encoding/decoding
+type EncodeResult struct {
+	Input    string `json:"input,omitempty"`
+	I        string `json:"i,omitempty"`
+	Encoding string `json:"encoding,omitempty"`
+	Enc      string `json:"enc,omitempty"`
+	Output   string `json:"output,omitempty"`
+	O        string `json:"o,omitempty"`
+}
 
 // newEncodeCmd creates the encode command
 func newEncodeCmd() *cobra.Command {
@@ -29,6 +45,8 @@ Supported encodings:
 		RunE: runEncode,
 	}
 	cmd.Flags().StringVarP(&encodeEncoding, "encoding", "e", "base64", "Encoding type: base64, base32, hex, url")
+	cmd.Flags().BoolVar(&encodeJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&encodeMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -56,13 +74,47 @@ func runEncode(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "INPUT: %s\n", text)
-	fmt.Fprintf(cmd.OutOrStdout(), "ENCODING: %s\n", encoding)
-	fmt.Fprintf(cmd.OutOrStdout(), "OUTPUT: %s\n", result)
-	return nil
+	var encResult EncodeResult
+	if encodeMinimal {
+		encResult = EncodeResult{
+			I:   text,
+			Enc: encoding,
+			O:   result,
+		}
+	} else {
+		encResult = EncodeResult{
+			Input:    text,
+			Encoding: encoding,
+			Output:   result,
+		}
+	}
+
+	formatter := output.New(encodeJSON, encodeMinimal, cmd.OutOrStdout())
+	return formatter.Print(encResult, func(w io.Writer, data interface{}) {
+		r := data.(EncodeResult)
+		input := r.Input
+		if r.I != "" {
+			input = r.I
+		}
+		enc := r.Encoding
+		if r.Enc != "" {
+			enc = r.Enc
+		}
+		out := r.Output
+		if r.O != "" {
+			out = r.O
+		}
+		fmt.Fprintf(w, "INPUT: %s\n", input)
+		fmt.Fprintf(w, "ENCODING: %s\n", enc)
+		fmt.Fprintf(w, "OUTPUT: %s\n", out)
+	})
 }
 
-var decodeEncoding string
+var (
+	decodeEncoding string
+	decodeJSON     bool
+	decodeMinimal  bool
+)
 
 // newDecodeCmd creates the decode command
 func newDecodeCmd() *cobra.Command {
@@ -80,6 +132,8 @@ Supported encodings:
 		RunE: runDecode,
 	}
 	cmd.Flags().StringVarP(&decodeEncoding, "encoding", "e", "base64", "Encoding type: base64, base32, hex, url")
+	cmd.Flags().BoolVar(&decodeJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&decodeMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -119,10 +173,40 @@ func runDecode(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unsupported encoding: %s (supported: base64, base32, hex, url)", encoding)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "INPUT: %s\n", text)
-	fmt.Fprintf(cmd.OutOrStdout(), "ENCODING: %s\n", encoding)
-	fmt.Fprintf(cmd.OutOrStdout(), "OUTPUT: %s\n", result)
-	return nil
+	var decResult EncodeResult
+	if decodeMinimal {
+		decResult = EncodeResult{
+			I:   text,
+			Enc: encoding,
+			O:   result,
+		}
+	} else {
+		decResult = EncodeResult{
+			Input:    text,
+			Encoding: encoding,
+			Output:   result,
+		}
+	}
+
+	formatter := output.New(decodeJSON, decodeMinimal, cmd.OutOrStdout())
+	return formatter.Print(decResult, func(w io.Writer, data interface{}) {
+		r := data.(EncodeResult)
+		input := r.Input
+		if r.I != "" {
+			input = r.I
+		}
+		enc := r.Encoding
+		if r.Enc != "" {
+			enc = r.Enc
+		}
+		out := r.Output
+		if r.O != "" {
+			out = r.O
+		}
+		fmt.Fprintf(w, "INPUT: %s\n", input)
+		fmt.Fprintf(w, "ENCODING: %s\n", enc)
+		fmt.Fprintf(w, "OUTPUT: %s\n", out)
+	})
 }
 
 func init() {

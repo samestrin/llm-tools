@@ -3,12 +3,14 @@ package commands
 import (
 	"context"
 	"fmt"
+	"io"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +20,33 @@ var (
 	optimizePruneStale string
 	optimizeStats      bool
 	optimizeQuiet      bool
+	optimizeJSON       bool
+	optimizeMinimal    bool
 )
+
+// OptimizeMemoryResult holds the optimization result
+type OptimizeMemoryResult struct {
+	File          string         `json:"file,omitempty"`
+	F             string         `json:"f,omitempty"`
+	VacuumBytes   int64          `json:"vacuum_bytes,omitempty"`
+	VB            *int64         `json:"vb,omitempty"`
+	PrunedEntries int            `json:"pruned_entries,omitempty"`
+	PE            *int           `json:"pe,omitempty"`
+	TotalEntries  int            `json:"total_entries,omitempty"`
+	TE            *int           `json:"te,omitempty"`
+	TotalVariants int            `json:"total_variants,omitempty"`
+	TV            *int           `json:"tv,omitempty"`
+	TotalTags     int            `json:"total_tags,omitempty"`
+	TT            *int           `json:"tt,omitempty"`
+	TotalSprints  int            `json:"total_sprints,omitempty"`
+	TS            *int           `json:"ts,omitempty"`
+	StorageSize   int64          `json:"storage_size,omitempty"`
+	SS            *int64         `json:"ss,omitempty"`
+	LastModified  string         `json:"last_modified,omitempty"`
+	LM            string         `json:"lm,omitempty"`
+	ByStatus      map[string]int `json:"by_status,omitempty"`
+	BS            map[string]int `json:"bs,omitempty"`
+}
 
 // NewOptimizeMemoryCmd creates a new optimize-memory command.
 func NewOptimizeMemoryCmd() *cobra.Command {
@@ -39,6 +67,8 @@ Operations:
 	cmd.Flags().StringVar(&optimizePruneStale, "prune-stale", "", "Remove entries older than duration (e.g., 30d)")
 	cmd.Flags().BoolVar(&optimizeStats, "stats", false, "Show storage statistics")
 	cmd.Flags().BoolVarP(&optimizeQuiet, "quiet", "q", false, "Suppress output")
+	cmd.Flags().BoolVar(&optimizeJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&optimizeMinimal, "min", false, "Output in minimal/token-optimized format")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
@@ -53,6 +83,11 @@ func init() {
 func runOptimizeMemory(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
+	// If no operation specified, show help
+	if !optimizeVacuum && optimizePruneStale == "" && !optimizeStats {
+		return fmt.Errorf("specify at least one operation: --vacuum, --prune-stale, or --stats")
+	}
+
 	// Detect storage type
 	storageType, err := storage.DetectStorageType(optimizeFile)
 	if err != nil {
@@ -66,24 +101,22 @@ func runOptimizeMemory(cmd *cobra.Command, args []string) error {
 	}
 	defer store.Close()
 
+	// Track results for output
+	var vacuumBytes int64
+	var prunedEntries int
+	var stats *storage.StorageStats
+
 	// Handle vacuum
 	if optimizeVacuum {
 		if storageType != storage.StorageTypeSQLite {
 			return fmt.Errorf("vacuum is only supported for SQLite storage")
 		}
 
-		if !optimizeQuiet {
-			fmt.Fprintln(cmd.OutOrStdout(), "Running VACUUM...")
-		}
-
 		freed, err := store.Vacuum(ctx)
 		if err != nil {
 			return fmt.Errorf("vacuum failed: %w", err)
 		}
-
-		if !optimizeQuiet {
-			fmt.Fprintf(cmd.OutOrStdout(), "VACUUM complete. Space reclaimed: %d bytes\n", freed)
-		}
+		vacuumBytes = freed
 	}
 
 	// Handle prune-stale
@@ -94,11 +127,6 @@ func runOptimizeMemory(cmd *cobra.Command, args []string) error {
 		}
 
 		cutoffDate := time.Now().Add(-duration).Format("2006-01-02")
-
-		if !optimizeQuiet {
-			fmt.Fprintf(cmd.OutOrStdout(), "Pruning entries older than %s (last seen before %s)...\n",
-				optimizePruneStale, cutoffDate)
-		}
 
 		// Find entries to prune
 		entries, err := store.List(ctx, storage.ListFilter{})
@@ -118,45 +146,89 @@ func runOptimizeMemory(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return fmt.Errorf("failed to delete stale entries: %w", err)
 			}
-
-			if !optimizeQuiet {
-				fmt.Fprintf(cmd.OutOrStdout(), "Pruned %d stale entries\n", result.Processed)
-			}
-		} else {
-			if !optimizeQuiet {
-				fmt.Fprintln(cmd.OutOrStdout(), "No stale entries found")
-			}
+			prunedEntries = result.Processed
 		}
 	}
 
 	// Handle stats
 	if optimizeStats {
-		stats, err := store.Stats(ctx)
+		s, err := store.Stats(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get stats: %w", err)
 		}
+		stats = s
+	}
 
-		if !optimizeQuiet {
-			fmt.Fprintln(cmd.OutOrStdout(), "Storage Statistics:")
-			fmt.Fprintf(cmd.OutOrStdout(), "  Total Entries:  %d\n", stats.TotalEntries)
-			fmt.Fprintf(cmd.OutOrStdout(), "  Total Variants: %d\n", stats.TotalVariants)
-			fmt.Fprintf(cmd.OutOrStdout(), "  Total Tags:     %d\n", stats.TotalTags)
-			fmt.Fprintf(cmd.OutOrStdout(), "  Total Sprints:  %d\n", stats.TotalSprints)
-			fmt.Fprintf(cmd.OutOrStdout(), "  Storage Size:   %d bytes\n", stats.StorageSize)
-			fmt.Fprintf(cmd.OutOrStdout(), "  Last Modified:  %s\n", stats.LastModified)
-			fmt.Fprintln(cmd.OutOrStdout(), "  By Status:")
-			for status, count := range stats.EntriesByStatus {
-				fmt.Fprintf(cmd.OutOrStdout(), "    %s: %d\n", status, count)
-			}
+	// Build output result
+	var result OptimizeMemoryResult
+	if optimizeMinimal {
+		result = OptimizeMemoryResult{F: optimizeFile}
+		if optimizeVacuum {
+			result.VB = &vacuumBytes
+		}
+		if optimizePruneStale != "" {
+			result.PE = &prunedEntries
+		}
+		if stats != nil {
+			result.TE = &stats.TotalEntries
+			result.TV = &stats.TotalVariants
+			result.TT = &stats.TotalTags
+			result.TS = &stats.TotalSprints
+			result.SS = &stats.StorageSize
+			result.LM = stats.LastModified
+			result.BS = stats.EntriesByStatus
+		}
+	} else {
+		result = OptimizeMemoryResult{File: optimizeFile}
+		if optimizeVacuum {
+			result.VacuumBytes = vacuumBytes
+		}
+		if optimizePruneStale != "" {
+			result.PrunedEntries = prunedEntries
+		}
+		if stats != nil {
+			result.TotalEntries = stats.TotalEntries
+			result.TotalVariants = stats.TotalVariants
+			result.TotalTags = stats.TotalTags
+			result.TotalSprints = stats.TotalSprints
+			result.StorageSize = stats.StorageSize
+			result.LastModified = stats.LastModified
+			result.ByStatus = stats.EntriesByStatus
 		}
 	}
 
-	// If no operation specified, show help
-	if !optimizeVacuum && optimizePruneStale == "" && !optimizeStats {
-		return fmt.Errorf("specify at least one operation: --vacuum, --prune-stale, or --stats")
+	if optimizeQuiet && !optimizeJSON && !optimizeMinimal {
+		return nil
 	}
 
-	return nil
+	formatter := output.New(optimizeJSON, optimizeMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		if !optimizeQuiet {
+			if optimizeVacuum {
+				fmt.Fprintf(w, "VACUUM complete. Space reclaimed: %d bytes\n", vacuumBytes)
+			}
+			if optimizePruneStale != "" {
+				if prunedEntries > 0 {
+					fmt.Fprintf(w, "Pruned %d stale entries\n", prunedEntries)
+				} else {
+					fmt.Fprintln(w, "No stale entries found")
+				}
+			}
+			if stats != nil {
+				fmt.Fprintln(w, "Storage Statistics:")
+				fmt.Fprintf(w, "  Total Entries:  %d\n", stats.TotalEntries)
+				fmt.Fprintf(w, "  Total Variants: %d\n", stats.TotalVariants)
+				fmt.Fprintf(w, "  Total Tags:     %d\n", stats.TotalTags)
+				fmt.Fprintf(w, "  Total Sprints:  %d\n", stats.TotalSprints)
+				fmt.Fprintf(w, "  Storage Size:   %d bytes\n", stats.StorageSize)
+				fmt.Fprintf(w, "  Last Modified:  %s\n", stats.LastModified)
+				fmt.Fprintln(w, "  By Status:")
+				for status, count := range stats.EntriesByStatus {
+					fmt.Fprintf(w, "    %s: %d\n", status, count)
+				}
+			}
+		}
+	})
 }
 
 // parseDuration parses a duration string like "30d", "90d", "1y"

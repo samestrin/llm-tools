@@ -131,3 +131,97 @@ func TestCountCheckboxesRecursive(t *testing.T) {
 		t.Errorf("output %q should contain CHECKED: 2", output)
 	}
 }
+
+func TestCountJSONOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test markdown file with checkboxes
+	mdContent := `# Test
+- [x] Done task
+- [ ] Pending task
+- [x] Another done
+`
+	mdFile := filepath.Join(tmpDir, "test.md")
+	os.WriteFile(mdFile, []byte(mdContent), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", mdFile, "--mode", "checkboxes", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// JSON output should contain these keys
+	expectedKeys := []string{`"total"`, `"checked"`, `"unchecked"`, `"percent"`}
+	for _, key := range expectedKeys {
+		if !strings.Contains(output, key) {
+			t.Errorf("JSON output %q should contain key %s", output, key)
+		}
+	}
+}
+
+func TestCountMinimalOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test markdown file with checkboxes
+	mdContent := `# Test
+- [x] Done task
+- [ ] Pending task
+- [x] Another done
+`
+	mdFile := filepath.Join(tmpDir, "test.md")
+	os.WriteFile(mdFile, []byte(mdContent), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", mdFile, "--mode", "checkboxes", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Minimal output should be more compact but still have key info
+	if !strings.Contains(output, "3") || !strings.Contains(output, "2") {
+		t.Errorf("minimal output should contain counts, got: %q", output)
+	}
+}
+
+func TestCountMinimalJSONOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test markdown file with checkboxes
+	mdContent := `# Test
+- [x] Done task
+- [ ] Pending task
+- [x] Another done
+`
+	mdFile := filepath.Join(tmpDir, "test.md")
+	os.WriteFile(mdFile, []byte(mdContent), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", mdFile, "--mode", "checkboxes", "--json", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Minimal JSON should use abbreviated keys (total -> tot per KeyAbbreviations)
+	if !strings.Contains(output, `"tot"`) {
+		t.Errorf("minimal JSON output should use abbreviated key 'tot' for total, got: %q", output)
+	}
+	// Verify it's valid JSON with expected values
+	if !strings.Contains(output, `"checked":2`) {
+		t.Errorf("minimal JSON output should contain checked count, got: %q", output)
+	}
+}

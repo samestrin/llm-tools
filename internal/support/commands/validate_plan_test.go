@@ -26,7 +26,7 @@ func TestValidatePlanValid(t *testing.T) {
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "STATUS: ✅ VALID") {
+	if !strings.Contains(output, "STATUS: VALID") {
 		t.Errorf("expected VALID status, got: %s", output)
 	}
 }

@@ -2,11 +2,13 @@ package commands
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -16,11 +18,31 @@ var (
 	countRecursive bool
 	countPattern   string
 	countStyle     string
+	countJSON      bool
+	countMinimal   bool
 	// Legacy flag aliases for backwards compatibility
 	countCheckboxes bool
 	countLines      bool
 	countFiles      bool
 )
+
+// CountCheckboxResult holds checkbox count results
+type CountCheckboxResult struct {
+	Total     int     `json:"total"`
+	Checked   int     `json:"checked"`
+	Unchecked int     `json:"unchecked"`
+	Percent   float64 `json:"percent"`
+}
+
+// CountLinesResult holds line count results
+type CountLinesResult struct {
+	Count int `json:"count"`
+}
+
+// CountFilesResult holds file count results
+type CountFilesResult struct {
+	Total int `json:"total"`
+}
 
 // newCountCmd creates the count command
 func newCountCmd() *cobra.Command {
@@ -50,6 +72,9 @@ Output format:
 	cmd.Flags().BoolVar(&countCheckboxes, "checkboxes", false, "Count checkboxes (legacy, use --mode checkboxes)")
 	cmd.Flags().BoolVar(&countLines, "lines", false, "Count lines (legacy, use --mode lines)")
 	cmd.Flags().BoolVar(&countFiles, "files", false, "Count files (legacy, use --mode files)")
+	// Output format flags
+	cmd.Flags().BoolVar(&countJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&countMinimal, "min", false, "Output in minimal/token-optimized format")
 	cmd.MarkFlagRequired("path")
 	return cmd
 }
@@ -160,12 +185,21 @@ func runCountCheckboxes(cmd *cobra.Command, target string, info os.FileInfo) err
 		percent = float64(checked) / float64(total) * 100
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "TOTAL: %d\n", total)
-	fmt.Fprintf(cmd.OutOrStdout(), "CHECKED: %d\n", checked)
-	fmt.Fprintf(cmd.OutOrStdout(), "UNCHECKED: %d\n", unchecked)
-	fmt.Fprintf(cmd.OutOrStdout(), "PERCENT: %.0f%%\n", percent)
+	result := CountCheckboxResult{
+		Total:     total,
+		Checked:   checked,
+		Unchecked: unchecked,
+		Percent:   percent,
+	}
 
-	return nil
+	formatter := output.New(countJSON, countMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(CountCheckboxResult)
+		fmt.Fprintf(w, "TOTAL: %d\n", r.Total)
+		fmt.Fprintf(w, "CHECKED: %d\n", r.Checked)
+		fmt.Fprintf(w, "UNCHECKED: %d\n", r.Unchecked)
+		fmt.Fprintf(w, "PERCENT: %.0f%%\n", r.Percent)
+	})
 }
 
 func runCountLines(cmd *cobra.Command, target string, info os.FileInfo) error {
@@ -208,14 +242,22 @@ func runCountLines(cmd *cobra.Command, target string, info os.FileInfo) error {
 		totalLines += lines
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "COUNT: %d\n", totalLines)
-	return nil
+	result := CountLinesResult{Count: totalLines}
+	formatter := output.New(countJSON, countMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(CountLinesResult)
+		fmt.Fprintf(w, "COUNT: %d\n", r.Count)
+	})
 }
 
 func runCountFiles(cmd *cobra.Command, target string, info os.FileInfo) error {
 	if !info.IsDir() {
-		fmt.Fprintln(cmd.OutOrStdout(), "TOTAL: 1")
-		return nil
+		result := CountFilesResult{Total: 1}
+		formatter := output.New(countJSON, countMinimal, cmd.OutOrStdout())
+		return formatter.Print(result, func(w io.Writer, data interface{}) {
+			r := data.(CountFilesResult)
+			fmt.Fprintf(w, "TOTAL: %d\n", r.Total)
+		})
 	}
 
 	pattern := countPattern
@@ -252,8 +294,12 @@ func runCountFiles(cmd *cobra.Command, target string, info os.FileInfo) error {
 		}
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "TOTAL: %d\n", count)
-	return nil
+	result := CountFilesResult{Total: count}
+	formatter := output.New(countJSON, countMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(CountFilesResult)
+		fmt.Fprintf(w, "TOTAL: %d\n", r.Total)
+	})
 }
 
 func init() {

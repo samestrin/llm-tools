@@ -4,21 +4,61 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
 	transformCaseTo       string
+	transformCaseJSON     bool
+	transformCaseMinimal  bool
 	transformSortReverse  bool
 	transformSortUnique   bool
 	transformSortNoEmpty  bool
+	transformSortJSON     bool
+	transformSortMinimal  bool
 	transformFilterInvert bool
+	transformFilterJSON   bool
+	transformFilterMin    bool
 )
+
+// TransformCaseResult holds the case transformation result
+type TransformCaseResult struct {
+	Input  string `json:"input,omitempty"`
+	I      string `json:"i,omitempty"`
+	Output string `json:"output,omitempty"`
+	O      string `json:"o,omitempty"`
+	ToCase string `json:"to_case,omitempty"`
+	TC     string `json:"tc,omitempty"`
+}
+
+// TransformSortResult holds the sort result
+type TransformSortResult struct {
+	File  string   `json:"file,omitempty"`
+	F     string   `json:"f,omitempty"`
+	Lines []string `json:"lines,omitempty"`
+	L     []string `json:"l,omitempty"`
+	Count int      `json:"count,omitempty"`
+	Cnt   *int     `json:"cnt,omitempty"`
+}
+
+// TransformFilterResult holds the filter result
+type TransformFilterResult struct {
+	File    string   `json:"file,omitempty"`
+	F       string   `json:"f,omitempty"`
+	Pattern string   `json:"pattern,omitempty"`
+	P       string   `json:"p,omitempty"`
+	Lines   []string `json:"lines,omitempty"`
+	L       []string `json:"l,omitempty"`
+	Count   int      `json:"count,omitempty"`
+	Cnt     *int     `json:"cnt,omitempty"`
+}
 
 // newTransformCmd creates the transform parent command with subcommands
 func newTransformCmd() *cobra.Command {
@@ -67,6 +107,8 @@ Supported formats: camelCase, PascalCase, snake_case, kebab-case, UPPERCASE, low
 		RunE: runTransformCase,
 	}
 	cmd.Flags().StringVar(&transformCaseTo, "to", "", "Target case format (required)")
+	cmd.Flags().BoolVar(&transformCaseJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&transformCaseMinimal, "min", false, "Output in minimal/token-optimized format")
 	cmd.MarkFlagRequired("to")
 	return cmd
 }
@@ -81,6 +123,8 @@ func newTransformSortCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&transformSortReverse, "reverse", false, "Sort in reverse order")
 	cmd.Flags().BoolVar(&transformSortUnique, "unique", false, "Remove duplicate lines")
 	cmd.Flags().BoolVar(&transformSortNoEmpty, "no-empty", false, "Remove empty lines")
+	cmd.Flags().BoolVar(&transformSortJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&transformSortMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -92,6 +136,8 @@ func newTransformFilterCmd() *cobra.Command {
 		RunE:  runTransformFilter,
 	}
 	cmd.Flags().BoolVar(&transformFilterInvert, "invert", false, "Invert match (exclude matching lines)")
+	cmd.Flags().BoolVar(&transformFilterJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&transformFilterMin, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -240,13 +286,24 @@ func runTransformCase(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown case type: %s (supported: camelCase, PascalCase, snake_case, kebab-case, UPPERCASE, lowercase, Title Case)", toCase)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "INPUT: %s\n", text)
-	fmt.Fprintf(cmd.OutOrStdout(), "OUTPUT: %s\n", result)
-	return nil
+	// Build result
+	var res TransformCaseResult
+	if transformCaseMinimal {
+		res = TransformCaseResult{I: text, O: result, TC: toCase}
+	} else {
+		res = TransformCaseResult{Input: text, Output: result, ToCase: toCase}
+	}
+
+	formatter := output.New(transformCaseJSON, transformCaseMinimal, cmd.OutOrStdout())
+	return formatter.Print(res, func(w io.Writer, data interface{}) {
+		fmt.Fprintf(w, "INPUT: %s\n", text)
+		fmt.Fprintf(w, "OUTPUT: %s\n", result)
+	})
 }
 
 func runTransformSort(cmd *cobra.Command, args []string) error {
-	content, err := os.ReadFile(args[0])
+	filePath := args[0]
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
@@ -284,40 +341,67 @@ func runTransformSort(cmd *cobra.Command, args []string) error {
 		lines = unique
 	}
 
-	for _, line := range lines {
-		fmt.Fprintln(cmd.OutOrStdout(), line)
+	// Build result
+	count := len(lines)
+	var result TransformSortResult
+	if transformSortMinimal {
+		result = TransformSortResult{F: filePath, L: lines, Cnt: &count}
+	} else {
+		result = TransformSortResult{File: filePath, Lines: lines, Count: count}
 	}
 
-	return nil
+	formatter := output.New(transformSortJSON, transformSortMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		for _, line := range lines {
+			fmt.Fprintln(w, line)
+		}
+	})
 }
 
 func runTransformFilter(cmd *cobra.Command, args []string) error {
-	content, err := os.ReadFile(args[0])
+	filePath := args[0]
+	patternStr := args[1]
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
-	pattern, err := regexp.Compile(args[1])
+	pattern, err := regexp.Compile(patternStr)
 	if err != nil {
 		return fmt.Errorf("invalid regex pattern: %w", err)
 	}
 
-	lines := strings.Split(string(content), "\n")
+	allLines := strings.Split(string(content), "\n")
+	var filteredLines []string
 
-	for _, line := range lines {
+	for _, line := range allLines {
 		matches := pattern.MatchString(line)
 		if transformFilterInvert {
 			if !matches {
-				fmt.Fprintln(cmd.OutOrStdout(), line)
+				filteredLines = append(filteredLines, line)
 			}
 		} else {
 			if matches {
-				fmt.Fprintln(cmd.OutOrStdout(), line)
+				filteredLines = append(filteredLines, line)
 			}
 		}
 	}
 
-	return nil
+	// Build result
+	count := len(filteredLines)
+	var result TransformFilterResult
+	if transformFilterMin {
+		result = TransformFilterResult{F: filePath, P: patternStr, L: filteredLines, Cnt: &count}
+	} else {
+		result = TransformFilterResult{File: filePath, Pattern: patternStr, Lines: filteredLines, Count: count}
+	}
+
+	formatter := output.New(transformFilterJSON, transformFilterMin, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		for _, line := range filteredLines {
+			fmt.Fprintln(w, line)
+		}
+	})
 }
 
 func init() {

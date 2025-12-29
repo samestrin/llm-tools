@@ -1,14 +1,15 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -16,8 +17,29 @@ var (
 	partitionStories string
 	partitionTasks   string
 	partitionJSON    bool
+	partitionMinimal bool
 	partitionVerbose bool
 )
+
+// PartitionGroup represents a group of items
+type PartitionGroup struct {
+	ID    int      `json:"id,omitempty"`
+	I     *int     `json:"i,omitempty"`
+	Items []string `json:"items,omitempty"`
+	It    []string `json:"it,omitempty"`
+}
+
+// PartitionResult represents the partition result
+type PartitionResult struct {
+	Groups        []PartitionGroup `json:"groups,omitempty"`
+	G             []PartitionGroup `json:"g,omitempty"`
+	TotalGroups   int              `json:"total_groups,omitempty"`
+	TG            *int             `json:"tg,omitempty"`
+	ItemsPerGroup []int            `json:"items_per_group,omitempty"`
+	IPG           []int            `json:"ipg,omitempty"`
+	Message       string           `json:"message,omitempty"`
+	M             string           `json:"m,omitempty"`
+}
 
 // newPartitionWorkCmd creates the partition-work command
 func newPartitionWorkCmd() *cobra.Command {
@@ -34,6 +56,7 @@ Items with no conflicts can run together in the same group.`,
 	cmd.Flags().StringVar(&partitionStories, "stories", "", "Directory containing story markdown files")
 	cmd.Flags().StringVar(&partitionTasks, "tasks", "", "Directory containing task markdown files")
 	cmd.Flags().BoolVar(&partitionJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&partitionMinimal, "min", false, "Output in minimal/token-optimized format")
 	cmd.Flags().BoolVar(&partitionVerbose, "verbose", false, "Show conflict details")
 
 	return cmd
@@ -80,19 +103,27 @@ func runPartitionWork(cmd *cobra.Command, args []string) error {
 	sort.Strings(mdFiles)
 
 	if len(mdFiles) == 0 {
-		if partitionJSON {
-			output := map[string]interface{}{
-				"groups":          []interface{}{},
-				"total_groups":    0,
-				"items_per_group": []int{},
-				"message":         "No items found to partition",
+		zeroGroups := 0
+		var result PartitionResult
+		if partitionMinimal {
+			result = PartitionResult{
+				G:   []PartitionGroup{},
+				TG:  &zeroGroups,
+				IPG: []int{},
+				M:   "No items found to partition",
 			}
-			data, _ := json.MarshalIndent(output, "", "  ")
-			fmt.Fprintln(cmd.OutOrStdout(), string(data))
 		} else {
-			fmt.Fprintln(cmd.OutOrStdout(), "No items found to partition")
+			result = PartitionResult{
+				Groups:        []PartitionGroup{},
+				TotalGroups:   0,
+				ItemsPerGroup: []int{},
+				Message:       "No items found to partition",
+			}
 		}
-		return nil
+		formatter := output.New(partitionJSON, partitionMinimal, cmd.OutOrStdout())
+		return formatter.Print(result, func(w io.Writer, data interface{}) {
+			fmt.Fprintln(w, "No items found to partition")
+		})
 	}
 
 	// Extract dependencies for each file
@@ -142,53 +173,62 @@ func runPartitionWork(cmd *cobra.Command, args []string) error {
 		sort.Strings(groups[color])
 	}
 
-	// Output
-	if partitionJSON {
-		groupsList := []map[string]interface{}{}
-		itemsPerGroup := []int{}
+	// Build result
+	var sortedColors []int
+	for c := range groups {
+		sortedColors = append(sortedColors, c)
+	}
+	sort.Ints(sortedColors)
 
-		var sortedColors []int
-		for c := range groups {
-			sortedColors = append(sortedColors, c)
-		}
-		sort.Ints(sortedColors)
+	itemsPerGroup := []int{}
+	totalGroups := len(groups)
 
+	var result PartitionResult
+	if partitionMinimal {
+		groupsList := []PartitionGroup{}
 		for _, color := range sortedColors {
-			groupsList = append(groupsList, map[string]interface{}{
-				"id":    color,
-				"items": groups[color],
+			colorVal := color
+			groupsList = append(groupsList, PartitionGroup{
+				I:  &colorVal,
+				It: groups[color],
 			})
 			itemsPerGroup = append(itemsPerGroup, len(groups[color]))
 		}
-
-		output := map[string]interface{}{
-			"groups":          groupsList,
-			"total_groups":    len(groups),
-			"items_per_group": itemsPerGroup,
+		result = PartitionResult{
+			G:   groupsList,
+			TG:  &totalGroups,
+			IPG: itemsPerGroup,
 		}
-		data, _ := json.MarshalIndent(output, "", "  ")
-		fmt.Fprintln(cmd.OutOrStdout(), string(data))
 	} else {
-		if len(groups) == 1 {
-			fmt.Fprintln(cmd.OutOrStdout(), "All items are independent - can run in parallel")
-		} else if len(groups) == len(items) {
-			fmt.Fprintln(cmd.OutOrStdout(), "Maximum conflicts detected - items must run sequentially")
-		}
-
-		fmt.Fprintln(cmd.OutOrStdout())
-
-		var sortedColors []int
-		for c := range groups {
-			sortedColors = append(sortedColors, c)
-		}
-		sort.Ints(sortedColors)
-
+		groupsList := []PartitionGroup{}
 		for _, color := range sortedColors {
-			fmt.Fprintf(cmd.OutOrStdout(), "Group %d: %s\n", color, strings.Join(groups[color], ", "))
+			groupsList = append(groupsList, PartitionGroup{
+				ID:    color,
+				Items: groups[color],
+			})
+			itemsPerGroup = append(itemsPerGroup, len(groups[color]))
+		}
+		result = PartitionResult{
+			Groups:        groupsList,
+			TotalGroups:   totalGroups,
+			ItemsPerGroup: itemsPerGroup,
 		}
 	}
 
-	return nil
+	formatter := output.New(partitionJSON, partitionMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		if len(groups) == 1 {
+			fmt.Fprintln(w, "All items are independent - can run in parallel")
+		} else if len(groups) == len(items) {
+			fmt.Fprintln(w, "Maximum conflicts detected - items must run sequentially")
+		}
+
+		fmt.Fprintln(w)
+
+		for _, color := range sortedColors {
+			fmt.Fprintf(w, "Group %d: %s\n", color, strings.Join(groups[color], ", "))
+		}
+	})
 }
 
 func extractFileDeps(content string) []string {

@@ -2,17 +2,28 @@ package commands
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
 	repoRootValidate bool
 	repoRootPath     string
+	repoRootJSON     bool
+	repoRootMinimal  bool
 )
+
+// RepoRootResult represents the repo root result
+type RepoRootResult struct {
+	Root  string `json:"root,omitempty"`
+	Valid bool   `json:"valid,omitempty"`
+	Error string `json:"error,omitempty"`
+}
 
 // newRepoRootCmd creates the repo-root command
 func newRepoRootCmd() *cobra.Command {
@@ -38,6 +49,8 @@ Examples:
 
 	cmd.Flags().StringVar(&repoRootPath, "path", ".", "Starting path to search from")
 	cmd.Flags().BoolVar(&repoRootValidate, "validate", false, "Also verify .git directory exists")
+	cmd.Flags().BoolVar(&repoRootJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&repoRootMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	return cmd
 }
@@ -59,29 +72,44 @@ func runRepoRoot(cmd *cobra.Command, args []string) error {
 
 	// Get repository root using git rev-parse
 	root, err := runGitOutput(absPath, "rev-parse", "--show-toplevel")
+	result := RepoRootResult{}
+
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "ROOT: \n")
-		fmt.Fprintf(cmd.OutOrStdout(), "ERROR: not a git repository\n")
+		result.Error = "not a git repository"
 		if repoRootValidate {
-			fmt.Fprintf(cmd.OutOrStdout(), "VALID: FALSE\n")
+			result.Valid = false
 		}
-		return nil // Return nil so output is parseable, not an error
+	} else {
+		result.Root = strings.TrimSpace(root)
+
+		// Optionally validate .git exists
+		if repoRootValidate {
+			gitDir := filepath.Join(result.Root, ".git")
+			if _, err := os.Stat(gitDir); err == nil {
+				result.Valid = true
+			} else {
+				result.Valid = false
+			}
+		}
 	}
 
-	root = strings.TrimSpace(root)
-	fmt.Fprintf(cmd.OutOrStdout(), "ROOT: %s\n", root)
+	formatter := output.New(repoRootJSON, repoRootMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, printRepoRootText)
+}
 
-	// Optionally validate .git exists
+func printRepoRootText(w io.Writer, data interface{}) {
+	r := data.(RepoRootResult)
+	fmt.Fprintf(w, "ROOT: %s\n", r.Root)
+	if r.Error != "" {
+		fmt.Fprintf(w, "ERROR: %s\n", r.Error)
+	}
 	if repoRootValidate {
-		gitDir := filepath.Join(root, ".git")
-		if _, err := os.Stat(gitDir); err == nil {
-			fmt.Fprintf(cmd.OutOrStdout(), "VALID: TRUE\n")
+		if r.Valid {
+			fmt.Fprintf(w, "VALID: TRUE\n")
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "VALID: FALSE\n")
+			fmt.Fprintf(w, "VALID: FALSE\n")
 		}
 	}
-
-	return nil
 }
 
 func init() {

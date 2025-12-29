@@ -2,8 +2,8 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -27,24 +28,35 @@ var (
 	foreachSkipExist bool
 	foreachTimeout   int
 	foreachJSON      bool
+	foreachMinimal   bool
 )
 
 // ForeachResult holds the result of processing files
 type ForeachResult struct {
-	TotalFiles     int              `json:"total_files"`
-	ProcessedFiles int              `json:"processed_files"`
-	SkippedFiles   int              `json:"skipped_files"`
-	FailedFiles    int              `json:"failed_files"`
+	TotalFiles     int              `json:"total_files,omitempty"`
+	TF             *int             `json:"tf,omitempty"`
+	ProcessedFiles int              `json:"processed_files,omitempty"`
+	PF             *int             `json:"pf,omitempty"`
+	SkippedFiles   int              `json:"skipped_files,omitempty"`
+	SF             *int             `json:"sf,omitempty"`
+	FailedFiles    int              `json:"failed_files,omitempty"`
+	FF             *int             `json:"ff,omitempty"`
 	Results        []ForeachFileRes `json:"results,omitempty"`
-	ProcessingTime float64          `json:"processing_time_s"`
+	R              []ForeachFileRes `json:"r,omitempty"`
+	ProcessingTime float64          `json:"processing_time_s,omitempty"`
+	PT             *float64         `json:"pt,omitempty"`
 }
 
 // ForeachFileRes holds the result for a single file
 type ForeachFileRes struct {
-	InputFile  string `json:"input_file"`
+	InputFile  string `json:"input_file,omitempty"`
+	IF         string `json:"if,omitempty"`
 	OutputFile string `json:"output_file,omitempty"`
-	Status     string `json:"status"` // success, skipped, failed
+	OF         string `json:"of,omitempty"`
+	Status     string `json:"status,omitempty"` // success, skipped, failed
+	S          string `json:"s,omitempty"`
 	Error      string `json:"error,omitempty"`
+	E          string `json:"e,omitempty"`
 }
 
 // newForeachCmd creates the foreach command
@@ -85,6 +97,7 @@ Examples:
 	cmd.Flags().BoolVar(&foreachSkipExist, "skip-existing", false, "Skip files where output already exists")
 	cmd.Flags().IntVar(&foreachTimeout, "timeout", 120, "Timeout per file in seconds")
 	cmd.Flags().BoolVar(&foreachJSON, "json", false, "Output results as JSON")
+	cmd.Flags().BoolVar(&foreachMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	cmd.MarkFlagRequired("template")
 
@@ -329,29 +342,51 @@ func uniqueStrings(slice []string) []string {
 }
 
 func outputForeachResult(cmd *cobra.Command, result ForeachResult) error {
-	if foreachJSON {
-		data, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal JSON: %w", err)
+	// Build appropriate result struct
+	var finalResult ForeachResult
+	if foreachMinimal {
+		tf := result.TotalFiles
+		pf := result.ProcessedFiles
+		sf := result.SkippedFiles
+		ff := result.FailedFiles
+		pt := result.ProcessingTime
+		minResults := make([]ForeachFileRes, len(result.Results))
+		for i, r := range result.Results {
+			minResults[i] = ForeachFileRes{
+				IF: r.InputFile,
+				OF: r.OutputFile,
+				S:  r.Status,
+				E:  r.Error,
+			}
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), string(data))
+		finalResult = ForeachResult{
+			TF: &tf,
+			PF: &pf,
+			SF: &sf,
+			FF: &ff,
+			R:  minResults,
+			PT: &pt,
+		}
 	} else {
-		fmt.Fprintf(cmd.OutOrStdout(), "PROCESSED: %d/%d\n", result.ProcessedFiles, result.TotalFiles)
-		fmt.Fprintf(cmd.OutOrStdout(), "SKIPPED: %d\n", result.SkippedFiles)
-		fmt.Fprintf(cmd.OutOrStdout(), "FAILED: %d\n", result.FailedFiles)
-		fmt.Fprintf(cmd.OutOrStdout(), "TIME: %.2fs\n", result.ProcessingTime)
+		finalResult = result
+	}
+
+	formatter := output.New(foreachJSON, foreachMinimal, cmd.OutOrStdout())
+	return formatter.Print(finalResult, func(w io.Writer, data interface{}) {
+		fmt.Fprintf(w, "PROCESSED: %d/%d\n", result.ProcessedFiles, result.TotalFiles)
+		fmt.Fprintf(w, "SKIPPED: %d\n", result.SkippedFiles)
+		fmt.Fprintf(w, "FAILED: %d\n", result.FailedFiles)
+		fmt.Fprintf(w, "TIME: %.2fs\n", result.ProcessingTime)
 
 		if result.FailedFiles > 0 {
-			fmt.Fprintln(cmd.OutOrStdout(), "\nFailed files:")
+			fmt.Fprintln(w, "\nFailed files:")
 			for _, r := range result.Results {
 				if r.Status == "failed" {
-					fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", r.InputFile, r.Error)
+					fmt.Fprintf(w, "  %s: %s\n", r.InputFile, r.Error)
 				}
 			}
 		}
-	}
-
-	return nil
+	})
 }
 
 // executeForeachLLM is a wrapper for testing

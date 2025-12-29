@@ -341,6 +341,7 @@ Examples:
 func newContextListCmd() *cobra.Command {
 	var dir string
 	var jsonOutput bool
+	var minOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -350,10 +351,12 @@ func newContextListCmd() *cobra.Command {
 Output Formats:
   default: KEY=value (one per line)
   --json:  {"KEY1": "value1", "KEY2": "value2"}
+  --min:   value1\nvalue2 (values only, one per line)
 
 Examples:
   context list --dir /tmp
-  context list --dir /tmp --json`,
+  context list --dir /tmp --json
+  context list --dir /tmp --min`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dir == "" {
 				return fmt.Errorf("--dir flag is required")
@@ -381,6 +384,10 @@ Examples:
 			if jsonOutput {
 				data, _ := json.Marshal(values)
 				fmt.Fprintln(cmd.OutOrStdout(), string(data))
+			} else if minOutput {
+				for _, value := range values {
+					fmt.Fprintln(cmd.OutOrStdout(), value)
+				}
 			} else {
 				for key, value := range values {
 					fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", key, value)
@@ -393,6 +400,7 @@ Examples:
 
 	cmd.Flags().StringVar(&dir, "dir", "", "Directory for context file (required)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().BoolVar(&minOutput, "min", false, "Output values only (minimal)")
 	cmd.MarkFlagRequired("dir")
 
 	return cmd

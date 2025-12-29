@@ -3,9 +3,11 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/samestrin/llm-tools/pkg/llmapi"
+	"github.com/samestrin/llm-tools/pkg/output"
 
 	"github.com/spf13/cobra"
 )
@@ -19,11 +21,15 @@ var normalizeClarificationCmd = &cobra.Command{
 
 var (
 	normalizeQuestion string
+	normalizeJSON     bool
+	normalizeMinimal  bool
 )
 
 func init() {
 	rootCmd.AddCommand(normalizeClarificationCmd)
 	normalizeClarificationCmd.Flags().StringVarP(&normalizeQuestion, "question", "q", "", "Question to normalize (required)")
+	normalizeClarificationCmd.Flags().BoolVar(&normalizeJSON, "json", false, "Output as JSON")
+	normalizeClarificationCmd.Flags().BoolVar(&normalizeMinimal, "min", false, "Output in minimal/token-optimized format")
 	normalizeClarificationCmd.MarkFlagRequired("question")
 }
 
@@ -72,7 +78,16 @@ func runNormalizeClarification(cmd *cobra.Command, args []string) error {
 		Changes:            llmResult.Changes,
 	}
 
-	return outputJSON(cmd, result)
+	formatter := output.New(normalizeJSON, normalizeMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(NormalizeResult)
+		fmt.Fprintf(w, "STATUS: %s\n", r.Status)
+		fmt.Fprintf(w, "ORIGINAL: %s\n", r.OriginalQuestion)
+		fmt.Fprintf(w, "NORMALIZED: %s\n", r.NormalizedQuestion)
+		if r.Changes != "" {
+			fmt.Fprintf(w, "CHANGES: %s\n", r.Changes)
+		}
+	})
 }
 
 func buildNormalizePrompt(question string) string {

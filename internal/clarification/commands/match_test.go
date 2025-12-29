@@ -64,12 +64,14 @@ func TestMatchClarificationCmd_FoundMatch(t *testing.T) {
 	matchCmd.ResetFlags()
 	matchCmd.Flags().StringVarP(&matchFile, "file", "f", "", "Tracking file path")
 	matchCmd.Flags().StringVarP(&matchQuestion, "question", "q", "", "Question to match")
+	matchCmd.Flags().BoolVar(&matchJSON, "json", false, "Output as JSON")
+	matchCmd.Flags().BoolVar(&matchMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&matchCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
 	// Question similar to existing "What testing framework should we use?"
-	cmd.SetArgs([]string{"match-clarification", "-f", trackingPath, "-q", "Which testing framework?"})
+	cmd.SetArgs([]string{"match-clarification", "-f", trackingPath, "-q", "Which testing framework?", "--json"})
 
 	// Set mock LLM client
 	SetLLMClient(&MockLLMClient{
@@ -126,11 +128,13 @@ func TestMatchClarificationCmd_NoMatch(t *testing.T) {
 	matchCmd.ResetFlags()
 	matchCmd.Flags().StringVarP(&matchFile, "file", "f", "", "Tracking file path")
 	matchCmd.Flags().StringVarP(&matchQuestion, "question", "q", "", "Question to match")
+	matchCmd.Flags().BoolVar(&matchJSON, "json", false, "Output as JSON")
+	matchCmd.Flags().BoolVar(&matchMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&matchCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"match-clarification", "-f", trackingPath, "-q", "What color scheme should we use?"})
+	cmd.SetArgs([]string{"match-clarification", "-f", trackingPath, "-q", "What color scheme should we use?", "--json"})
 
 	// Set mock LLM client - no match
 	SetLLMClient(&MockLLMClient{
@@ -176,11 +180,13 @@ func TestMatchClarificationCmd_EmptyFile(t *testing.T) {
 	matchCmd.ResetFlags()
 	matchCmd.Flags().StringVarP(&matchFile, "file", "f", "", "Tracking file path")
 	matchCmd.Flags().StringVarP(&matchQuestion, "question", "q", "", "Question to match")
+	matchCmd.Flags().BoolVar(&matchJSON, "json", false, "Output as JSON")
+	matchCmd.Flags().BoolVar(&matchMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&matchCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"match-clarification", "-f", trackingPath, "-q", "Any question?"})
+	cmd.SetArgs([]string{"match-clarification", "-f", trackingPath, "-q", "Any question?", "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("match-clarification failed: %v", err)

@@ -2,13 +2,14 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
+	"github.com/samestrin/llm-tools/pkg/output"
 
 	"github.com/spf13/cobra"
 )
@@ -25,6 +26,7 @@ var (
 	listStatus         string
 	listMinOccurrences int
 	listJSON           bool
+	listMinimal        bool
 )
 
 func init() {
@@ -33,6 +35,7 @@ func init() {
 	listEntriesCmd.Flags().StringVar(&listStatus, "status", "", "Filter by status (pending, promoted, dismissed)")
 	listEntriesCmd.Flags().IntVar(&listMinOccurrences, "min-occurrences", 0, "Filter by minimum occurrences")
 	listEntriesCmd.Flags().BoolVar(&listJSON, "json", false, "Output as JSON")
+	listEntriesCmd.Flags().BoolVar(&listMinimal, "min", false, "Output in minimal/token-optimized format")
 	listEntriesCmd.MarkFlagRequired("file")
 }
 
@@ -67,23 +70,16 @@ func runListEntries(cmd *cobra.Command, args []string) error {
 	// Apply any additional filtering (for backward compatibility)
 	filtered := filterEntries(entries, listStatus, listMinOccurrences)
 
-	if listJSON {
-		// JSON output
-		result := ListEntriesResult{
-			Count:   len(filtered),
-			Entries: filtered,
-		}
-		output, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal result: %w", err)
-		}
-		fmt.Fprintln(cmd.OutOrStdout(), string(output))
-	} else {
-		// Table output
-		printEntriesTable(cmd, filtered)
+	result := ListEntriesResult{
+		Count:   len(filtered),
+		Entries: filtered,
 	}
 
-	return nil
+	formatter := output.New(listJSON, listMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(ListEntriesResult)
+		printEntriesTableToWriter(w, r.Entries)
+	})
 }
 
 // filterEntries applies status and occurrence filters to entries.
@@ -112,9 +108,9 @@ func filterEntries(entries []tracking.Entry, status string, minOccurrences int) 
 	return filtered
 }
 
-// printEntriesTable prints entries in a formatted table.
-func printEntriesTable(cmd *cobra.Command, entries []tracking.Entry) {
-	w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
+// printEntriesTableToWriter prints entries in a formatted table to an io.Writer.
+func printEntriesTableToWriter(out io.Writer, entries []tracking.Entry) {
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	defer w.Flush()
 
 	// Print header

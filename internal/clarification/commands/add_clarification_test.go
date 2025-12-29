@@ -45,11 +45,13 @@ func TestAddClarificationCmd_NewEntry(t *testing.T) {
 	addCmd.Flags().StringVarP(&addSprint, "sprint", "s", "", "Sprint name")
 	addCmd.Flags().StringSliceVarP(&addTags, "tag", "t", nil, "Context tags")
 	addCmd.Flags().BoolVar(&addCheckMatch, "check-match", false, "Check for similar questions")
+	addCmd.Flags().BoolVar(&addJSON, "json", false, "Output as JSON")
+	addCmd.Flags().BoolVar(&addMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&addCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"add-clarification", "-f", trackingPath, "-q", "What framework?", "-a", "Use React"})
+	cmd.SetArgs([]string{"add-clarification", "-f", trackingPath, "-q", "What framework?", "-a", "Use React", "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("add-clarification failed: %v", err)
@@ -134,11 +136,13 @@ func TestAddClarificationCmd_UpdateExisting(t *testing.T) {
 	addCmd.Flags().StringVarP(&addSprint, "sprint", "s", "", "Sprint name")
 	addCmd.Flags().StringSliceVarP(&addTags, "tag", "t", nil, "Context tags")
 	addCmd.Flags().BoolVar(&addCheckMatch, "check-match", false, "Check for similar questions")
+	addCmd.Flags().BoolVar(&addJSON, "json", false, "Output as JSON")
+	addCmd.Flags().BoolVar(&addMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&addCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"add-clarification", "-f", trackingPath, "--id", "clr-20250115-abc123", "-a", "Use React"})
+	cmd.SetArgs([]string{"add-clarification", "-f", trackingPath, "--id", "clr-20250115-abc123", "-a", "Use React", "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("add-clarification failed: %v", err)
@@ -204,6 +208,8 @@ func TestAddClarificationCmd_WithSprintAndTags(t *testing.T) {
 	addCmd.Flags().StringVarP(&addSprint, "sprint", "s", "", "Sprint name")
 	addCmd.Flags().StringSliceVarP(&addTags, "tag", "t", nil, "Context tags")
 	addCmd.Flags().BoolVar(&addCheckMatch, "check-match", false, "Check for similar questions")
+	addCmd.Flags().BoolVar(&addJSON, "json", false, "Output as JSON")
+	addCmd.Flags().BoolVar(&addMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&addCmd)
 
 	var stdout bytes.Buffer
@@ -325,6 +331,8 @@ func TestAddClarificationCmd_CheckMatch(t *testing.T) {
 	addCmd.Flags().StringVarP(&addSprint, "sprint", "s", "", "Sprint name")
 	addCmd.Flags().StringSliceVarP(&addTags, "tag", "t", nil, "Context tags")
 	addCmd.Flags().BoolVar(&addCheckMatch, "check-match", false, "Check for similar questions")
+	addCmd.Flags().BoolVar(&addJSON, "json", false, "Output as JSON")
+	addCmd.Flags().BoolVar(&addMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&addCmd)
 
 	var stdout bytes.Buffer
@@ -335,6 +343,7 @@ func TestAddClarificationCmd_CheckMatch(t *testing.T) {
 		"-q", "Which testing framework?", // Similar to existing
 		"-a", "Still Vitest",
 		"--check-match",
+		"--json",
 	})
 
 	if err := cmd.Execute(); err != nil {
@@ -383,11 +392,13 @@ func TestAddClarificationCmd_JSONOutput(t *testing.T) {
 	addCmd.Flags().StringVarP(&addSprint, "sprint", "s", "", "Sprint name")
 	addCmd.Flags().StringSliceVarP(&addTags, "tag", "t", nil, "Context tags")
 	addCmd.Flags().BoolVar(&addCheckMatch, "check-match", false, "Check for similar questions")
+	addCmd.Flags().BoolVar(&addJSON, "json", false, "Output as JSON")
+	addCmd.Flags().BoolVar(&addMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&addCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"add-clarification", "-f", trackingPath, "-q", "Test?", "-a", "Test answer"})
+	cmd.SetArgs([]string{"add-clarification", "-f", trackingPath, "-q", "Test?", "-a", "Test answer", "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("add-clarification failed: %v", err)

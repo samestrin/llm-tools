@@ -1,8 +1,8 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/samestrin/llm-tools/internal/support/utils"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -21,6 +22,7 @@ var (
 	multigrepMaxPerKw    int
 	multigrepNoExclude   bool
 	multigrepJSON        bool
+	multigrepMinimal     bool
 	multigrepDefinitions bool
 	multigrepOutputDir   string
 )
@@ -32,11 +34,32 @@ type matchInfo struct {
 }
 
 type keywordResult struct {
-	MatchCount        int         `json:"match_count"`
-	FilesMatched      []string    `json:"files_matched"`
-	DefinitionMatches []matchInfo `json:"definition_matches"`
-	OtherMatches      []matchInfo `json:"other_matches"`
-	Truncated         bool        `json:"truncated"`
+	MatchCount        int         `json:"match_count,omitempty"`
+	MC                *int        `json:"mc,omitempty"`
+	FilesMatched      []string    `json:"files_matched,omitempty"`
+	FM                []string    `json:"fm,omitempty"`
+	DefinitionMatches []matchInfo `json:"definition_matches,omitempty"`
+	DM                []matchInfo `json:"dm,omitempty"`
+	OtherMatches      []matchInfo `json:"other_matches,omitempty"`
+	OM                []matchInfo `json:"om,omitempty"`
+	Truncated         bool        `json:"truncated,omitempty"`
+	T                 *bool       `json:"t,omitempty"`
+}
+
+// MultigrepResult represents the overall multigrep result
+type MultigrepResult struct {
+	KeywordsSearched    int                       `json:"keywords_searched,omitempty"`
+	KS                  *int                      `json:"ks,omitempty"`
+	KeywordsWithMatches int                       `json:"keywords_with_matches,omitempty"`
+	KWM                 *int                      `json:"kwm,omitempty"`
+	TotalMatches        int                       `json:"total_matches,omitempty"`
+	TM                  *int                      `json:"tm,omitempty"`
+	SearchPath          string                    `json:"search_path,omitempty"`
+	SP                  string                    `json:"sp,omitempty"`
+	FilesSearched       int                       `json:"files_searched,omitempty"`
+	FS                  *int                      `json:"fs,omitempty"`
+	Results             map[string]*keywordResult `json:"results,omitempty"`
+	R                   map[string]*keywordResult `json:"r,omitempty"`
 }
 
 // newMultigrepCmd creates the multigrep command
@@ -59,6 +82,7 @@ Example:
 	cmd.Flags().IntVar(&multigrepMaxPerKw, "max-per-keyword", 10, "Max matches per keyword")
 	cmd.Flags().BoolVar(&multigrepNoExclude, "no-exclude", false, "Don't exclude common directories")
 	cmd.Flags().BoolVar(&multigrepJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&multigrepMinimal, "min", false, "Output in minimal/token-optimized format")
 	cmd.Flags().BoolVarP(&multigrepDefinitions, "definitions", "d", false, "Show only definition matches")
 	cmd.Flags().StringVarP(&multigrepOutputDir, "output-dir", "o", "", "Write results to directory (one file per keyword)")
 
@@ -166,60 +190,71 @@ func runMultigrep(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Output
-	if multigrepJSON {
-		output := map[string]interface{}{
-			"keywords_searched":     len(keywords),
-			"keywords_with_matches": keywordsWithMatches,
-			"total_matches":         totalMatches,
-			"search_path":           path,
-			"files_searched":        len(files),
-			"results":               results,
+	// Build result struct
+	filesSearched := len(files)
+	keywordsSearchedCount := len(keywords)
+	var mgResult MultigrepResult
+	if multigrepMinimal {
+		mgResult = MultigrepResult{
+			KS:  &keywordsSearchedCount,
+			KWM: &keywordsWithMatches,
+			TM:  &totalMatches,
+			SP:  path,
+			FS:  &filesSearched,
+			R:   results,
 		}
-		data, _ := json.MarshalIndent(output, "", "  ")
-		fmt.Fprintln(cmd.OutOrStdout(), string(data))
 	} else {
-		fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("=", 70))
-		fmt.Fprintln(cmd.OutOrStdout(), "MULTIGREP RESULTS")
-		fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("=", 70))
-		fmt.Fprintf(cmd.OutOrStdout(), "Search Path: %s\n", path)
-		fmt.Fprintf(cmd.OutOrStdout(), "Files Searched: %d\n", len(files))
-		fmt.Fprintf(cmd.OutOrStdout(), "Keywords: %d\n", len(keywords))
-		fmt.Fprintf(cmd.OutOrStdout(), "Total Matches: %d\n", totalMatches)
-		fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("=", 70))
-		fmt.Fprintln(cmd.OutOrStdout())
+		mgResult = MultigrepResult{
+			KeywordsSearched:    keywordsSearchedCount,
+			KeywordsWithMatches: keywordsWithMatches,
+			TotalMatches:        totalMatches,
+			SearchPath:          path,
+			FilesSearched:       filesSearched,
+			Results:             results,
+		}
+	}
+
+	formatter := output.New(multigrepJSON, multigrepMinimal, cmd.OutOrStdout())
+	return formatter.Print(mgResult, func(w io.Writer, data interface{}) {
+		fmt.Fprintln(w, strings.Repeat("=", 70))
+		fmt.Fprintln(w, "MULTIGREP RESULTS")
+		fmt.Fprintln(w, strings.Repeat("=", 70))
+		fmt.Fprintf(w, "Search Path: %s\n", path)
+		fmt.Fprintf(w, "Files Searched: %d\n", len(files))
+		fmt.Fprintf(w, "Keywords: %d\n", len(keywords))
+		fmt.Fprintf(w, "Total Matches: %d\n", totalMatches)
+		fmt.Fprintln(w, strings.Repeat("=", 70))
+		fmt.Fprintln(w)
 
 		for _, kw := range keywords {
 			r := results[kw]
-			fmt.Fprintf(cmd.OutOrStdout(), "KEYWORD: %s\n", kw)
-			fmt.Fprintf(cmd.OutOrStdout(), "  Matches: %d in %d files\n", r.MatchCount, len(r.FilesMatched))
+			fmt.Fprintf(w, "KEYWORD: %s\n", kw)
+			fmt.Fprintf(w, "  Matches: %d in %d files\n", r.MatchCount, len(r.FilesMatched))
 
 			if len(r.DefinitionMatches) > 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "  DEFINITIONS:")
+				fmt.Fprintln(w, "  DEFINITIONS:")
 				for _, m := range r.DefinitionMatches {
-					fmt.Fprintf(cmd.OutOrStdout(), "    → %s:%d: %s\n", m.File, m.Line, truncate(m.Content, 80))
+					fmt.Fprintf(w, "    → %s:%d: %s\n", m.File, m.Line, truncate(m.Content, 80))
 				}
 			}
 
 			if !multigrepDefinitions && len(r.OtherMatches) > 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "  USAGES (sample):")
+				fmt.Fprintln(w, "  USAGES (sample):")
 				for _, m := range r.OtherMatches {
-					fmt.Fprintf(cmd.OutOrStdout(), "    - %s:%d: %s\n", m.File, m.Line, truncate(m.Content, 80))
+					fmt.Fprintf(w, "    - %s:%d: %s\n", m.File, m.Line, truncate(m.Content, 80))
 				}
 			}
 
 			if r.Truncated {
-				fmt.Fprintln(cmd.OutOrStdout(), "  (results truncated)")
+				fmt.Fprintln(w, "  (results truncated)")
 			}
-			fmt.Fprintln(cmd.OutOrStdout())
+			fmt.Fprintln(w)
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "KEYWORDS_SEARCHED: %d\n", len(keywords))
-		fmt.Fprintf(cmd.OutOrStdout(), "KEYWORDS_WITH_MATCHES: %d\n", keywordsWithMatches)
-		fmt.Fprintf(cmd.OutOrStdout(), "TOTAL_MATCHES: %d\n", totalMatches)
-	}
-
-	return nil
+		fmt.Fprintf(w, "KEYWORDS_SEARCHED: %d\n", len(keywords))
+		fmt.Fprintf(w, "KEYWORDS_WITH_MATCHES: %d\n", keywordsWithMatches)
+		fmt.Fprintf(w, "TOTAL_MATCHES: %d\n", totalMatches)
+	})
 }
 
 func parseKeywords(s string) []string {

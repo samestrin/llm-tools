@@ -39,6 +39,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"timeout": {
 						"type": "integer",
 						"description": "API timeout in seconds (default: 30)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["question"]
@@ -63,6 +71,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"timeout": {
 						"type": "integer",
 						"description": "API timeout in seconds (default: 30)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				}
 			}`),
@@ -82,6 +98,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"timeout": {
 						"type": "integer",
 						"description": "API timeout in seconds (default: 30)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["tracking_file"]
@@ -106,6 +130,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"timeout": {
 						"type": "integer",
 						"description": "API timeout in seconds (default: 30)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["tracking_file"]
@@ -126,6 +158,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"force": {
 						"type": "boolean",
 						"description": "Overwrite if file already exists"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["output"]
@@ -166,6 +206,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"check_match": {
 						"type": "boolean",
 						"description": "Check for existing match before creating new entry"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["tracking_file", "question"]
@@ -194,6 +242,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"force": {
 						"type": "boolean",
 						"description": "Re-promote if already promoted"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["tracking_file", "id", "target"]
@@ -220,9 +276,13 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "integer",
 						"description": "Minimum occurrences to show (useful for finding promotion candidates)"
 					},
-					"json_output": {
+					"json": {
 						"type": "boolean",
-						"description": "Output as JSON for parsing"
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["tracking_file"]
@@ -251,6 +311,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"quiet": {
 						"type": "boolean",
 						"description": "Suppress output"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["file", "id"]
@@ -275,6 +343,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"quiet": {
 						"type": "boolean",
 						"description": "Suppress output"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["source", "output"]
@@ -304,6 +380,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"quiet": {
 						"type": "boolean",
 						"description": "Suppress output"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["source", "target"]
@@ -336,6 +420,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"quiet": {
 						"type": "boolean",
 						"description": "Suppress output"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["file"]
@@ -364,6 +456,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"quiet": {
 						"type": "boolean",
 						"description": "Suppress output"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
 					}
 				},
 				"required": ["file", "project_root"]

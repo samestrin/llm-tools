@@ -52,11 +52,13 @@ func TestClusterClarificationsCmd_Clustered(t *testing.T) {
 	clusterCmd := *clusterClarificationsCmd
 	clusterCmd.ResetFlags()
 	clusterCmd.Flags().StringVarP(&clusterFile, "file", "f", "", "Tracking file path")
+	clusterCmd.Flags().BoolVar(&clusterJSON, "json", false, "Output as JSON")
+	clusterCmd.Flags().BoolVar(&clusterMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&clusterCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"cluster-clarifications", "-f", trackingPath})
+	cmd.SetArgs([]string{"cluster-clarifications", "-f", trackingPath, "--json"})
 
 	// Set mock LLM client
 	SetLLMClient(&MockLLMClient{
@@ -113,11 +115,13 @@ func TestClusterClarificationsCmd_TooFewEntries(t *testing.T) {
 	clusterCmd := *clusterClarificationsCmd
 	clusterCmd.ResetFlags()
 	clusterCmd.Flags().StringVarP(&clusterFile, "file", "f", "", "Tracking file path")
+	clusterCmd.Flags().BoolVar(&clusterJSON, "json", false, "Output as JSON")
+	clusterCmd.Flags().BoolVar(&clusterMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&clusterCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"cluster-clarifications", "-f", trackingPath})
+	cmd.SetArgs([]string{"cluster-clarifications", "-f", trackingPath, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("cluster-clarifications failed: %v", err)

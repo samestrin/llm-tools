@@ -27,12 +27,14 @@ func TestInitTrackingCmd_HappyPath(t *testing.T) {
 	initCmd.ResetFlags()
 	initCmd.Flags().StringVarP(&initOutput, "output", "o", "", "Output file path (required)")
 	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite if exists")
+	initCmd.Flags().BoolVar(&initJSON, "json", false, "Output as JSON")
+	initCmd.Flags().BoolVar(&initMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&initCmd)
 
 	// Capture output
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"init-tracking", "-o", outPath})
+	cmd.SetArgs([]string{"init-tracking", "-o", outPath, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("init-tracking failed: %v", err)
@@ -268,11 +270,13 @@ func TestInitTrackingCmd_JSONOutput(t *testing.T) {
 	initCmd.ResetFlags()
 	initCmd.Flags().StringVarP(&initOutput, "output", "o", "", "Output file path (required)")
 	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite if exists")
+	initCmd.Flags().BoolVar(&initJSON, "json", false, "Output as JSON")
+	initCmd.Flags().BoolVar(&initMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&initCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"init-tracking", "-o", outPath})
+	cmd.SetArgs([]string{"init-tracking", "-o", outPath, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("init-tracking failed: %v", err)

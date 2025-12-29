@@ -13,10 +13,15 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
-var hashAlgorithm string
+var (
+	hashAlgorithm string
+	hashJSON      bool
+	hashMinimal   bool
+)
 
 // newHashCmd creates the hash command
 func newHashCmd() *cobra.Command {
@@ -34,7 +39,27 @@ Supported algorithms:
 		RunE: runHash,
 	}
 	cmd.Flags().StringVarP(&hashAlgorithm, "algorithm", "a", "sha256", "Hash algorithm: md5, sha1, sha256, sha512")
+	cmd.Flags().BoolVar(&hashJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&hashMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
+}
+
+// HashEntry represents a single file hash result.
+type HashEntry struct {
+	File string `json:"file,omitempty"`
+	F    string `json:"f,omitempty"`
+	Hash string `json:"hash,omitempty"`
+	H    string `json:"h,omitempty"`
+}
+
+// HashResult represents the JSON output of the hash command.
+type HashResult struct {
+	Algorithm string      `json:"algorithm,omitempty"`
+	Algo      string      `json:"algo,omitempty"`
+	Hashes    []HashEntry `json:"hashes,omitempty"`
+	H         []HashEntry `json:"h,omitempty"`
+	Count     int         `json:"count,omitempty"`
+	C         int         `json:"c,omitempty"`
 }
 
 func runHash(cmd *cobra.Command, args []string) error {
@@ -93,16 +118,46 @@ func runHash(cmd *cobra.Command, args []string) error {
 	sort.Strings(uniqueFiles)
 
 	// Calculate hashes
+	var entries []HashEntry
 	for _, filePath := range uniqueFiles {
 		hashValue, err := computeHash(filePath, algo)
 		if err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "ERROR: %s: %v\n", filePath, err)
 			continue
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s  %s\n", hashValue, filePath)
+		if hashMinimal {
+			entries = append(entries, HashEntry{F: filePath, H: hashValue})
+		} else {
+			entries = append(entries, HashEntry{File: filePath, Hash: hashValue})
+		}
 	}
 
-	return nil
+	var result HashResult
+	if hashMinimal {
+		result = HashResult{Algo: algo, H: entries, C: len(entries)}
+	} else {
+		result = HashResult{Algorithm: algo, Hashes: entries, Count: len(entries)}
+	}
+
+	formatter := output.New(hashJSON, hashMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(HashResult)
+		hashes := r.Hashes
+		if r.H != nil {
+			hashes = r.H
+		}
+		for _, e := range hashes {
+			file := e.File
+			if e.F != "" {
+				file = e.F
+			}
+			h := e.Hash
+			if e.H != "" {
+				h = e.H
+			}
+			fmt.Fprintf(w, "%s  %s\n", h, file)
+		}
+	})
 }
 
 func computeHash(filePath string, algo string) (string, error) {

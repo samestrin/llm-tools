@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,13 +10,36 @@ import (
 
 	"github.com/samestrin/llm-tools/internal/support/gitignore"
 	"github.com/samestrin/llm-tools/internal/support/utils"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
 	catfilesMaxSize     int
 	catfilesNoGitignore bool
+	catfilesJSON        bool
+	catfilesMinimal     bool
 )
+
+// CatFileEntry represents a single file in the catfiles result
+type CatFileEntry struct {
+	Path    string `json:"path,omitempty"`
+	P       string `json:"p,omitempty"`
+	Size    int64  `json:"size,omitempty"`
+	S       *int64 `json:"s,omitempty"`
+	Content string `json:"content,omitempty"`
+	C       string `json:"c,omitempty"`
+}
+
+// CatfilesResult represents the catfiles result
+type CatfilesResult struct {
+	Files     []CatFileEntry `json:"files,omitempty"`
+	F         []CatFileEntry `json:"f,omitempty"`
+	FileCount int            `json:"file_count,omitempty"`
+	FC        *int           `json:"fc,omitempty"`
+	TotalSize int64          `json:"total_size,omitempty"`
+	TS        *int64         `json:"ts,omitempty"`
+}
 
 // newCatfilesCmd creates the catfiles command
 func newCatfilesCmd() *cobra.Command {
@@ -31,6 +55,8 @@ Respects .gitignore patterns by default.`,
 	}
 	cmd.Flags().IntVar(&catfilesMaxSize, "max-size", 10, "Maximum total size in MB")
 	cmd.Flags().BoolVar(&catfilesNoGitignore, "no-gitignore", false, "Disable .gitignore filtering")
+	cmd.Flags().BoolVar(&catfilesJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&catfilesMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
 }
 
@@ -93,7 +119,8 @@ func runCatfiles(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(uniqueFiles)
 
-	// Process files
+	// Process files and collect entries
+	var entries []CatFileEntry
 	for _, filePath := range uniqueFiles {
 		info, err := os.Stat(filePath)
 		if err != nil {
@@ -118,18 +145,52 @@ func runCatfiles(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		// Output with header
-		fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("=", 60))
-		fmt.Fprintf(cmd.OutOrStdout(), "FILE: %s\n", filePath)
-		fmt.Fprintf(cmd.OutOrStdout(), "SIZE: %s\n", utils.FormatSize(size))
-		fmt.Fprintln(cmd.OutOrStdout(), strings.Repeat("=", 60))
-		fmt.Fprintln(cmd.OutOrStdout(), string(content))
-		fmt.Fprintln(cmd.OutOrStdout())
+		entries = append(entries, CatFileEntry{
+			Path:    filePath,
+			Size:    size,
+			Content: string(content),
+		})
 
 		totalSize += size
 	}
 
-	return nil
+	// Build result
+	fileCount := len(entries)
+	var result CatfilesResult
+	if catfilesMinimal {
+		minEntries := make([]CatFileEntry, len(entries))
+		for i, e := range entries {
+			size := e.Size
+			minEntries[i] = CatFileEntry{
+				P: e.Path,
+				S: &size,
+				C: e.Content,
+			}
+		}
+		result = CatfilesResult{
+			F:  minEntries,
+			FC: &fileCount,
+			TS: &totalSize,
+		}
+	} else {
+		result = CatfilesResult{
+			Files:     entries,
+			FileCount: fileCount,
+			TotalSize: totalSize,
+		}
+	}
+
+	formatter := output.New(catfilesJSON, catfilesMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		for _, e := range entries {
+			fmt.Fprintln(w, strings.Repeat("=", 60))
+			fmt.Fprintf(w, "FILE: %s\n", e.Path)
+			fmt.Fprintf(w, "SIZE: %s\n", utils.FormatSize(e.Size))
+			fmt.Fprintln(w, strings.Repeat("=", 60))
+			fmt.Fprintln(w, e.Content)
+			fmt.Fprintln(w)
+		}
+	})
 }
 
 func isTextFile(content []byte) bool {

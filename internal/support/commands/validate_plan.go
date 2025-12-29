@@ -1,19 +1,21 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	validatePlanJSON bool
-	validatePlanPath string
+	validatePlanJSON    bool
+	validatePlanMinimal bool
+	validatePlanPath    string
 )
 
 // PlanValidationResult holds the validation results
@@ -86,6 +88,7 @@ Examples:
 
 	cmd.Flags().StringVar(&validatePlanPath, "path", ".", "Plan directory path to validate")
 	cmd.Flags().BoolVar(&validatePlanJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&validatePlanMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	return cmd
 }
@@ -169,11 +172,11 @@ func runValidatePlan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output
-	if validatePlanJSON {
-		output, _ := json.MarshalIndent(result, "", "  ")
-		fmt.Fprintln(cmd.OutOrStdout(), string(output))
-	} else {
-		printValidationResult(cmd, result)
+	formatter := output.New(validatePlanJSON, validatePlanMinimal, cmd.OutOrStdout())
+	if err := formatter.Print(result, func(w io.Writer, data interface{}) {
+		printValidationResult(w, data.(PlanValidationResult), validatePlanMinimal)
+	}); err != nil {
+		return err
 	}
 
 	// Return error if validation failed
@@ -272,15 +275,30 @@ func extractPlanMetadata(content string) map[string]string {
 	return metadata
 }
 
-func printValidationResult(cmd *cobra.Command, result PlanValidationResult) {
-	out := cmd.OutOrStdout()
+func printValidationResult(out io.Writer, result PlanValidationResult, minimal bool) {
+	// Use relative path in minimal mode
+	path := result.Path
+	if minimal {
+		path = output.RelativePathCwd(path)
+	}
 
-	fmt.Fprintf(out, "PATH: %s\n", result.Path)
+	fmt.Fprintf(out, "PATH: %s\n", path)
 
 	if result.Valid {
-		fmt.Fprintln(out, "STATUS: ✅ VALID")
+		fmt.Fprintln(out, "STATUS: VALID")
 	} else {
-		fmt.Fprintln(out, "STATUS: ❌ INVALID")
+		fmt.Fprintln(out, "STATUS: INVALID")
+	}
+
+	if minimal {
+		// In minimal mode, only show essential info
+		if len(result.Errors) > 0 {
+			fmt.Fprintf(out, "ERRORS: %d\n", len(result.Errors))
+		}
+		if len(result.Warnings) > 0 {
+			fmt.Fprintf(out, "WARNINGS: %d\n", len(result.Warnings))
+		}
+		return
 	}
 
 	fmt.Fprintln(out, "---")
