@@ -85,16 +85,37 @@ func TestBuildGrepArgs(t *testing.T) {
 }
 
 func TestBuildMultiexistsArgs(t *testing.T) {
-	args := map[string]interface{}{
-		"paths":   []interface{}{"file1.txt", "dir/file2.txt"},
-		"verbose": true,
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic (defaults to json+min)",
+			args: map[string]interface{}{
+				"paths":   []interface{}{"file1.txt", "dir/file2.txt"},
+				"verbose": true,
+			},
+			want: []string{"multiexists", "file1.txt", "dir/file2.txt", "--verbose", "--no-fail", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{
+				"paths": []interface{}{"file.txt"},
+				"json":  false,
+				"min":   false,
+			},
+			want: []string{"multiexists", "file.txt", "--no-fail"},
+		},
 	}
 
-	got := buildMultiexistsArgs(args)
-	want := []string{"multiexists", "file1.txt", "dir/file2.txt", "--verbose", "--no-fail"}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("buildMultiexistsArgs() = %v, want %v", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildMultiexistsArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildMultiexistsArgs() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -113,17 +134,39 @@ func TestBuildJSONQueryArgs(t *testing.T) {
 }
 
 func TestBuildCountArgs(t *testing.T) {
-	args := map[string]interface{}{
-		"mode":      "checkboxes",
-		"path":      "README.md",
-		"recursive": true,
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic (defaults to json+min)",
+			args: map[string]interface{}{
+				"mode":      "checkboxes",
+				"path":      "README.md",
+				"recursive": true,
+			},
+			want: []string{"count", "--mode", "checkboxes", "--path", "README.md", "--recursive", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{
+				"mode": "lines",
+				"path": "file.txt",
+				"json": false,
+				"min":  false,
+			},
+			want: []string{"count", "--mode", "lines", "--path", "file.txt"},
+		},
 	}
 
-	got := buildCountArgs(args)
-	want := []string{"count", "--mode", "checkboxes", "--path", "README.md", "--recursive"}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("buildCountArgs() = %v, want %v", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildCountArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildCountArgs() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -624,15 +667,15 @@ func TestBuildArgsDispatcher(t *testing.T) {
 	}{
 		{"tree", map[string]interface{}{"path": "."}, 3},
 		{"grep", map[string]interface{}{"pattern": "x", "paths": []interface{}{"f"}}, 3},
-		{"multiexists", map[string]interface{}{"paths": []interface{}{"a"}}, 3},
+		{"multiexists", map[string]interface{}{"paths": []interface{}{"a"}}, 5}, // now includes --json --min
 		{"json_query", map[string]interface{}{"file": "f", "query": "q"}, 4},
 		{"markdown_headers", map[string]interface{}{"file": "f"}, 3},
 		{"template", map[string]interface{}{"file": "f"}, 2},
-		{"discover_tests", map[string]interface{}{}, 3},             // now includes --json --min
-		{"multigrep", map[string]interface{}{"keywords": "a,b"}, 5}, // now includes --json --min
-		{"analyze_deps", map[string]interface{}{"file": "f"}, 4},    // now includes --json --min
-		{"detect", map[string]interface{}{}, 3},                     // now includes --json --min
-		{"count", map[string]interface{}{"mode": "lines", "path": "f"}, 4},
+		{"discover_tests", map[string]interface{}{}, 3},                    // now includes --json --min
+		{"multigrep", map[string]interface{}{"keywords": "a,b"}, 5},        // now includes --json --min
+		{"analyze_deps", map[string]interface{}{"file": "f"}, 4},           // now includes --json --min
+		{"detect", map[string]interface{}{}, 3},                            // now includes --json --min
+		{"count", map[string]interface{}{"mode": "lines", "path": "f"}, 6}, // now includes --json --min
 		{"summarize_dir", map[string]interface{}{"path": "p"}, 2},
 		{"deps", map[string]interface{}{"manifest": "m"}, 4},          // now includes --json --min
 		{"git_context", map[string]interface{}{}, 3},                  // now includes --json --min

@@ -69,27 +69,46 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 		return fmt.Errorf("failed to create index directory: %w", err)
 	}
 
-	// Create storage
-	storage, err := semantic.NewSQLiteStorage(indexPath, 0)
+	// Create storage based on storage type flag
+	storage, err := createStorage(indexPath, 0)
 	if err != nil {
 		return fmt.Errorf("failed to create storage: %w", err)
 	}
 	defer storage.Close()
 
-	// Create embedder
-	cfg := semantic.EmbedderConfig{
-		APIURL: apiURL,
-		Model:  model,
-		APIKey: getAPIKey(),
-	}
-	embedder, err := semantic.NewEmbedder(cfg)
+	// Create embedder based on --embedder flag
+	embedder, err := createEmbedder()
 	if err != nil {
 		return fmt.Errorf("failed to create embedder: %w", err)
 	}
 
-	// Create chunker factory with Go support
+	// Create chunker factory with language support
 	factory := semantic.NewChunkerFactory()
 	factory.Register("go", semantic.NewGoChunker())
+
+	// Register JS/TS chunker
+	jsChunker := semantic.NewJSChunker()
+	for _, ext := range jsChunker.SupportedExtensions() {
+		factory.Register(ext, jsChunker)
+	}
+
+	// Register Python chunker
+	pyChunker := semantic.NewPythonChunker()
+	for _, ext := range pyChunker.SupportedExtensions() {
+		factory.Register(ext, pyChunker)
+	}
+
+	// Register PHP chunker
+	phpChunker := semantic.NewPHPChunker()
+	for _, ext := range phpChunker.SupportedExtensions() {
+		factory.Register(ext, phpChunker)
+	}
+
+	// Register generic chunker for other file types
+	generic := semantic.NewGenericChunker(2000)
+	for _, ext := range generic.SupportedExtensions() {
+		factory.Register(ext, generic)
+	}
 
 	// Create index manager
 	mgr := semantic.NewIndexManager(storage, embedder, factory)
@@ -157,5 +176,19 @@ func findGitRootFrom(startPath string) (string, error) {
 			return "", fmt.Errorf("not in a git repository")
 		}
 		dir = parent
+	}
+}
+
+// createStorage creates a storage backend based on the --storage flag
+func createStorage(indexPath string, embeddingDim int) (semantic.Storage, error) {
+	switch storageType {
+	case "qdrant":
+		// Use Qdrant cloud storage
+		return semantic.NewQdrantStorageFromEnv(embeddingDim)
+	case "sqlite", "":
+		// Default to SQLite
+		return semantic.NewSQLiteStorage(indexPath, embeddingDim)
+	default:
+		return nil, fmt.Errorf("unknown storage type: %s (use 'sqlite' or 'qdrant')", storageType)
 	}
 }

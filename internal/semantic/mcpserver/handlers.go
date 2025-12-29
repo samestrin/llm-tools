@@ -195,6 +195,25 @@ func (h *Handler) HandleIndex(ctx context.Context, args map[string]interface{}) 
 
 	factory := semantic.NewChunkerFactory()
 	factory.Register("go", semantic.NewGoChunker())
+
+	// Register JS/TS chunker
+	jsChunker := semantic.NewJSChunker()
+	for _, ext := range jsChunker.SupportedExtensions() {
+		factory.Register(ext, jsChunker)
+	}
+
+	// Register Python chunker
+	pyChunker := semantic.NewPythonChunker()
+	for _, ext := range pyChunker.SupportedExtensions() {
+		factory.Register(ext, pyChunker)
+	}
+
+	// Register PHP chunker
+	phpChunker := semantic.NewPHPChunker()
+	for _, ext := range phpChunker.SupportedExtensions() {
+		factory.Register(ext, phpChunker)
+	}
+
 	// Register generic chunker for other file types
 	generic := semantic.NewGenericChunker(2000)
 	for _, ext := range generic.SupportedExtensions() {
@@ -270,6 +289,26 @@ func (h *Handler) HandleUpdate(ctx context.Context, args map[string]interface{})
 
 	factory := semantic.NewChunkerFactory()
 	factory.Register("go", semantic.NewGoChunker())
+
+	// Register JS/TS chunker
+	jsChunker := semantic.NewJSChunker()
+	for _, ext := range jsChunker.SupportedExtensions() {
+		factory.Register(ext, jsChunker)
+	}
+
+	// Register Python chunker
+	pyChunker := semantic.NewPythonChunker()
+	for _, ext := range pyChunker.SupportedExtensions() {
+		factory.Register(ext, pyChunker)
+	}
+
+	// Register PHP chunker
+	phpChunker := semantic.NewPHPChunker()
+	for _, ext := range phpChunker.SupportedExtensions() {
+		factory.Register(ext, phpChunker)
+	}
+
+	// Register generic chunker for other file types
 	generic := semantic.NewGenericChunker(2000)
 	for _, ext := range generic.SupportedExtensions() {
 		factory.Register(ext, generic)

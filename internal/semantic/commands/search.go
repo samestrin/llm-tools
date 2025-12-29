@@ -68,26 +68,24 @@ type searchOpts struct {
 }
 
 func runSearch(ctx context.Context, query string, opts searchOpts) error {
-	// Find index path
-	indexPath := findIndexPath()
-	if indexPath == "" {
-		return fmt.Errorf("semantic index not found. Run 'llm-semantic index' first")
+	// Find index path (only needed for sqlite)
+	indexPath := ""
+	if storageType == "" || storageType == "sqlite" {
+		indexPath = findIndexPath()
+		if indexPath == "" {
+			return fmt.Errorf("semantic index not found. Run 'llm-semantic index' first")
+		}
 	}
 
 	// Open storage
-	storage, err := semantic.NewSQLiteStorage(indexPath, 0)
+	storage, err := createStorage(indexPath, 0)
 	if err != nil {
 		return fmt.Errorf("failed to open index: %w", err)
 	}
 	defer storage.Close()
 
-	// Create embedder
-	cfg := semantic.EmbedderConfig{
-		APIURL: apiURL,
-		Model:  model,
-		APIKey: getAPIKey(),
-	}
-	embedder, err := semantic.NewEmbedder(cfg)
+	// Create embedder based on --embedder flag
+	embedder, err := createEmbedder()
 	if err != nil {
 		return fmt.Errorf("failed to create embedder: %w", err)
 	}
