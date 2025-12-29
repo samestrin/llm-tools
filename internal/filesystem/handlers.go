@@ -93,23 +93,8 @@ func (s *Server) handleListAllowedDirectories(args map[string]interface{}) (stri
 // handleMoveFile - implemented in fileops.go
 // handleDeleteFile - implemented in fileops.go
 // handleBatchFileOperations - implemented in fileops.go
-
-func (s *Server) handleGetDiskUsage(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_get_disk_usage")
-}
-
-func (s *Server) handleFindLargeFiles(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_find_large_files")
-}
-
-func (s *Server) handleCompressFiles(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_compress_files")
-}
-
-func (s *Server) handleExtractArchive(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_extract_archive")
-}
-
-func (s *Server) handleSyncDirectories(args map[string]interface{}) (string, error) {
-	return "", fmt.Errorf("not implemented: fast_sync_directories")
-}
+// handleGetDiskUsage - implemented in advanced.go
+// handleFindLargeFiles - implemented in advanced.go
+// handleCompressFiles - implemented in advanced.go
+// handleExtractArchive - implemented in advanced.go
+// handleSyncDirectories - implemented in advanced.go
