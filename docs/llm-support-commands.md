@@ -1313,19 +1313,18 @@ llm-support context clear --dir <directory>
 
 **Common Workflow:**
 ```bash
-# 1. Create temp directory and initialize context
-TEMP=$(llm-support init-temp --name mysession | grep TEMP_DIR | cut -d' ' -f2)
-llm-support context init --dir "$TEMP"
+# 1. Initialize context in a known directory (name embedded in prompt)
+llm-support context init --dir "init-plan"
 
 # 2. Store values during prompt execution
-llm-support context set --dir "$TEMP" START_TIME "$(date -Iseconds)"
-llm-support context set --dir "$TEMP" BRANCH_NAME "feature/new-thing"
+llm-support context set --dir "init-plan" START_TIME "$(date -Iseconds)"
+llm-support context set --dir "init-plan" BRANCH_NAME "feature/new-thing"
 
 # 3. Retrieve values later
-llm-support context get --dir "$TEMP" START_TIME --min
+llm-support context get --dir "init-plan" START_TIME --min
 
 # 4. Source all variables
-eval "$(llm-support context dump --dir "$TEMP")"
+eval "$(llm-support context dump --dir "init-plan")"
 ```
 
 ---
