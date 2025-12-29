@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
 	"github.com/samestrin/llm-tools/internal/clarification/utils"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
+	"github.com/samestrin/llm-tools/pkg/output"
 
 	"github.com/spf13/cobra"
 )
@@ -23,14 +25,18 @@ var validateClarificationsCmd = &cobra.Command{
 }
 
 var (
-	validateFile    string
-	validateContext string
+	validateFile      string
+	validateContext   string
+	validateClarsJSON bool
+	validateClarsMin  bool
 )
 
 func init() {
 	rootCmd.AddCommand(validateClarificationsCmd)
 	validateClarificationsCmd.Flags().StringVarP(&validateFile, "file", "f", "", "Tracking file path (required)")
 	validateClarificationsCmd.Flags().StringVarP(&validateContext, "context", "c", "", "Project context (optional, auto-detected if not provided)")
+	validateClarificationsCmd.Flags().BoolVar(&validateClarsJSON, "json", false, "Output as JSON")
+	validateClarificationsCmd.Flags().BoolVar(&validateClarsMin, "min", false, "Output in minimal/token-optimized format")
 	validateClarificationsCmd.MarkFlagRequired("file")
 }
 
@@ -76,7 +82,8 @@ func runValidateClarifications(cmd *cobra.Command, args []string) error {
 			StaleCount:  0,
 			ReviewCount: 0,
 		}
-		return outputJSON(cmd, result)
+		formatter := output.New(validateClarsJSON, validateClarsMin, cmd.OutOrStdout())
+		return formatter.Print(result, printValidateClarificationsText)
 	}
 
 	// Get LLM client
@@ -124,7 +131,25 @@ func runValidateClarifications(cmd *cobra.Command, args []string) error {
 		ReviewCount: llmResult.ReviewCount,
 	}
 
-	return outputJSON(cmd, result)
+	formatter := output.New(validateClarsJSON, validateClarsMin, cmd.OutOrStdout())
+	return formatter.Print(result, printValidateClarificationsText)
+}
+
+func printValidateClarificationsText(w io.Writer, data interface{}) {
+	r := data.(ValidateClarificationsResult)
+	fmt.Fprintf(w, "STATUS: %s\n", r.Status)
+	fmt.Fprintf(w, "VALID_COUNT: %d\n", r.ValidCount)
+	fmt.Fprintf(w, "STALE_COUNT: %d\n", r.StaleCount)
+	fmt.Fprintf(w, "REVIEW_COUNT: %d\n", r.ReviewCount)
+	for _, v := range r.Validations {
+		fmt.Fprintf(w, "\n%s: %s\n", v.ID, v.Status)
+		if v.Reason != "" {
+			fmt.Fprintf(w, "  REASON: %s\n", v.Reason)
+		}
+		if v.Recommendation != "" {
+			fmt.Fprintf(w, "  RECOMMENDATION: %s\n", v.Recommendation)
+		}
+	}
 }
 
 func detectProjectContext() string {

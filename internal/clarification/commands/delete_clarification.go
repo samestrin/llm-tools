@@ -4,18 +4,38 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	deleteFile  string
-	deleteID    string
-	deleteForce bool
-	deleteQuiet bool
+	deleteFile    string
+	deleteID      string
+	deleteForce   bool
+	deleteQuiet   bool
+	deleteJSON    bool
+	deleteMinimal bool
 )
+
+// DeleteClarificationResult holds the deletion result
+type DeleteClarificationResult struct {
+	File      string `json:"file,omitempty"`
+	F         string `json:"f,omitempty"`
+	ID        string `json:"id,omitempty"`
+	I         string `json:"i,omitempty"`
+	Question  string `json:"question,omitempty"`
+	Q         string `json:"q,omitempty"`
+	Status    string `json:"status,omitempty"`
+	S         string `json:"s,omitempty"`
+	Deleted   bool   `json:"deleted,omitempty"`
+	D         *bool  `json:"d,omitempty"`
+	Cancelled bool   `json:"cancelled,omitempty"`
+	C         *bool  `json:"c,omitempty"`
+}
 
 // NewDeleteClarificationCmd creates a new delete-clarification command.
 func NewDeleteClarificationCmd() *cobra.Command {
@@ -30,6 +50,8 @@ func NewDeleteClarificationCmd() *cobra.Command {
 	cmd.Flags().StringVar(&deleteID, "id", "", "Entry ID to delete (required)")
 	cmd.Flags().BoolVar(&deleteForce, "force", false, "Skip confirmation prompt")
 	cmd.Flags().BoolVarP(&deleteQuiet, "quiet", "q", false, "Suppress output")
+	cmd.Flags().BoolVar(&deleteJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&deleteMinimal, "min", false, "Output in minimal/token-optimized format")
 	cmd.MarkFlagRequired("file")
 	cmd.MarkFlagRequired("id")
 
@@ -58,8 +80,8 @@ func runDeleteClarification(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("entry not found: %s", deleteID)
 	}
 
-	// Show entry details before deletion (unless quiet)
-	if !deleteQuiet {
+	// Show entry details before deletion (unless quiet or JSON mode)
+	if !deleteQuiet && !deleteJSON {
 		fmt.Fprintln(cmd.OutOrStdout(), "Entry to delete:")
 		fmt.Fprintf(cmd.OutOrStdout(), "  ID:          %s\n", entry.ID)
 		fmt.Fprintf(cmd.OutOrStdout(), "  Question:    %s\n", truncateString(entry.CanonicalQuestion, 60))
@@ -74,29 +96,62 @@ func runDeleteClarification(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(cmd.OutOrStdout())
 	}
 
-	// Confirm deletion (unless force)
-	if !deleteForce {
+	// Confirm deletion (unless force or JSON mode)
+	cancelled := false
+	if !deleteForce && !deleteJSON {
 		fmt.Fprintf(cmd.OutOrStdout(), "Are you sure you want to delete this entry? [y/N]: ")
 		reader := bufio.NewReader(cmd.InOrStdin())
 		response, _ := reader.ReadString('\n')
 		response = strings.TrimSpace(strings.ToLower(response))
 
 		if response != "y" && response != "yes" {
-			if !deleteQuiet {
-				fmt.Fprintln(cmd.OutOrStdout(), "Deletion cancelled.")
-			}
-			return nil
+			cancelled = true
 		}
 	}
 
-	// Delete entry
-	if err := store.Delete(ctx, deleteID); err != nil {
-		return fmt.Errorf("failed to delete entry: %w", err)
+	// Build result
+	deleted := false
+	if !cancelled {
+		// Delete entry
+		if err := store.Delete(ctx, deleteID); err != nil {
+			return fmt.Errorf("failed to delete entry: %w", err)
+		}
+		deleted = true
 	}
 
-	if !deleteQuiet {
-		fmt.Fprintf(cmd.OutOrStdout(), "Entry %s deleted successfully.\n", deleteID)
+	// Build output result
+	var result DeleteClarificationResult
+	if deleteMinimal {
+		result = DeleteClarificationResult{
+			F: deleteFile,
+			I: deleteID,
+			Q: truncateString(entry.CanonicalQuestion, 40),
+			D: &deleted,
+			C: &cancelled,
+		}
+	} else {
+		result = DeleteClarificationResult{
+			File:      deleteFile,
+			ID:        deleteID,
+			Question:  entry.CanonicalQuestion,
+			Status:    entry.Status,
+			Deleted:   deleted,
+			Cancelled: cancelled,
+		}
 	}
 
-	return nil
+	if deleteQuiet && !deleteJSON && !deleteMinimal {
+		return nil
+	}
+
+	formatter := output.New(deleteJSON, deleteMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		if !deleteQuiet {
+			if cancelled {
+				fmt.Fprintln(w, "Deletion cancelled.")
+			} else {
+				fmt.Fprintf(w, "Entry %s deleted successfully.\n", deleteID)
+			}
+		}
+	})
 }

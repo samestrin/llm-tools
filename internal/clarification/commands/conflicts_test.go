@@ -46,11 +46,13 @@ func TestDetectConflictsCmd_ConflictsFound(t *testing.T) {
 	confCmd := *detectConflictsCmd
 	confCmd.ResetFlags()
 	confCmd.Flags().StringVarP(&conflictsFile, "file", "f", "", "Tracking file path")
+	confCmd.Flags().BoolVar(&conflictsJSON, "json", false, "Output as JSON")
+	confCmd.Flags().BoolVar(&conflictsMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&confCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"detect-conflicts", "-f", trackingPath})
+	cmd.SetArgs([]string{"detect-conflicts", "-f", trackingPath, "--json"})
 
 	// Set mock LLM client
 	SetLLMClient(&MockLLMClient{
@@ -114,11 +116,13 @@ func TestDetectConflictsCmd_NoConflicts(t *testing.T) {
 	confCmd := *detectConflictsCmd
 	confCmd.ResetFlags()
 	confCmd.Flags().StringVarP(&conflictsFile, "file", "f", "", "Tracking file path")
+	confCmd.Flags().BoolVar(&conflictsJSON, "json", false, "Output as JSON")
+	confCmd.Flags().BoolVar(&conflictsMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&confCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"detect-conflicts", "-f", trackingPath})
+	cmd.SetArgs([]string{"detect-conflicts", "-f", trackingPath, "--json"})
 
 	// Set mock LLM client
 	SetLLMClient(&MockLLMClient{
@@ -172,11 +176,13 @@ func TestDetectConflictsCmd_TooFewEntries(t *testing.T) {
 	confCmd := *detectConflictsCmd
 	confCmd.ResetFlags()
 	confCmd.Flags().StringVarP(&conflictsFile, "file", "f", "", "Tracking file path")
+	confCmd.Flags().BoolVar(&conflictsJSON, "json", false, "Output as JSON")
+	confCmd.Flags().BoolVar(&conflictsMinimal, "min", false, "Output in minimal format")
 	cmd.AddCommand(&confCmd)
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetArgs([]string{"detect-conflicts", "-f", trackingPath})
+	cmd.SetArgs([]string{"detect-conflicts", "-f", trackingPath, "--json"})
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("detect-conflicts failed: %v", err)

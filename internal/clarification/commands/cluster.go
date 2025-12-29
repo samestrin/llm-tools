@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/pkg/llmapi"
+	"github.com/samestrin/llm-tools/pkg/output"
 
 	"github.com/spf13/cobra"
 )
@@ -20,12 +22,16 @@ var clusterClarificationsCmd = &cobra.Command{
 }
 
 var (
-	clusterFile string
+	clusterFile    string
+	clusterJSON    bool
+	clusterMinimal bool
 )
 
 func init() {
 	rootCmd.AddCommand(clusterClarificationsCmd)
 	clusterClarificationsCmd.Flags().StringVarP(&clusterFile, "file", "f", "", "Tracking file path (required)")
+	clusterClarificationsCmd.Flags().BoolVar(&clusterJSON, "json", false, "Output as JSON")
+	clusterClarificationsCmd.Flags().BoolVar(&clusterMinimal, "min", false, "Output in minimal/token-optimized format")
 	clusterClarificationsCmd.MarkFlagRequired("file")
 }
 
@@ -84,7 +90,8 @@ func runClusterClarifications(cmd *cobra.Command, args []string) error {
 			ClusterCount: len(clusters),
 			Note:         "Not enough questions to cluster",
 		}
-		return outputJSON(cmd, result)
+		formatter := output.New(clusterJSON, clusterMinimal, cmd.OutOrStdout())
+		return formatter.Print(result, printClusterText)
 	}
 
 	// Get LLM client
@@ -132,7 +139,23 @@ func runClusterClarifications(cmd *cobra.Command, args []string) error {
 		ClusterCount: llmResult.ClusterCount,
 	}
 
-	return outputJSON(cmd, result)
+	formatter := output.New(clusterJSON, clusterMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, printClusterText)
+}
+
+func printClusterText(w io.Writer, data interface{}) {
+	r := data.(ClusterResult)
+	fmt.Fprintf(w, "STATUS: %s\n", r.Status)
+	fmt.Fprintf(w, "CLUSTER_COUNT: %d\n", r.ClusterCount)
+	if r.Note != "" {
+		fmt.Fprintf(w, "NOTE: %s\n", r.Note)
+	}
+	for i, c := range r.Clusters {
+		fmt.Fprintf(w, "\nCLUSTER %d: %s\n", i+1, c.Label)
+		for _, q := range c.Questions {
+			fmt.Fprintf(w, "  - %s\n", q)
+		}
+	}
 }
 
 func buildClusterPrompt(questions []string) string {

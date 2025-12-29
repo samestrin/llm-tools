@@ -3,17 +3,33 @@ package commands
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/samestrin/llm-tools/internal/clarification/storage"
 	"github.com/samestrin/llm-tools/internal/clarification/tracking"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	exportSource string
-	exportOutput string
-	exportQuiet  bool
+	exportSource  string
+	exportOutput  string
+	exportQuiet   bool
+	exportJSON    bool
+	exportMinimal bool
 )
+
+// ExportMemoryResult holds the export result
+type ExportMemoryResult struct {
+	Source  string `json:"source,omitempty"`
+	Src     string `json:"src,omitempty"`
+	Output  string `json:"output,omitempty"`
+	Out     string `json:"out,omitempty"`
+	Entries int    `json:"entries,omitempty"`
+	E       *int   `json:"e,omitempty"`
+	Status  string `json:"status,omitempty"`
+	S       string `json:"s,omitempty"`
+}
 
 // NewExportMemoryCmd creates a new export-memory command.
 func NewExportMemoryCmd() *cobra.Command {
@@ -28,6 +44,8 @@ to a human-readable YAML file for editing or backup.`,
 	cmd.Flags().StringVarP(&exportSource, "source", "s", "", "Source storage file (required)")
 	cmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output YAML file path (required)")
 	cmd.Flags().BoolVarP(&exportQuiet, "quiet", "q", false, "Suppress output")
+	cmd.Flags().BoolVar(&exportJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&exportMinimal, "min", false, "Output in minimal/token-optimized format")
 	cmd.MarkFlagRequired("source")
 	cmd.MarkFlagRequired("output")
 
@@ -56,10 +74,6 @@ func runExportMemory(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to export entries: %w", err)
 	}
 
-	if !exportQuiet {
-		fmt.Fprintf(cmd.OutOrStdout(), "Exporting %d entries...\n", len(entries))
-	}
-
 	// Create YAML tracking file structure
 	tf := tracking.NewTrackingFile(entries[0].FirstSeen)
 	if len(entries) > 0 {
@@ -81,9 +95,34 @@ func runExportMemory(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save YAML file: %w", err)
 	}
 
-	if !exportQuiet {
-		fmt.Fprintf(cmd.OutOrStdout(), "Successfully exported to: %s\n", exportOutput)
+	// Build result
+	entryCount := len(entries)
+	var result ExportMemoryResult
+	if exportMinimal {
+		result = ExportMemoryResult{
+			Src: exportSource,
+			Out: exportOutput,
+			E:   &entryCount,
+			S:   "success",
+		}
+	} else {
+		result = ExportMemoryResult{
+			Source:  exportSource,
+			Output:  exportOutput,
+			Entries: entryCount,
+			Status:  "success",
+		}
 	}
 
-	return nil
+	if exportQuiet && !exportJSON && !exportMinimal {
+		return nil
+	}
+
+	formatter := output.New(exportJSON, exportMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		if !exportQuiet {
+			fmt.Fprintf(w, "Exporting %d entries...\n", entryCount)
+			fmt.Fprintf(w, "Successfully exported to: %s\n", exportOutput)
+		}
+	})
 }

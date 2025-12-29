@@ -2,17 +2,33 @@ package commands
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	extractUnique bool
-	extractCount  bool
+	extractUnique  bool
+	extractCount   bool
+	extractJSON    bool
+	extractMinimal bool
 )
+
+// ExtractResult holds the extraction result
+type ExtractResult struct {
+	Type    string   `json:"type,omitempty"`
+	T       string   `json:"t,omitempty"`
+	File    string   `json:"file,omitempty"`
+	F       string   `json:"f,omitempty"`
+	Count   int      `json:"count,omitempty"`
+	Cnt     *int     `json:"cnt,omitempty"`
+	Results []string `json:"results,omitempty"`
+	R       []string `json:"r,omitempty"`
+}
 
 // newExtractCmd creates the extract command
 func newExtractCmd() *cobra.Command {
@@ -34,6 +50,8 @@ Types:
 
 	cmd.Flags().BoolVar(&extractUnique, "unique", false, "Remove duplicates")
 	cmd.Flags().BoolVar(&extractCount, "count", false, "Show count only")
+	cmd.Flags().BoolVar(&extractJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&extractMinimal, "min", false, "Output in minimal/token-optimized format")
 
 	return cmd
 }
@@ -104,19 +122,53 @@ func runExtract(cmd *cobra.Command, args []string) error {
 		results = unique
 	}
 
-	// Output
-	if extractCount {
-		fmt.Fprintf(cmd.OutOrStdout(), "COUNT: %d\n", len(results))
-	} else {
-		for _, r := range results {
-			fmt.Fprintln(cmd.OutOrStdout(), r)
+	// Build result
+	count := len(results)
+	var res ExtractResult
+	if extractMinimal {
+		if extractCount {
+			res = ExtractResult{
+				T:   extractType,
+				F:   filePath,
+				Cnt: &count,
+			}
+		} else {
+			res = ExtractResult{
+				T: extractType,
+				F: filePath,
+				R: results,
+			}
 		}
-		if len(results) == 0 {
-			fmt.Fprintf(cmd.ErrOrStderr(), "No %s found\n", extractType)
+	} else {
+		if extractCount {
+			res = ExtractResult{
+				Type:  extractType,
+				File:  filePath,
+				Count: count,
+			}
+		} else {
+			res = ExtractResult{
+				Type:    extractType,
+				File:    filePath,
+				Results: results,
+			}
 		}
 	}
 
-	return nil
+	// Output
+	formatter := output.New(extractJSON, extractMinimal, cmd.OutOrStdout())
+	return formatter.Print(res, func(w io.Writer, data interface{}) {
+		if extractCount {
+			fmt.Fprintf(w, "COUNT: %d\n", len(results))
+		} else {
+			for _, r := range results {
+				fmt.Fprintln(w, r)
+			}
+			if len(results) == 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "No %s found\n", extractType)
+			}
+		}
+	})
 }
 
 func init() {
