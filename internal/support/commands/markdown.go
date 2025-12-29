@@ -50,18 +50,18 @@ type MdHeadersResult struct {
 
 // MdTasksResult holds the tasks extraction result
 type MdTasksResult struct {
-	File           string    `json:"file,omitempty"`
-	F              string    `json:"f,omitempty"`
-	TotalTasks     int       `json:"total_tasks,omitempty"`
-	TT             *int      `json:"tt,omitempty"`
-	Completed      int       `json:"completed,omitempty"`
-	Cp             *int      `json:"cp,omitempty"`
-	Incomplete     int       `json:"incomplete,omitempty"`
-	Inc            *int      `json:"inc,omitempty"`
-	CompletionRate float64   `json:"completion_rate,omitempty"`
-	CR             *float64  `json:"cr,omitempty"`
-	Tasks          []MdTask  `json:"tasks,omitempty"`
-	Ts             []MdTask  `json:"ts,omitempty"`
+	File           string   `json:"file,omitempty"`
+	F              string   `json:"f,omitempty"`
+	TotalTasks     int      `json:"total_tasks,omitempty"`
+	TT             *int     `json:"tt,omitempty"`
+	Completed      int      `json:"completed,omitempty"`
+	Cp             *int     `json:"cp,omitempty"`
+	Incomplete     int      `json:"incomplete,omitempty"`
+	Inc            *int     `json:"inc,omitempty"`
+	CompletionRate float64  `json:"completion_rate,omitempty"`
+	CR             *float64 `json:"cr,omitempty"`
+	Tasks          []MdTask `json:"tasks,omitempty"`
+	Ts             []MdTask `json:"ts,omitempty"`
 }
 
 // MdTask represents a single task

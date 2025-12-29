@@ -22,18 +22,18 @@ var (
 
 // ReportResult holds the report generation result
 type ReportResult struct {
-	Title     string            `json:"title,omitempty"`
-	Ti        string            `json:"ti,omitempty"`
-	Status    string            `json:"status,omitempty"`
-	S         string            `json:"s,omitempty"`
-	Stats     map[string]string `json:"stats,omitempty"`
-	St        map[string]string `json:"st,omitempty"`
-	Timestamp string            `json:"timestamp,omitempty"`
-	TS        string            `json:"ts,omitempty"`
-	Content   string            `json:"content,omitempty"`
-	C         string            `json:"c,omitempty"`
-	OutputFile string           `json:"output_file,omitempty"`
-	OF        string            `json:"of,omitempty"`
+	Title      string            `json:"title,omitempty"`
+	Ti         string            `json:"ti,omitempty"`
+	Status     string            `json:"status,omitempty"`
+	S          string            `json:"s,omitempty"`
+	Stats      map[string]string `json:"stats,omitempty"`
+	St         map[string]string `json:"st,omitempty"`
+	Timestamp  string            `json:"timestamp,omitempty"`
+	TS         string            `json:"ts,omitempty"`
+	Content    string            `json:"content,omitempty"`
+	C          string            `json:"c,omitempty"`
+	OutputFile string            `json:"output_file,omitempty"`
+	OF         string            `json:"of,omitempty"`
 }
 
 // newReportCmd creates the report command

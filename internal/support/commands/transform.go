@@ -40,12 +40,12 @@ type TransformCaseResult struct {
 
 // TransformSortResult holds the sort result
 type TransformSortResult struct {
-	File   string   `json:"file,omitempty"`
-	F      string   `json:"f,omitempty"`
-	Lines  []string `json:"lines,omitempty"`
-	L      []string `json:"l,omitempty"`
-	Count  int      `json:"count,omitempty"`
-	Cnt    *int     `json:"cnt,omitempty"`
+	File  string   `json:"file,omitempty"`
+	F     string   `json:"f,omitempty"`
+	Lines []string `json:"lines,omitempty"`
+	L     []string `json:"l,omitempty"`
+	Count int      `json:"count,omitempty"`
+	Cnt   *int     `json:"cnt,omitempty"`
 }
 
 // TransformFilterResult holds the filter result

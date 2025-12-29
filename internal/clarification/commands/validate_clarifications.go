@@ -25,10 +25,10 @@ var validateClarificationsCmd = &cobra.Command{
 }
 
 var (
-	validateFile       string
-	validateContext    string
-	validateClarsJSON  bool
-	validateClarsMin   bool
+	validateFile      string
+	validateContext   string
+	validateClarsJSON bool
+	validateClarsMin  bool
 )
 
 func init() {

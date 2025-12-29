@@ -26,26 +26,26 @@ var (
 
 // OptimizeMemoryResult holds the optimization result
 type OptimizeMemoryResult struct {
-	File          string            `json:"file,omitempty"`
-	F             string            `json:"f,omitempty"`
-	VacuumBytes   int64             `json:"vacuum_bytes,omitempty"`
-	VB            *int64            `json:"vb,omitempty"`
-	PrunedEntries int               `json:"pruned_entries,omitempty"`
-	PE            *int              `json:"pe,omitempty"`
-	TotalEntries  int               `json:"total_entries,omitempty"`
-	TE            *int              `json:"te,omitempty"`
-	TotalVariants int               `json:"total_variants,omitempty"`
-	TV            *int              `json:"tv,omitempty"`
-	TotalTags     int               `json:"total_tags,omitempty"`
-	TT            *int              `json:"tt,omitempty"`
-	TotalSprints  int               `json:"total_sprints,omitempty"`
-	TS            *int              `json:"ts,omitempty"`
-	StorageSize   int64             `json:"storage_size,omitempty"`
-	SS            *int64            `json:"ss,omitempty"`
-	LastModified  string            `json:"last_modified,omitempty"`
-	LM            string            `json:"lm,omitempty"`
-	ByStatus      map[string]int    `json:"by_status,omitempty"`
-	BS            map[string]int    `json:"bs,omitempty"`
+	File          string         `json:"file,omitempty"`
+	F             string         `json:"f,omitempty"`
+	VacuumBytes   int64          `json:"vacuum_bytes,omitempty"`
+	VB            *int64         `json:"vb,omitempty"`
+	PrunedEntries int            `json:"pruned_entries,omitempty"`
+	PE            *int           `json:"pe,omitempty"`
+	TotalEntries  int            `json:"total_entries,omitempty"`
+	TE            *int           `json:"te,omitempty"`
+	TotalVariants int            `json:"total_variants,omitempty"`
+	TV            *int           `json:"tv,omitempty"`
+	TotalTags     int            `json:"total_tags,omitempty"`
+	TT            *int           `json:"tt,omitempty"`
+	TotalSprints  int            `json:"total_sprints,omitempty"`
+	TS            *int           `json:"ts,omitempty"`
+	StorageSize   int64          `json:"storage_size,omitempty"`
+	SS            *int64         `json:"ss,omitempty"`
+	LastModified  string         `json:"last_modified,omitempty"`
+	LM            string         `json:"lm,omitempty"`
+	ByStatus      map[string]int `json:"by_status,omitempty"`
+	BS            map[string]int `json:"bs,omitempty"`
 }
 
 // NewOptimizeMemoryCmd creates a new optimize-memory command.
