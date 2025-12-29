@@ -1,6 +1,6 @@
 # llm-support Command Reference
 
-Complete documentation for all 32+ llm-support commands.
+Complete documentation for all 40+ llm-support commands.
 
 ## Table of Contents
 
@@ -42,7 +42,14 @@ Complete documentation for all 32+ llm-support commands.
   - [report](#report)
   - [deps](#deps)
   - [git-context](#git-context)
+  - [git-changes](#git-changes)
   - [highest](#highest)
+  - [init-temp](#init-temp)
+  - [plan-type](#plan-type)
+  - [repo-root](#repo-root)
+- [Session Management](#session-management)
+  - [context](#context)
+  - [args](#args)
 
 ---
 
@@ -976,6 +983,55 @@ llm-support git-context --json
 
 ---
 
+### git-changes
+
+Count and list git working tree changes with optional path filtering.
+
+```bash
+llm-support git-changes [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--path` | Filter to files matching this path prefix |
+| `--include-untracked` | Include untracked files (default: true) |
+| `--staged-only` | Only show staged changes |
+| `--json` | Output as JSON |
+| `--min` | Minimal output (count only) |
+
+**Output Format:**
+```
+COUNT: 5
+FILES:
+  M  src/main.go
+  A  src/new.go
+  ?? untracked.txt
+```
+
+**Examples:**
+```bash
+# Count all changes
+llm-support git-changes
+
+# Filter to planning directory
+llm-support git-changes --path .planning/
+
+# Only staged changes
+llm-support git-changes --staged-only
+
+# Exclude untracked files
+llm-support git-changes --include-untracked=false
+
+# Just the count
+llm-support git-changes --min
+
+# JSON output
+llm-support git-changes --json
+```
+
+---
+
 ### repo-root
 
 Find and output git repository root path.
@@ -1057,6 +1113,246 @@ llm-support highest --path .planning/sprints/active --type dir --json
 
 # Custom pattern
 llm-support highest --path ./releases --pattern "^v(\d+)\.(\d+)"
+```
+
+---
+
+### init-temp
+
+Initialize and manage temp directories with consistent patterns.
+
+```bash
+llm-support init-temp [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--name` | Name for temp directory (required) |
+| `--clean` | Remove existing files (default: true) |
+| `--preserve` | Keep existing files if directory exists |
+| `--json` | Output as JSON |
+| `--min` | Minimal output |
+
+**Output Format:**
+```
+TEMP_DIR: .planning/.temp/mycontext
+STATUS: CREATED
+CLEANED: 3 files removed
+```
+
+**Examples:**
+```bash
+# Create temp directory (cleans existing)
+llm-support init-temp --name design-sprint
+
+# Preserve existing files
+llm-support init-temp --name cache --preserve
+
+# JSON output
+llm-support init-temp --name test --json
+```
+
+---
+
+### plan-type
+
+Extract plan type from metadata.md or plan.md with intelligent fallback.
+
+```bash
+llm-support plan-type [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--path` | Plan directory path (default: ".") |
+| `--json` | Output as JSON |
+| `--min` | Minimal output (type only) |
+
+**Valid Plan Types:**
+- `feature` - New functionality
+- `bugfix` - Bug fixes
+- `test-remediation` - Test improvements
+- `tech-debt` - Technical debt cleanup
+- `infrastructure` - Infrastructure changes
+
+**Output Format:**
+```
+TYPE: feature
+LABEL: Feature
+ICON: ✨
+SOURCE: metadata.md
+```
+
+**Examples:**
+```bash
+# Get plan type from current directory
+llm-support plan-type
+
+# Specify plan path
+llm-support plan-type --path .planning/plans/8.1_feature/
+
+# Just the type string
+llm-support plan-type --min
+
+# JSON output
+llm-support plan-type --json
+```
+
+---
+
+## Session Management
+
+Commands for managing persistent state across prompt executions.
+
+### context
+
+Manage persistent key-value storage for prompt variables. Solves the "forgotten timestamp" problem where LLMs lose precise values during long-running prompts.
+
+```bash
+llm-support context <subcommand> [flags]
+```
+
+**Subcommands:**
+
+#### context init
+
+Initialize a context.env file in a directory.
+
+```bash
+llm-support context init --dir <directory>
+```
+
+**Output:**
+```
+CONTEXT_FILE: /tmp/mycontext/context.env
+STATUS: CREATED
+```
+
+#### context set
+
+Store a key-value pair. Keys are automatically uppercased.
+
+```bash
+llm-support context set --dir <directory> KEY VALUE
+```
+
+**Examples:**
+```bash
+llm-support context set --dir /tmp/ctx MY_VAR "hello world"
+llm-support context set --dir /tmp/ctx TIMESTAMP "2025-12-29T10:00:00Z"
+llm-support context set --dir /tmp/ctx MESSAGE "It's working!"
+```
+
+#### context get
+
+Retrieve a value by key.
+
+```bash
+llm-support context get --dir <directory> KEY [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--default` | Default value if key not found |
+| `--json` | Output as JSON |
+| `--min` | Output just the value |
+
+**Examples:**
+```bash
+llm-support context get --dir /tmp/ctx MY_VAR
+llm-support context get --dir /tmp/ctx MISSING --default "fallback"
+llm-support context get --dir /tmp/ctx MY_VAR --min
+llm-support context get --dir /tmp/ctx MY_VAR --json
+```
+
+#### context list
+
+List all stored key-value pairs.
+
+```bash
+llm-support context list --dir <directory> [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--json` | Output as JSON object |
+| `--min` | Output values only |
+
+**Examples:**
+```bash
+llm-support context list --dir /tmp/ctx
+llm-support context list --dir /tmp/ctx --json
+```
+
+#### context dump
+
+Output in shell-sourceable format for use with `eval`.
+
+```bash
+llm-support context dump --dir <directory>
+```
+
+**Example:**
+```bash
+# Source context variables into shell
+eval "$(llm-support context dump --dir /tmp/ctx)"
+echo $MY_VAR
+```
+
+#### context clear
+
+Remove all values from the context file (preserves header).
+
+```bash
+llm-support context clear --dir <directory>
+```
+
+**Common Workflow:**
+```bash
+# 1. Create temp directory and initialize context
+TEMP=$(llm-support init-temp --name mysession | grep TEMP_DIR | cut -d' ' -f2)
+llm-support context init --dir "$TEMP"
+
+# 2. Store values during prompt execution
+llm-support context set --dir "$TEMP" START_TIME "$(date -Iseconds)"
+llm-support context set --dir "$TEMP" BRANCH_NAME "feature/new-thing"
+
+# 3. Retrieve values later
+llm-support context get --dir "$TEMP" START_TIME --min
+
+# 4. Source all variables
+eval "$(llm-support context dump --dir "$TEMP")"
+```
+
+---
+
+### args
+
+Parse command-line arguments into structured format. Useful for skill/prompt argument handling.
+
+```bash
+llm-support args [arguments...]
+```
+
+**Output Format:**
+```
+POSITIONAL: value1 value2
+FLAG_NAME: flag_value
+```
+
+**Examples:**
+```bash
+# Parse positional arguments
+llm-support args file1.txt file2.txt
+# Output: POSITIONAL: file1.txt file2.txt
+
+# Parse file references
+llm-support args @.planning/plans/1.0_feature/
+# Output: POSITIONAL: @.planning/plans/1.0_feature/
 ```
 
 ---
