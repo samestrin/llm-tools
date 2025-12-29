@@ -179,10 +179,10 @@ func TestExtractArchive(t *testing.T) {
 	server, _ := NewServer([]string{tmpDir})
 
 	tests := []struct {
-		name       string
-		args       map[string]interface{}
-		wantFiles  []string
-		wantErr    bool
+		name      string
+		args      map[string]interface{}
+		wantFiles []string
+		wantErr   bool
 	}{
 		{
 			name: "extract zip",

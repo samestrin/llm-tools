@@ -47,10 +47,10 @@ type CompressResult struct {
 
 // ExtractResult represents extraction result
 type ExtractResult struct {
-	Archive         string `json:"archive"`
-	Destination     string `json:"destination"`
-	FilesExtracted  int    `json:"files_extracted"`
-	Success         bool   `json:"success"`
+	Archive        string `json:"archive"`
+	Destination    string `json:"destination"`
+	FilesExtracted int    `json:"files_extracted"`
+	Success        bool   `json:"success"`
 }
 
 // SyncResult represents sync result

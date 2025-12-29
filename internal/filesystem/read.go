@@ -12,12 +12,12 @@ import (
 
 // ReadFileResult represents the result of a file read operation
 type ReadFileResult struct {
-	Path     string `json:"path"`
-	Content  string `json:"content"`
-	Size     int64  `json:"size"`
-	Lines    int    `json:"lines,omitempty"`
-	Truncated bool  `json:"truncated,omitempty"`
-	Error    string `json:"error,omitempty"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	Size      int64  `json:"size"`
+	Lines     int    `json:"lines,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // ReadMultipleFilesResult represents results from reading multiple files

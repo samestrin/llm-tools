@@ -202,8 +202,8 @@ func TestGetFileInfo(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name: "missing path",
-			args: map[string]interface{}{},
+			name:    "missing path",
+			args:    map[string]interface{}{},
 			wantErr: true,
 		},
 		{
@@ -268,8 +268,8 @@ func TestCreateDirectory(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "missing path",
-			args: map[string]interface{}{},
+			name:    "missing path",
+			args:    map[string]interface{}{},
 			wantErr: true,
 		},
 	}

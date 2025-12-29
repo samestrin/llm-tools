@@ -110,10 +110,10 @@ func TestReadMultipleFiles(t *testing.T) {
 	server, _ := NewServer([]string{tmpDir})
 
 	tests := []struct {
-		name          string
-		args          map[string]interface{}
-		wantContains  []string
-		wantErr       bool
+		name         string
+		args         map[string]interface{}
+		wantContains []string
+		wantErr      bool
 	}{
 		{
 			name: "read multiple files",

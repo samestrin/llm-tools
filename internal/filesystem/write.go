@@ -11,11 +11,11 @@ import (
 
 // WriteFileResult represents the result of a write operation
 type WriteFileResult struct {
-	Path      string `json:"path"`
-	Size      int64  `json:"size"`
-	Created   bool   `json:"created"`
-	Backup    string `json:"backup,omitempty"`
-	Message   string `json:"message"`
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	Created bool   `json:"created"`
+	Backup  string `json:"backup,omitempty"`
+	Message string `json:"message"`
 }
 
 func (s *Server) handleWriteFile(args map[string]interface{}) (string, error) {
@@ -221,12 +221,12 @@ func (s *Server) handleGetFileInfo(args map[string]interface{}) (string, error) 
 	}
 
 	result := map[string]interface{}{
-		"path":        normalizedPath,
-		"name":        info.Name(),
-		"size":        info.Size(),
-		"is_dir":      info.IsDir(),
-		"mode":        info.Mode().String(),
-		"modified":    info.ModTime().Format(time.RFC3339),
+		"path":     normalizedPath,
+		"name":     info.Name(),
+		"size":     info.Size(),
+		"is_dir":   info.IsDir(),
+		"mode":     info.Mode().String(),
+		"modified": info.ModTime().Format(time.RFC3339),
 	}
 
 	jsonBytes, err := json.Marshal(result)

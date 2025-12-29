@@ -163,8 +163,8 @@ TODO: add description
 		{
 			name: "search case insensitive",
 			args: map[string]interface{}{
-				"path":            tmpDir,
-				"pattern":         "todo",
+				"path":             tmpDir,
+				"pattern":          "todo",
 				"case_insensitive": true,
 			},
 			wantContains: []string{"TODO"},

@@ -29,19 +29,19 @@ type SearchFilesResult struct {
 
 // CodeMatch represents a single code match
 type CodeMatch struct {
-	File       string   `json:"file"`
-	Line       int      `json:"line"`
-	Content    string   `json:"content"`
-	Context    []string `json:"context,omitempty"`
+	File    string   `json:"file"`
+	Line    int      `json:"line"`
+	Content string   `json:"content"`
+	Context []string `json:"context,omitempty"`
 }
 
 // SearchCodeResult represents the result of a code search
 type SearchCodeResult struct {
-	Pattern     string      `json:"pattern"`
-	Path        string      `json:"path"`
-	Matches     []CodeMatch `json:"matches"`
-	TotalFiles  int         `json:"total_files"`
-	TotalMatches int        `json:"total_matches"`
+	Pattern      string      `json:"pattern"`
+	Path         string      `json:"path"`
+	Matches      []CodeMatch `json:"matches"`
+	TotalFiles   int         `json:"total_files"`
+	TotalMatches int         `json:"total_matches"`
 }
 
 func (s *Server) handleSearchFiles(args map[string]interface{}) (string, error) {
@@ -355,4 +355,3 @@ func isBinaryFile(path string) bool {
 
 	return false
 }
-
