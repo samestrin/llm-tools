@@ -63,7 +63,7 @@ func TestSchemaParityHasProperties(t *testing.T) {
 
 	// Tools that legitimately take no arguments
 	noArgsTools := map[string]bool{
-		"fast_list_allowed_directories": true,
+		"llm_filesystem_list_allowed_directories": true,
 	}
 
 	for _, tool := range tools {
@@ -86,8 +86,8 @@ func TestSchemaParityNamingConvention(t *testing.T) {
 	tools := GetToolDefinitions()
 
 	for _, tool := range tools {
-		if len(tool.Name) < 5 || tool.Name[:5] != "fast_" {
-			t.Errorf("Tool %s should start with 'fast_' prefix", tool.Name)
+		if len(tool.Name) < 15 || tool.Name[:15] != "llm_filesystem_" {
+			t.Errorf("Tool %s should start with 'llm_filesystem_' prefix", tool.Name)
 		}
 	}
 }
@@ -105,47 +105,47 @@ func TestSchemaParityExpectedTools(t *testing.T) {
 	// Expected tools from fast-filesystem-mcp v3.5.1
 	expectedTools := []string{
 		// Core file operations
-		"fast_read_file",
-		"fast_read_multiple_files",
-		"fast_write_file",
-		"fast_large_write_file",
+		"llm_filesystem_read_file",
+		"llm_filesystem_read_multiple_files",
+		"llm_filesystem_write_file",
+		"llm_filesystem_large_write_file",
 
 		// Directory operations
-		"fast_list_directory",
-		"fast_get_directory_tree",
-		"fast_create_directory",
+		"llm_filesystem_list_directory",
+		"llm_filesystem_get_directory_tree",
+		"llm_filesystem_create_directory",
 
 		// File info
-		"fast_get_file_info",
+		"llm_filesystem_get_file_info",
 
 		// Search operations
-		"fast_search_files",
-		"fast_search_code",
+		"llm_filesystem_search_files",
+		"llm_filesystem_search_code",
 
 		// Edit operations
-		"fast_edit_block",
-		"fast_edit_blocks",
-		"fast_edit_multiple_blocks",
-		"fast_safe_edit",
-		"fast_edit_file",
-		"fast_search_and_replace",
-		"fast_extract_lines",
+		"llm_filesystem_edit_block",
+		"llm_filesystem_edit_blocks",
+		"llm_filesystem_edit_multiple_blocks",
+		"llm_filesystem_safe_edit",
+		"llm_filesystem_edit_file",
+		"llm_filesystem_search_and_replace",
+		"llm_filesystem_extract_lines",
 
 		// File management
-		"fast_copy_file",
-		"fast_move_file",
-		"fast_delete_file",
-		"fast_batch_file_operations",
+		"llm_filesystem_copy_file",
+		"llm_filesystem_move_file",
+		"llm_filesystem_delete_file",
+		"llm_filesystem_batch_file_operations",
 
 		// Advanced operations
-		"fast_get_disk_usage",
-		"fast_find_large_files",
-		"fast_compress_files",
-		"fast_extract_archive",
-		"fast_sync_directories",
+		"llm_filesystem_get_disk_usage",
+		"llm_filesystem_find_large_files",
+		"llm_filesystem_compress_files",
+		"llm_filesystem_extract_archive",
+		"llm_filesystem_sync_directories",
 
 		// Info
-		"fast_list_allowed_directories",
+		"llm_filesystem_list_allowed_directories",
 	}
 
 	for _, expected := range expectedTools {

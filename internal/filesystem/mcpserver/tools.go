@@ -5,7 +5,7 @@ import (
 )
 
 // ToolPrefix is the prefix for all llm-filesystem tools
-const ToolPrefix = "fast_"
+const ToolPrefix = "llm_filesystem_"
 
 // ToolDefinition defines a tool for the MCP SDK
 type ToolDefinition struct {
