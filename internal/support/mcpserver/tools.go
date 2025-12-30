@@ -776,5 +776,138 @@ func GetToolDefinitions() []ToolDefinition {
 				"required": ["operation", "dir"]
 			}`),
 		},
+
+		// 25. YAML get - retrieve value by dot-notation key
+		{
+			Name:        ToolPrefix + "yaml_get",
+			Description: "Retrieve a value from YAML config file by dot-notation key. Supports nested keys (helper.llm) and array indices (items[0]).",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Path to YAML config file"
+					},
+					"key": {
+						"type": "string",
+						"description": "Dot-notation key (e.g., helper.llm, items[0].name)"
+					},
+					"default": {
+						"type": "string",
+						"description": "Default value if key not found"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - just the value"
+					}
+				},
+				"required": ["file", "key"]
+			}`),
+		},
+
+		// 26. YAML set - store value at dot-notation key
+		{
+			Name:        ToolPrefix + "yaml_set",
+			Description: "Store a value in YAML config file at the specified key. Creates intermediate keys if needed. Preserves comments.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Path to YAML config file"
+					},
+					"key": {
+						"type": "string",
+						"description": "Dot-notation key (e.g., helper.llm)"
+					},
+					"value": {
+						"type": "string",
+						"description": "Value to set"
+					},
+					"create": {
+						"type": "boolean",
+						"description": "Create file if it doesn't exist"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output"
+					}
+				},
+				"required": ["file", "key", "value"]
+			}`),
+		},
+
+		// 27. YAML multiget - retrieve multiple values
+		{
+			Name:        ToolPrefix + "yaml_multiget",
+			Description: "Retrieve multiple values from YAML config file in a single operation. More efficient than multiple get calls.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Path to YAML config file"
+					},
+					"keys": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Dot-notation keys to retrieve"
+					},
+					"defaults": {
+						"type": "object",
+						"description": "Default values for keys (e.g., {\"helper.llm\": \"gemini\"})"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - values only, newline-separated"
+					}
+				},
+				"required": ["file", "keys"]
+			}`),
+		},
+
+		// 28. YAML multiset - set multiple key-value pairs
+		{
+			Name:        ToolPrefix + "yaml_multiset",
+			Description: "Set multiple key-value pairs in YAML config file atomically. Validates all keys before writing.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Path to YAML config file"
+					},
+					"pairs": {
+						"type": "object",
+						"description": "Key-value pairs to set (e.g., {\"helper.llm\": \"claude\", \"helper.max_lines\": \"2500\"})"
+					},
+					"create": {
+						"type": "boolean",
+						"description": "Create file if it doesn't exist"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output"
+					}
+				},
+				"required": ["file", "pairs"]
+			}`),
+		},
 	}
 }

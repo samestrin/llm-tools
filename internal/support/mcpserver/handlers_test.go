@@ -912,12 +912,12 @@ func TestBuildContextArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "init operation",
+			name: "init operation (defaults to json+min)",
 			args: map[string]interface{}{
 				"operation": "init",
 				"dir":       "/tmp/mycontext",
 			},
-			want: []string{"context", "init", "--dir", "/tmp/mycontext"},
+			want: []string{"context", "init", "--dir", "/tmp/mycontext", "--json", "--min"},
 		},
 		{
 			name: "set operation",
@@ -1000,6 +1000,175 @@ func TestBuildContextArgs(t *testing.T) {
 			got := buildContextArgs(tt.args)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("buildContextArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildYamlGetArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic get (defaults to json+min)",
+			args: map[string]interface{}{"file": "/tmp/config.yaml", "key": "helper.llm"},
+			want: []string{"yaml", "get", "--file", "/tmp/config.yaml", "helper.llm", "--json", "--min"},
+		},
+		{
+			name: "with default value",
+			args: map[string]interface{}{"file": "/tmp/config.yaml", "key": "missing.key", "default": "fallback"},
+			want: []string{"yaml", "get", "--file", "/tmp/config.yaml", "missing.key", "--default", "fallback", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"file": "/tmp/config.yaml", "key": "helper.llm", "json": false, "min": false},
+			want: []string{"yaml", "get", "--file", "/tmp/config.yaml", "helper.llm"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildYamlGetArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildYamlGetArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildYamlSetArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic set (defaults to json+min)",
+			args: map[string]interface{}{"file": "/tmp/config.yaml", "key": "helper.llm", "value": "claude"},
+			want: []string{"yaml", "set", "--file", "/tmp/config.yaml", "helper.llm", "claude", "--json", "--min"},
+		},
+		{
+			name: "with create flag",
+			args: map[string]interface{}{"file": "/tmp/config.yaml", "key": "new.key", "value": "newvalue", "create": true},
+			want: []string{"yaml", "set", "--file", "/tmp/config.yaml", "new.key", "newvalue", "--create", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{"file": "/tmp/config.yaml", "key": "helper.llm", "value": "claude", "json": false, "min": false},
+			want: []string{"yaml", "set", "--file", "/tmp/config.yaml", "helper.llm", "claude"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildYamlSetArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildYamlSetArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildYamlMultigetArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic multiget (defaults to json+min)",
+			args: map[string]interface{}{
+				"file": "/tmp/config.yaml",
+				"keys": []interface{}{"helper.llm", "project.type"},
+			},
+			want: []string{"yaml", "multiget", "--file", "/tmp/config.yaml", "helper.llm", "project.type", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{
+				"file": "/tmp/config.yaml",
+				"keys": []interface{}{"helper.llm"},
+				"json": false,
+				"min":  false,
+			},
+			want: []string{"yaml", "multiget", "--file", "/tmp/config.yaml", "helper.llm"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildYamlMultigetArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildYamlMultigetArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildYamlMultisetArgs(t *testing.T) {
+	tests := []struct {
+		name           string
+		args           map[string]interface{}
+		wantPrefix     []string
+		wantContains   []string
+		wantSuffix     []string
+		skipDeepEqual  bool
+	}{
+		{
+			name: "basic multiset (defaults to json+min)",
+			args: map[string]interface{}{
+				"file": "/tmp/config.yaml",
+				"pairs": map[string]interface{}{
+					"helper.llm": "claude",
+				},
+			},
+			wantPrefix:    []string{"yaml", "multiset", "--file", "/tmp/config.yaml"},
+			wantContains:  []string{"helper.llm", "claude"},
+			wantSuffix:    []string{"--json", "--min"},
+			skipDeepEqual: true,
+		},
+		{
+			name: "with create flag",
+			args: map[string]interface{}{
+				"file": "/tmp/config.yaml",
+				"pairs": map[string]interface{}{
+					"key": "value",
+				},
+				"create": true,
+			},
+			wantPrefix:    []string{"yaml", "multiset", "--file", "/tmp/config.yaml"},
+			wantContains:  []string{"key", "value", "--create"},
+			wantSuffix:    []string{"--json", "--min"},
+			skipDeepEqual: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildYamlMultisetArgs(tt.args)
+
+			// Check prefix
+			for i, want := range tt.wantPrefix {
+				if i >= len(got) || got[i] != want {
+					t.Errorf("buildYamlMultisetArgs() prefix mismatch at %d: got %v, want prefix %v", i, got, tt.wantPrefix)
+					return
+				}
+			}
+
+			// Check that expected elements are present
+			for _, want := range tt.wantContains {
+				found := false
+				for _, g := range got {
+					if g == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("buildYamlMultisetArgs() = %v, missing expected element %q", got, want)
+				}
 			}
 		})
 	}

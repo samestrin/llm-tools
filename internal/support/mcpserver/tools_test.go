@@ -8,9 +8,9 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Verify we have exactly 24 tools
-	if len(tools) != 24 {
-		t.Errorf("Expected 24 tools, got %d", len(tools))
+	// Verify we have exactly 28 tools
+	if len(tools) != 28 {
+		t.Errorf("Expected 28 tools, got %d", len(tools))
 	}
 
 	// Verify all tools have the correct prefix
@@ -59,6 +59,10 @@ func TestGetToolDefinitions(t *testing.T) {
 		"llm_support_context_multiset",
 		"llm_support_context_multiget",
 		"llm_support_context",
+		"llm_support_yaml_get",
+		"llm_support_yaml_set",
+		"llm_support_yaml_multiget",
+		"llm_support_yaml_multiset",
 	}
 
 	toolMap := make(map[string]bool)
@@ -107,6 +111,10 @@ func TestToolSchemaRequiredFields(t *testing.T) {
 		"llm_support_context":          {"operation", "dir"},
 		"llm_support_context_multiset": {"dir", "pairs"},
 		"llm_support_context_multiget": {"dir", "keys"},
+		"llm_support_yaml_get":         {"file", "key"},
+		"llm_support_yaml_set":         {"file", "key", "value"},
+		"llm_support_yaml_multiget":    {"file", "keys"},
+		"llm_support_yaml_multiset":    {"file", "pairs"},
 	}
 
 	for _, tool := range tools {
