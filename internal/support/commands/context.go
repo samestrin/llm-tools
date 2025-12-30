@@ -692,15 +692,15 @@ Examples:
 				results[key] = value
 			}
 
-			// Output based on format
-			if jsonOutput {
-				data, _ := json.Marshal(results)
-				fmt.Fprintln(cmd.OutOrStdout(), string(data))
-			} else if minOutput {
+			// Output based on format (--min takes precedence when both set)
+			if minOutput {
 				// Output values in argument order
 				for _, key := range keys {
 					fmt.Fprintln(cmd.OutOrStdout(), results[key])
 				}
+			} else if jsonOutput {
+				data, _ := json.Marshal(results)
+				fmt.Fprintln(cmd.OutOrStdout(), string(data))
 			} else {
 				// Default: KEY=value format
 				for _, key := range keys {

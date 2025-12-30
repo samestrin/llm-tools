@@ -673,7 +673,7 @@ func buildContextMultiGetArgs(args map[string]interface{}) []string {
 		}
 	}
 
-	// Output format flags
+	// Output format flags - both default to true (matching llm-support pattern)
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
 	}
