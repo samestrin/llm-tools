@@ -22,6 +22,7 @@ Complete documentation for all 40+ llm-support commands.
 - [Data Processing](#data-processing)
   - [json](#json)
   - [toml](#toml)
+  - [yaml](#yaml)
   - [markdown](#markdown)
   - [extract](#extract)
   - [transform](#transform)
@@ -452,6 +453,220 @@ llm-support toml validate <file>
 llm-support toml get config.toml database.host
 llm-support toml parse config.toml
 llm-support toml validate settings.toml
+```
+
+---
+
+### yaml
+
+Commands for managing YAML configuration files with comment preservation.
+
+#### yaml init
+```bash
+llm-support yaml init --file <path> [flags]
+```
+
+Initialize a new YAML configuration file.
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Path to YAML config file (required) |
+| `--template` | Template name: minimal, planning (default: minimal) |
+| `--force` | Overwrite existing file |
+| `--json` | Output as JSON |
+
+**Examples:**
+```bash
+llm-support yaml init --file config.yaml
+llm-support yaml init --file config.yaml --template planning
+llm-support yaml init --file config.yaml --force
+```
+
+#### yaml get
+```bash
+llm-support yaml get --file <path> <key> [flags]
+```
+
+Get a value from a YAML file using dot notation.
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Path to YAML config file (required) |
+| `--default` | Default value if key not found |
+| `--json` | Output as JSON |
+| `--min` | Output just the value |
+
+**Examples:**
+```bash
+llm-support yaml get --file config.yaml helper.llm
+llm-support yaml get --file config.yaml helper.llm --min
+llm-support yaml get --file config.yaml missing.key --default "fallback"
+```
+
+#### yaml set
+```bash
+llm-support yaml set --file <path> <key> <value> [flags]
+```
+
+Set a value in a YAML file, preserving comments.
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Path to YAML config file (required) |
+| `--create` | Create file if it doesn't exist |
+| `--json` | Output as JSON |
+
+**Examples:**
+```bash
+llm-support yaml set --file config.yaml helper.llm claude
+llm-support yaml set --file config.yaml project.type go
+llm-support yaml set --file config.yaml new.nested.key value
+```
+
+#### yaml multiget
+```bash
+llm-support yaml multiget --file <path> <key1> [key2 ...] [flags]
+```
+
+Get multiple values from a YAML file in a single operation.
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Path to YAML config file (required) |
+| `--defaults` | JSON object with default values |
+| `--json` | Output as JSON object |
+| `--min` | Output values only (one per line) |
+
+**Examples:**
+```bash
+llm-support yaml multiget --file config.yaml helper.llm project.type
+llm-support yaml multiget --file config.yaml key1 key2 --json
+llm-support yaml multiget --file config.yaml key1 missing --defaults '{"missing": "default"}'
+```
+
+#### yaml multiset
+```bash
+llm-support yaml multiset --file <path> <key1> <value1> [key2 value2 ...] [flags]
+```
+
+Set multiple values in a YAML file atomically.
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Path to YAML config file (required) |
+| `--json` | Output as JSON |
+
+**Examples:**
+```bash
+llm-support yaml multiset --file config.yaml helper.llm claude project.type go
+llm-support yaml multiset --file config.yaml key1 val1 key2 val2 key3 val3
+```
+
+#### yaml list
+```bash
+llm-support yaml list --file <path> [prefix] [flags]
+```
+
+List all keys in a YAML file.
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Path to YAML config file (required) |
+| `--flat` | Output flattened dot-notation keys |
+| `--values` | Include values (with --flat) |
+| `--json` | Output as JSON |
+| `--min` | Minimal output |
+
+**Examples:**
+```bash
+llm-support yaml list --file config.yaml
+llm-support yaml list --file config.yaml --flat
+llm-support yaml list --file config.yaml --flat --values
+llm-support yaml list --file config.yaml helper --flat
+```
+
+#### yaml delete
+```bash
+llm-support yaml delete --file <path> <key> [flags]
+```
+
+Delete a key from a YAML file.
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Path to YAML config file (required) |
+| `--json` | Output as JSON |
+
+**Examples:**
+```bash
+llm-support yaml delete --file config.yaml helper.script
+llm-support yaml delete --file config.yaml project
+```
+
+#### yaml validate
+```bash
+llm-support yaml validate --file <path> [flags]
+```
+
+Validate YAML syntax and optionally check required keys.
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Path to YAML config file (required) |
+| `--required` | Comma-separated list of required keys |
+| `--json` | Output as JSON |
+
+**Examples:**
+```bash
+llm-support yaml validate --file config.yaml
+llm-support yaml validate --file config.yaml --required helper.llm,project.type
+```
+
+#### yaml push
+```bash
+llm-support yaml push --file <path> <key> <value> [flags]
+```
+
+Push a value onto a YAML array.
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Path to YAML config file (required) |
+| `--json` | Output as JSON |
+
+**Examples:**
+```bash
+llm-support yaml push --file config.yaml items "new item"
+llm-support yaml push --file config.yaml tags feature
+```
+
+#### yaml pop
+```bash
+llm-support yaml pop --file <path> <key> [flags]
+```
+
+Pop and return the last value from a YAML array.
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Path to YAML config file (required) |
+| `--json` | Output as JSON |
+| `--min` | Output just the popped value |
+
+**Examples:**
+```bash
+llm-support yaml pop --file config.yaml items
+llm-support yaml pop --file config.yaml items --min
 ```
 
 ---
