@@ -1109,12 +1109,12 @@ func TestBuildYamlMultigetArgs(t *testing.T) {
 
 func TestBuildYamlMultisetArgs(t *testing.T) {
 	tests := []struct {
-		name           string
-		args           map[string]interface{}
-		wantPrefix     []string
-		wantContains   []string
-		wantSuffix     []string
-		skipDeepEqual  bool
+		name          string
+		args          map[string]interface{}
+		wantPrefix    []string
+		wantContains  []string
+		wantSuffix    []string
+		skipDeepEqual bool
 	}{
 		{
 			name: "basic multiset (defaults to json+min)",
