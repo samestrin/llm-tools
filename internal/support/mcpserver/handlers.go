@@ -153,6 +153,14 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildContextMultiSetArgs(args), nil
 	case "context_multiget":
 		return buildContextMultiGetArgs(args), nil
+	case "yaml_get":
+		return buildYamlGetArgs(args), nil
+	case "yaml_set":
+		return buildYamlSetArgs(args), nil
+	case "yaml_multiget":
+		return buildYamlMultigetArgs(args), nil
+	case "yaml_multiset":
+		return buildYamlMultisetArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -565,6 +573,13 @@ func buildContextArgs(args map[string]interface{}) []string {
 
 	// Operation-specific arguments
 	switch operation {
+	case "init":
+		if getBoolDefault(args, "json", true) {
+			cmdArgs = append(cmdArgs, "--json")
+		}
+		if getBoolDefault(args, "min", true) {
+			cmdArgs = append(cmdArgs, "--min")
+		}
 	case "set":
 		if key, ok := args["key"].(string); ok {
 			cmdArgs = append(cmdArgs, key)
@@ -674,6 +689,142 @@ func buildContextMultiGetArgs(args map[string]interface{}) []string {
 	}
 
 	// Output format flags - both default to true (matching llm-support pattern)
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildYamlGetArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"yaml", "get"}
+
+	// Add --file flag (required)
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+
+	// Add key as positional argument
+	if key, ok := args["key"].(string); ok {
+		cmdArgs = append(cmdArgs, key)
+	}
+
+	// Default value
+	if def, ok := args["default"].(string); ok {
+		cmdArgs = append(cmdArgs, "--default", def)
+	}
+
+	// Output format flags
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildYamlSetArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"yaml", "set"}
+
+	// Add --file flag (required)
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+
+	// Add key and value as positional arguments
+	if key, ok := args["key"].(string); ok {
+		cmdArgs = append(cmdArgs, key)
+	}
+	if value, ok := args["value"].(string); ok {
+		cmdArgs = append(cmdArgs, value)
+	}
+
+	// Create flag
+	if getBool(args, "create") {
+		cmdArgs = append(cmdArgs, "--create")
+	}
+
+	// Output format flags
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildYamlMultigetArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"yaml", "multiget"}
+
+	// Add --file flag (required)
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+
+	// Add keys as positional arguments
+	if keys, ok := args["keys"].([]interface{}); ok {
+		for _, k := range keys {
+			if s, ok := k.(string); ok {
+				cmdArgs = append(cmdArgs, s)
+			}
+		}
+	}
+
+	// Add defaults as --default KEY=VALUE flags
+	if defaults, ok := args["defaults"].(map[string]interface{}); ok {
+		for key, value := range defaults {
+			if v, ok := value.(string); ok {
+				cmdArgs = append(cmdArgs, "--default", key+"="+v)
+			} else {
+				cmdArgs = append(cmdArgs, "--default", fmt.Sprintf("%s=%v", key, value))
+			}
+		}
+	}
+
+	// Output format flags
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildYamlMultisetArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"yaml", "multiset"}
+
+	// Add --file flag (required)
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+
+	// Convert pairs object to KEY VALUE arguments
+	if pairs, ok := args["pairs"].(map[string]interface{}); ok {
+		for key, value := range pairs {
+			cmdArgs = append(cmdArgs, key)
+			if v, ok := value.(string); ok {
+				cmdArgs = append(cmdArgs, v)
+			} else {
+				cmdArgs = append(cmdArgs, fmt.Sprintf("%v", value))
+			}
+		}
+	}
+
+	// Create flag
+	if getBool(args, "create") {
+		cmdArgs = append(cmdArgs, "--create")
+	}
+
+	// Output format flags
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
 	}
