@@ -703,3 +703,214 @@ func TestContext_Get_ErrorMessageForMissingFile(t *testing.T) {
 		t.Errorf("error message should suggest context init, got: %s", errMsg)
 	}
 }
+
+// =============================================================================
+// Multiset Tests (Sprint 8.2)
+// =============================================================================
+
+func TestContextMultiSet(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	// Set multiple key-value pairs
+	stdout, _, err := runContextCmd(t, "multiset", "--dir", tempDir, "KEY1", "value1", "KEY2", "value2", "KEY3", "value3")
+	if err != nil {
+		t.Fatalf("multiset failed: %v", err)
+	}
+
+	// Verify output confirms all keys
+	if !strings.Contains(stdout, "KEY1") || !strings.Contains(stdout, "KEY2") || !strings.Contains(stdout, "KEY3") {
+		t.Errorf("expected all keys in output, got: %s", stdout)
+	}
+
+	// Verify values are in file
+	content, _ := os.ReadFile(filepath.Join(tempDir, "context.env"))
+	if !strings.Contains(string(content), "KEY1='value1'") {
+		t.Errorf("expected KEY1='value1' in file, got: %s", content)
+	}
+	if !strings.Contains(string(content), "KEY2='value2'") {
+		t.Errorf("expected KEY2='value2' in file, got: %s", content)
+	}
+	if !strings.Contains(string(content), "KEY3='value3'") {
+		t.Errorf("expected KEY3='value3' in file, got: %s", content)
+	}
+}
+
+func TestContextMultiSetValidation(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	// All keys validated before any writes
+	_, _, err := runContextCmd(t, "multiset", "--dir", tempDir, "VALID_KEY", "value1", "1INVALID", "value2")
+	if err == nil {
+		t.Error("expected error for invalid key")
+	}
+
+	// Verify NO keys were written (atomic validation)
+	content, _ := os.ReadFile(filepath.Join(tempDir, "context.env"))
+	if strings.Contains(string(content), "VALID_KEY") {
+		t.Errorf("valid key should not be written when invalid key present: %s", content)
+	}
+}
+
+func TestContextMultiSetOddArgs(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	// Odd number of arguments should fail
+	_, _, err := runContextCmd(t, "multiset", "--dir", tempDir, "KEY1", "value1", "KEY2")
+	if err == nil {
+		t.Error("expected error for odd argument count")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "pairs") {
+		t.Errorf("error should mention pairs, got: %s", errMsg)
+	}
+}
+
+func TestContextMultiSetInvalidKey(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	// Key starting with digit
+	_, _, err := runContextCmd(t, "multiset", "--dir", tempDir, "1KEY", "value")
+	if err == nil {
+		t.Error("expected error for key starting with digit")
+	}
+
+	// Key with hyphen
+	_, _, err = runContextCmd(t, "multiset", "--dir", tempDir, "my-key", "value")
+	if err == nil {
+		t.Error("expected error for key with hyphen")
+	}
+}
+
+func TestContextMultiSetEmptyValue(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	// Empty value should be allowed
+	_, _, err := runContextCmd(t, "multiset", "--dir", tempDir, "KEY1", "", "KEY2", "value2")
+	if err != nil {
+		t.Fatalf("multiset with empty value failed: %v", err)
+	}
+
+	// Verify empty value is stored
+	content, _ := os.ReadFile(filepath.Join(tempDir, "context.env"))
+	if !strings.Contains(string(content), "KEY1=''") {
+		t.Errorf("expected KEY1='' in file, got: %s", content)
+	}
+}
+
+func TestContextMultiSetNoArgs(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	// No arguments should fail
+	_, _, err := runContextCmd(t, "multiset", "--dir", tempDir)
+	if err == nil {
+		t.Error("expected error for no arguments")
+	}
+}
+
+// =============================================================================
+// Multiget Tests (Sprint 8.2)
+// =============================================================================
+
+func TestContextMultiGet(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "KEY1", "value1")
+	runContextCmd(t, "set", "--dir", tempDir, "KEY2", "value2")
+
+	// Get multiple keys
+	stdout, _, err := runContextCmd(t, "multiget", "--dir", tempDir, "KEY1", "KEY2")
+	if err != nil {
+		t.Fatalf("multiget failed: %v", err)
+	}
+
+	// Default output should show both keys
+	if !strings.Contains(stdout, "KEY1") || !strings.Contains(stdout, "KEY2") {
+		t.Errorf("expected both keys in output, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "value1") || !strings.Contains(stdout, "value2") {
+		t.Errorf("expected both values in output, got: %s", stdout)
+	}
+}
+
+func TestContextMultiGetJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "KEY1", "value1")
+	runContextCmd(t, "set", "--dir", tempDir, "KEY2", "value2")
+
+	stdout, _, err := runContextCmd(t, "multiget", "--dir", tempDir, "KEY1", "KEY2", "--json")
+	if err != nil {
+		t.Fatalf("multiget --json failed: %v", err)
+	}
+
+	// Should be valid JSON with both keys
+	if !strings.Contains(stdout, "{") || !strings.Contains(stdout, "}") {
+		t.Errorf("expected JSON object, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, `"KEY1"`) || !strings.Contains(stdout, `"KEY2"`) {
+		t.Errorf("expected both keys in JSON, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, `"value1"`) || !strings.Contains(stdout, `"value2"`) {
+		t.Errorf("expected both values in JSON, got: %s", stdout)
+	}
+}
+
+func TestContextMultiGetMin(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "KEY1", "value1")
+	runContextCmd(t, "set", "--dir", tempDir, "KEY2", "value2")
+
+	// Get in specific order: KEY2 first, then KEY1
+	stdout, _, err := runContextCmd(t, "multiget", "--dir", tempDir, "KEY2", "KEY1", "--min")
+	if err != nil {
+		t.Fatalf("multiget --min failed: %v", err)
+	}
+
+	// Values should be newline-separated in argument order
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 2 {
+		t.Errorf("expected 2 lines, got %d: %q", len(lines), stdout)
+	}
+	if lines[0] != "value2" {
+		t.Errorf("expected first value 'value2', got: %s", lines[0])
+	}
+	if lines[1] != "value1" {
+		t.Errorf("expected second value 'value1', got: %s", lines[1])
+	}
+}
+
+func TestContextMultiGetMissingKey(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "KEY1", "value1")
+
+	// Request existing and missing key
+	_, _, err := runContextCmd(t, "multiget", "--dir", tempDir, "KEY1", "MISSING")
+	if err == nil {
+		t.Error("expected error for missing key")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "MISSING") {
+		t.Errorf("error should mention missing key, got: %s", errMsg)
+	}
+}
+
+func TestContextMultiGetNoArgs(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	// No keys should fail
+	_, _, err := runContextCmd(t, "multiget", "--dir", tempDir)
+	if err == nil {
+		t.Error("expected error for no keys")
+	}
+}

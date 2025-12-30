@@ -8,9 +8,9 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Verify we have exactly 22 tools
-	if len(tools) != 22 {
-		t.Errorf("Expected 22 tools, got %d", len(tools))
+	// Verify we have exactly 24 tools
+	if len(tools) != 24 {
+		t.Errorf("Expected 24 tools, got %d", len(tools))
 	}
 
 	// Verify all tools have the correct prefix
@@ -56,6 +56,8 @@ func TestGetToolDefinitions(t *testing.T) {
 		"llm_support_highest",
 		"llm_support_plan_type",
 		"llm_support_git_changes",
+		"llm_support_context_multiset",
+		"llm_support_context_multiget",
 		"llm_support_context",
 	}
 
@@ -103,6 +105,8 @@ func TestToolSchemaRequiredFields(t *testing.T) {
 		"llm_support_validate_plan":    {"path"},
 		"llm_support_extract_relevant": {"context"},
 		"llm_support_context":          {"operation", "dir"},
+		"llm_support_context_multiset": {"dir", "pairs"},
+		"llm_support_context_multiget": {"dir", "keys"},
 	}
 
 	for _, tool := range tools {

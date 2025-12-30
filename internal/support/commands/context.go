@@ -48,6 +48,8 @@ Subcommands:
 	cmd.AddCommand(newContextListCmd())
 	cmd.AddCommand(newContextDumpCmd())
 	cmd.AddCommand(newContextClearCmd())
+	cmd.AddCommand(newContextMultiSetCmd())
+	cmd.AddCommand(newContextMultiGetCmd())
 
 	return cmd
 }
@@ -529,6 +531,190 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&dir, "dir", "", "Directory for context file (required)")
+	cmd.MarkFlagRequired("dir")
+
+	return cmd
+}
+
+// newContextMultiSetCmd creates the context multiset subcommand
+func newContextMultiSetCmd() *cobra.Command {
+	var dir string
+
+	cmd := &cobra.Command{
+		Use:   "multiset KEY1 VALUE1 [KEY2 VALUE2 ...]",
+		Short: "Store multiple key-value pairs",
+		Long: `Store multiple key-value pairs in the context file in a single operation.
+
+Arguments must be provided in KEY VALUE pairs (even number of arguments).
+All keys are validated before any writes occur (atomic validation).
+Keys are automatically uppercased.
+
+Examples:
+  context multiset --dir /tmp KEY1 value1 KEY2 value2
+  context multiset --dir /tmp START_TIME "$(date +%s)" SPRINT "v1.0"`,
+		Args: cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dir == "" {
+				return fmt.Errorf("--dir flag is required")
+			}
+
+			// Verify even number of arguments
+			if len(args)%2 != 0 {
+				return fmt.Errorf("multiset requires KEY VALUE pairs (got %d arguments)", len(args))
+			}
+
+			// Verify directory exists
+			if _, err := os.Stat(dir); os.IsNotExist(err) {
+				return fmt.Errorf("directory does not exist: %s", dir)
+			}
+
+			// Parse and validate all keys first (atomic validation)
+			pairs := make([]struct{ key, value string }, len(args)/2)
+			for i := 0; i < len(args); i += 2 {
+				key := args[i]
+				value := args[i+1]
+
+				// Validate key format
+				if !validKeyRegex.MatchString(key) {
+					return fmt.Errorf("invalid key format: %q (must start with letter or underscore, contain only letters, digits, underscores)", key)
+				}
+
+				// Uppercase the key
+				pairs[i/2] = struct{ key, value string }{
+					key:   strings.ToUpper(key),
+					value: value,
+				}
+			}
+
+			contextFile := filepath.Join(dir, "context.env")
+
+			// Acquire file lock for concurrent write safety
+			lockFile := contextFile + ".lock"
+			fileLock := flock.New(lockFile)
+
+			if err := fileLock.Lock(); err != nil {
+				return fmt.Errorf("failed to acquire lock: %w", err)
+			}
+			defer fileLock.Unlock()
+
+			// Open file for appending
+			f, err := os.OpenFile(contextFile, os.O_APPEND|os.O_WRONLY, 0644)
+			if err != nil {
+				if os.IsNotExist(err) {
+					return fmt.Errorf("context file not found: %s (hint: run 'llm-support context init --dir %s' first)", contextFile, dir)
+				}
+				return fmt.Errorf("failed to open context file: %w", err)
+			}
+			defer f.Close()
+
+			// Write all pairs
+			var keys []string
+			for _, pair := range pairs {
+				escapedValue := escapeShellValue(pair.value)
+				line := fmt.Sprintf("%s=%s\n", pair.key, escapedValue)
+				if _, err := f.WriteString(line); err != nil {
+					return fmt.Errorf("failed to write to context file: %w", err)
+				}
+				keys = append(keys, pair.key)
+			}
+
+			fmt.Fprintf(cmd.OutOrStdout(), "SET: %s\n", strings.Join(keys, ", "))
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&dir, "dir", "", "Directory for context file (required)")
+	cmd.MarkFlagRequired("dir")
+
+	return cmd
+}
+
+// newContextMultiGetCmd creates the context multiget subcommand
+func newContextMultiGetCmd() *cobra.Command {
+	var dir string
+	var jsonOutput bool
+	var minOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "multiget KEY1 [KEY2 ...]",
+		Short: "Retrieve multiple values by key",
+		Long: `Retrieve multiple values from the context file in a single operation.
+
+If any key is not found, returns an error.
+
+Output Formats:
+  default: KEY1=value1\nKEY2=value2 (one per line)
+  --json:  {"KEY1": "value1", "KEY2": "value2"}
+  --min:   value1\nvalue2 (values only, in argument order)
+
+Examples:
+  context multiget --dir /tmp KEY1 KEY2
+  context multiget --dir /tmp KEY1 KEY2 --json
+  context multiget --dir /tmp KEY1 KEY2 --min`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if dir == "" {
+				return fmt.Errorf("--dir flag is required")
+			}
+
+			// Uppercase all keys
+			keys := make([]string, len(args))
+			for i, key := range args {
+				keys[i] = strings.ToUpper(key)
+			}
+
+			contextFile := filepath.Join(dir, "context.env")
+
+			// Acquire shared lock for read consistency
+			lockFile := contextFile + ".lock"
+			fileLock := flock.New(lockFile)
+			if err := fileLock.RLock(); err != nil {
+				return fmt.Errorf("failed to acquire read lock: %w", err)
+			}
+			defer fileLock.Unlock()
+
+			values, err := parseContextFile(contextFile)
+			if err != nil {
+				if os.IsNotExist(err) {
+					return fmt.Errorf("context file not found (hint: run 'llm-support context init --dir %s' first)", dir)
+				}
+				return fmt.Errorf("failed to read context file: %w", err)
+			}
+
+			// Check all keys exist first
+			results := make(map[string]string)
+			for _, key := range keys {
+				value, found := values[key]
+				if !found {
+					return fmt.Errorf("key not found: %s", key)
+				}
+				results[key] = value
+			}
+
+			// Output based on format (--min takes precedence when both set)
+			if minOutput {
+				// Output values in argument order
+				for _, key := range keys {
+					fmt.Fprintln(cmd.OutOrStdout(), results[key])
+				}
+			} else if jsonOutput {
+				data, _ := json.Marshal(results)
+				fmt.Fprintln(cmd.OutOrStdout(), string(data))
+			} else {
+				// Default: KEY=value format
+				for _, key := range keys {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", key, results[key])
+				}
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&dir, "dir", "", "Directory for context file (required)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().BoolVar(&minOutput, "min", false, "Output values only (minimal)")
 	cmd.MarkFlagRequired("dir")
 
 	return cmd

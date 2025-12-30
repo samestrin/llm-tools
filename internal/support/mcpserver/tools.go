@@ -687,7 +687,56 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 
-		// 22. Context variable management
+		// 22. Context multiset - batch set multiple key-value pairs
+		{
+			Name:        ToolPrefix + "context_multiset",
+			Description: "Set multiple key-value pairs in a single operation. Validates all keys before writing (atomic). More efficient than multiple set calls.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"dir": {
+						"type": "string",
+						"description": "Directory containing context.env file (required)"
+					},
+					"pairs": {
+						"type": "object",
+						"description": "Key-value pairs to set (e.g., {\"KEY1\": \"val1\", \"KEY2\": \"val2\"})"
+					}
+				},
+				"required": ["dir", "pairs"]
+			}`),
+		},
+
+		// 23. Context multiget - batch retrieve multiple values
+		{
+			Name:        ToolPrefix + "context_multiget",
+			Description: "Retrieve multiple values in a single operation. More efficient than multiple get calls. Returns error if any key is missing.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"dir": {
+						"type": "string",
+						"description": "Directory containing context.env file (required)"
+					},
+					"keys": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Keys to retrieve"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON object"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - values only, newline-separated"
+					}
+				},
+				"required": ["dir", "keys"]
+			}`),
+		},
+
+		// 24. Context variable management
 		{
 			Name:        ToolPrefix + "context",
 			Description: "Manage persistent key-value storage for prompt variables. Supports init, set, get, list, dump, and clear operations. Solves the 'forgotten timestamp' problem by persisting values across prompt executions.",
