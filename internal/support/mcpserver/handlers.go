@@ -556,7 +556,10 @@ func buildContextArgs(args map[string]interface{}) []string {
 	cmdArgs = append(cmdArgs, operation)
 
 	// Add --dir flag (required)
-	if dir, ok := args["dir"].(string); ok {
+	// Note: "dir" normalizes to "path" via paramAliases, so check path first
+	if dir, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--dir", dir)
+	} else if dir, ok := args["dir"].(string); ok {
 		cmdArgs = append(cmdArgs, "--dir", dir)
 	}
 
@@ -628,7 +631,10 @@ func buildContextMultiSetArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"context", "multiset"}
 
 	// Add --dir flag (required)
-	if dir, ok := args["dir"].(string); ok {
+	// Note: "dir" normalizes to "path" via paramAliases, so check path first
+	if dir, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--dir", dir)
+	} else if dir, ok := args["dir"].(string); ok {
 		cmdArgs = append(cmdArgs, "--dir", dir)
 	}
 
@@ -651,7 +657,10 @@ func buildContextMultiGetArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"context", "multiget"}
 
 	// Add --dir flag (required)
-	if dir, ok := args["dir"].(string); ok {
+	// Note: "dir" normalizes to "path" via paramAliases, so check path first
+	if dir, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--dir", dir)
+	} else if dir, ok := args["dir"].(string); ok {
 		cmdArgs = append(cmdArgs, "--dir", dir)
 	}
 
