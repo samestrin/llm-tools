@@ -23,15 +23,15 @@ func TestExecuteHandler(t *testing.T) {
 		wantErr      bool
 	}{
 		{
-			name:         "fast_list_allowed_directories",
-			toolName:     "fast_list_allowed_directories",
+			name:         "llm_filesystem_list_allowed_directories",
+			toolName:     "llm_filesystem_list_allowed_directories",
 			args:         map[string]interface{}{},
 			wantContains: "allowed_directories",
 			wantErr:      false,
 		},
 		{
-			name:     "fast_read_file",
-			toolName: "fast_read_file",
+			name:     "llm_filesystem_read_file",
+			toolName: "llm_filesystem_read_file",
 			args: map[string]interface{}{
 				"path": testFile,
 			},
@@ -39,8 +39,8 @@ func TestExecuteHandler(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name:     "fast_get_file_info",
-			toolName: "fast_get_file_info",
+			name:     "llm_filesystem_get_file_info",
+			toolName: "llm_filesystem_get_file_info",
 			args: map[string]interface{}{
 				"path": testFile,
 			},
@@ -48,8 +48,8 @@ func TestExecuteHandler(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name:     "fast_list_directory",
-			toolName: "fast_list_directory",
+			name:     "llm_filesystem_list_directory",
+			toolName: "llm_filesystem_list_directory",
 			args: map[string]interface{}{
 				"path": tmpDir,
 			},
@@ -57,8 +57,8 @@ func TestExecuteHandler(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name:     "fast_get_directory_tree",
-			toolName: "fast_get_directory_tree",
+			name:     "llm_filesystem_get_directory_tree",
+			toolName: "llm_filesystem_get_directory_tree",
 			args: map[string]interface{}{
 				"path": tmpDir,
 			},
@@ -66,8 +66,8 @@ func TestExecuteHandler(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name:     "fast_get_disk_usage",
-			toolName: "fast_get_disk_usage",
+			name:     "llm_filesystem_get_disk_usage",
+			toolName: "llm_filesystem_get_disk_usage",
 			args: map[string]interface{}{
 				"path": tmpDir,
 			},
@@ -112,12 +112,12 @@ func TestExecuteHandlerAllTools(t *testing.T) {
 		toolName string
 		args     map[string]interface{}
 	}{
-		{"fast_write_file", map[string]interface{}{"path": filepath.Join(tmpDir, "write_test.txt"), "content": "test"}},
-		{"fast_create_directory", map[string]interface{}{"path": filepath.Join(tmpDir, "test_dir")}},
-		{"fast_search_files", map[string]interface{}{"path": tmpDir, "pattern": "*.txt"}},
-		{"fast_search_code", map[string]interface{}{"path": tmpDir, "pattern": "content"}},
-		{"fast_find_large_files", map[string]interface{}{"path": tmpDir}},
-		{"fast_extract_lines", map[string]interface{}{"path": testFile, "start_line": float64(1), "end_line": float64(1)}},
+		{"llm_filesystem_write_file", map[string]interface{}{"path": filepath.Join(tmpDir, "write_test.txt"), "content": "test"}},
+		{"llm_filesystem_create_directory", map[string]interface{}{"path": filepath.Join(tmpDir, "test_dir")}},
+		{"llm_filesystem_search_files", map[string]interface{}{"path": tmpDir, "pattern": "*.txt"}},
+		{"llm_filesystem_search_code", map[string]interface{}{"path": tmpDir, "pattern": "content"}},
+		{"llm_filesystem_find_large_files", map[string]interface{}{"path": tmpDir}},
+		{"llm_filesystem_extract_lines", map[string]interface{}{"path": testFile, "start_line": float64(1), "end_line": float64(1)}},
 	}
 
 	for _, tt := range toolTests {
@@ -144,7 +144,7 @@ func TestExecuteHandlerEditTools(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			toolName: "fast_edit_block",
+			toolName: "llm_filesystem_edit_block",
 			args: map[string]interface{}{
 				"path":       testFile,
 				"old_string": "World",
@@ -153,7 +153,7 @@ func TestExecuteHandlerEditTools(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			toolName: "fast_edit_file",
+			toolName: "llm_filesystem_edit_file",
 			args: map[string]interface{}{
 				"path":      testFile,
 				"operation": "replace",
@@ -186,17 +186,17 @@ func TestExecuteHandlerFileOps(t *testing.T) {
 	dstFile := filepath.Join(tmpDir, "moved.txt")
 	os.WriteFile(srcFile, []byte("move content"), 0644)
 
-	_, err := server.ExecuteHandler("fast_move_file", map[string]interface{}{
+	_, err := server.ExecuteHandler("llm_filesystem_move_file", map[string]interface{}{
 		"source":      srcFile,
 		"destination": dstFile,
 	})
 	if err != nil {
-		t.Errorf("fast_move_file error = %v", err)
+		t.Errorf("llm_filesystem_move_file error = %v", err)
 	}
 
 	// Test batch file operations
 	os.WriteFile(filepath.Join(tmpDir, "batch_src.txt"), []byte("batch"), 0644)
-	_, err = server.ExecuteHandler("fast_batch_file_operations", map[string]interface{}{
+	_, err = server.ExecuteHandler("llm_filesystem_batch_file_operations", map[string]interface{}{
 		"operations": []interface{}{
 			map[string]interface{}{
 				"operation":   "copy",
@@ -206,17 +206,17 @@ func TestExecuteHandlerFileOps(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Errorf("fast_batch_file_operations error = %v", err)
+		t.Errorf("llm_filesystem_batch_file_operations error = %v", err)
 	}
 
 	// Test delete file
 	deleteFile := filepath.Join(tmpDir, "to_delete.txt")
 	os.WriteFile(deleteFile, []byte("delete"), 0644)
-	_, err = server.ExecuteHandler("fast_delete_file", map[string]interface{}{
+	_, err = server.ExecuteHandler("llm_filesystem_delete_file", map[string]interface{}{
 		"path": deleteFile,
 	})
 	if err != nil {
-		t.Errorf("fast_delete_file error = %v", err)
+		t.Errorf("llm_filesystem_delete_file error = %v", err)
 	}
 }
 
@@ -229,33 +229,33 @@ func TestExecuteHandlerAdvanced(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "compress2.txt"), []byte("file2"), 0644)
 
 	// Test compress files
-	_, err := server.ExecuteHandler("fast_compress_files", map[string]interface{}{
+	_, err := server.ExecuteHandler("llm_filesystem_compress_files", map[string]interface{}{
 		"paths":  []interface{}{filepath.Join(tmpDir, "compress1.txt"), filepath.Join(tmpDir, "compress2.txt")},
 		"output": filepath.Join(tmpDir, "archive.zip"),
 		"format": "zip",
 	})
 	if err != nil {
-		t.Errorf("fast_compress_files error = %v", err)
+		t.Errorf("llm_filesystem_compress_files error = %v", err)
 	}
 
 	// Test extract archive
-	_, err = server.ExecuteHandler("fast_extract_archive", map[string]interface{}{
+	_, err = server.ExecuteHandler("llm_filesystem_extract_archive", map[string]interface{}{
 		"archive":     filepath.Join(tmpDir, "archive.zip"),
 		"destination": filepath.Join(tmpDir, "extracted"),
 	})
 	if err != nil {
-		t.Errorf("fast_extract_archive error = %v", err)
+		t.Errorf("llm_filesystem_extract_archive error = %v", err)
 	}
 
 	// Test sync directories
 	os.MkdirAll(filepath.Join(tmpDir, "src_dir"), 0755)
 	os.WriteFile(filepath.Join(tmpDir, "src_dir", "sync.txt"), []byte("sync"), 0644)
-	_, err = server.ExecuteHandler("fast_sync_directories", map[string]interface{}{
+	_, err = server.ExecuteHandler("llm_filesystem_sync_directories", map[string]interface{}{
 		"source":      filepath.Join(tmpDir, "src_dir"),
 		"destination": filepath.Join(tmpDir, "dst_dir"),
 	})
 	if err != nil {
-		t.Errorf("fast_sync_directories error = %v", err)
+		t.Errorf("llm_filesystem_sync_directories error = %v", err)
 	}
 }
 
@@ -267,13 +267,13 @@ func TestExecuteHandlerSafeEdit(t *testing.T) {
 	os.WriteFile(testFile, []byte("Original content here"), 0644)
 
 	// Test safe_edit via handler
-	_, err := server.ExecuteHandler("fast_safe_edit", map[string]interface{}{
+	_, err := server.ExecuteHandler("llm_filesystem_safe_edit", map[string]interface{}{
 		"path":       testFile,
 		"old_string": "Original",
 		"new_string": "Modified",
 	})
 	if err != nil {
-		t.Errorf("fast_safe_edit error = %v", err)
+		t.Errorf("llm_filesystem_safe_edit error = %v", err)
 	}
 
 	// Verify file content changed
@@ -290,7 +290,7 @@ func TestExecuteHandlerEditBlocks(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "edit_blocks_test.txt")
 	os.WriteFile(testFile, []byte("Hello World\nGoodbye World"), 0644)
 
-	_, err := server.ExecuteHandler("fast_edit_blocks", map[string]interface{}{
+	_, err := server.ExecuteHandler("llm_filesystem_edit_blocks", map[string]interface{}{
 		"path": testFile,
 		"edits": []interface{}{
 			map[string]interface{}{
@@ -304,7 +304,7 @@ func TestExecuteHandlerEditBlocks(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Errorf("fast_edit_blocks error = %v", err)
+		t.Errorf("llm_filesystem_edit_blocks error = %v", err)
 	}
 
 	content, _ := os.ReadFile(testFile)
@@ -320,7 +320,7 @@ func TestExecuteHandlerMultipleBlocks(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "multi_blocks_test.txt")
 	os.WriteFile(testFile, []byte("Test content"), 0644)
 
-	_, err := server.ExecuteHandler("fast_edit_multiple_blocks", map[string]interface{}{
+	_, err := server.ExecuteHandler("llm_filesystem_edit_multiple_blocks", map[string]interface{}{
 		"path": testFile,
 		"edits": []interface{}{
 			map[string]interface{}{
@@ -330,7 +330,7 @@ func TestExecuteHandlerMultipleBlocks(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Errorf("fast_edit_multiple_blocks error = %v", err)
+		t.Errorf("llm_filesystem_edit_multiple_blocks error = %v", err)
 	}
 }
 
@@ -343,11 +343,11 @@ func TestExecuteHandlerReadMultiple(t *testing.T) {
 	os.WriteFile(file1, []byte("content 1"), 0644)
 	os.WriteFile(file2, []byte("content 2"), 0644)
 
-	result, err := server.ExecuteHandler("fast_read_multiple_files", map[string]interface{}{
+	result, err := server.ExecuteHandler("llm_filesystem_read_multiple_files", map[string]interface{}{
 		"paths": []interface{}{file1, file2},
 	})
 	if err != nil {
-		t.Errorf("fast_read_multiple_files error = %v", err)
+		t.Errorf("llm_filesystem_read_multiple_files error = %v", err)
 	}
 	if !strings.Contains(result, "content 1") || !strings.Contains(result, "content 2") {
 		t.Errorf("Result should contain both contents: %s", result)
@@ -361,13 +361,13 @@ func TestExecuteHandlerExtractLines(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "extract.txt")
 	os.WriteFile(testFile, []byte("line1\nline2\nline3\nline4\n"), 0644)
 
-	result, err := server.ExecuteHandler("fast_extract_lines", map[string]interface{}{
+	result, err := server.ExecuteHandler("llm_filesystem_extract_lines", map[string]interface{}{
 		"path":       testFile,
 		"start_line": float64(2),
 		"end_line":   float64(3),
 	})
 	if err != nil {
-		t.Errorf("fast_extract_lines error = %v", err)
+		t.Errorf("llm_filesystem_extract_lines error = %v", err)
 	}
 	if !strings.Contains(result, "line2") {
 		t.Errorf("Result should contain line2: %s", result)
@@ -381,13 +381,13 @@ func TestExecuteHandlerSearchAndReplace(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "replace_test.txt")
 	os.WriteFile(testFile, []byte("foo bar foo"), 0644)
 
-	result, err := server.ExecuteHandler("fast_search_and_replace", map[string]interface{}{
+	result, err := server.ExecuteHandler("llm_filesystem_search_and_replace", map[string]interface{}{
 		"path":        tmpDir,
 		"pattern":     "foo",
 		"replacement": "baz",
 	})
 	if err != nil {
-		t.Errorf("fast_search_and_replace error = %v", err)
+		t.Errorf("llm_filesystem_search_and_replace error = %v", err)
 	}
 
 	_ = result

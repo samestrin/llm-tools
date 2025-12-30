@@ -16,7 +16,7 @@ func GetToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
 		// Core File Operations (Phase 1)
 		{
-			Name:        "fast_read_file",
+			Name:        "llm_filesystem_read_file",
 			Description: "Reads a file (with auto-chunking support)",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -34,7 +34,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_read_multiple_files",
+			Name:        "llm_filesystem_read_multiple_files",
 			Description: "Reads the content of multiple files simultaneously (supports sequential reading)",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -48,7 +48,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_write_file",
+			Name:        "llm_filesystem_write_file",
 			Description: "Writes or modifies a file",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -64,7 +64,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_large_write_file",
+			Name:        "llm_filesystem_large_write_file",
 			Description: "Reliably writes large files (with streaming, retry, backup, and verification features)",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -84,7 +84,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_list_directory",
+			Name:        "llm_filesystem_list_directory",
 			Description: "Lists the contents of a directory (with auto-chunking and pagination support)",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -103,7 +103,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_get_file_info",
+			Name:        "llm_filesystem_get_file_info",
 			Description: "Gets detailed information about a file or directory",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -114,7 +114,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_create_directory",
+			Name:        "llm_filesystem_create_directory",
 			Description: "Creates a directory",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -126,7 +126,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_search_files",
+			Name:        "llm_filesystem_search_files",
 			Description: "Searches for files (by name/content) - supports auto-chunking, regex, context, and line numbers",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -146,7 +146,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_search_code",
+			Name:        "llm_filesystem_search_code",
 			Description: "Searches for code (ripgrep-style) - provides auto-chunking, line numbers, and context",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -166,7 +166,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_get_directory_tree",
+			Name:        "llm_filesystem_get_directory_tree",
 			Description: "Gets the directory tree structure",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -181,7 +181,7 @@ func GetToolDefinitions() []ToolDefinition {
 		},
 		// Edit Operations
 		{
-			Name:        "fast_edit_block",
+			Name:        "llm_filesystem_edit_block",
 			Description: "Precise block editing: safely replace exact matches",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -199,7 +199,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_safe_edit",
+			Name:        "llm_filesystem_safe_edit",
 			Description: "Safe smart editing: Detects risks and provides interactive confirmation",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -215,7 +215,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_edit_multiple_blocks",
+			Name:        "llm_filesystem_edit_multiple_blocks",
 			Description: "Edits multiple parts of a file at once",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -240,7 +240,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_edit_blocks",
+			Name:        "llm_filesystem_edit_blocks",
 			Description: "Processes multiple precise block edits at once",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -265,7 +265,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_extract_lines",
+			Name:        "llm_filesystem_extract_lines",
 			Description: "Extracts specific lines from a file",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -282,7 +282,7 @@ func GetToolDefinitions() []ToolDefinition {
 		},
 		// File Management Operations
 		{
-			Name:        "fast_copy_file",
+			Name:        "llm_filesystem_copy_file",
 			Description: "Copies a file or directory",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -298,7 +298,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_move_file",
+			Name:        "llm_filesystem_move_file",
 			Description: "Moves or renames a file or directory",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -313,7 +313,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_delete_file",
+			Name:        "llm_filesystem_delete_file",
 			Description: "Deletes a file or directory",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -328,7 +328,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_batch_file_operations",
+			Name:        "llm_filesystem_batch_file_operations",
 			Description: "Performs batch operations on multiple files",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -356,7 +356,7 @@ func GetToolDefinitions() []ToolDefinition {
 		},
 		// System & Archive Operations
 		{
-			Name:        "fast_get_disk_usage",
+			Name:        "llm_filesystem_get_disk_usage",
 			Description: "Gets disk usage information",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -366,7 +366,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_find_large_files",
+			Name:        "llm_filesystem_find_large_files",
 			Description: "Finds large files",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -379,7 +379,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_compress_files",
+			Name:        "llm_filesystem_compress_files",
 			Description: "Compresses files or directories",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -394,7 +394,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_extract_archive",
+			Name:        "llm_filesystem_extract_archive",
 			Description: "Extracts an archive file",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -410,7 +410,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_sync_directories",
+			Name:        "llm_filesystem_sync_directories",
 			Description: "Synchronizes two directories",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -427,7 +427,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_list_allowed_directories",
+			Name:        "llm_filesystem_list_allowed_directories",
 			Description: "Lists the allowed directories",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -437,7 +437,7 @@ func GetToolDefinitions() []ToolDefinition {
 		},
 		// v3.5.1 Tools
 		{
-			Name:        "fast_edit_file",
+			Name:        "llm_filesystem_edit_file",
 			Description: "Line-based file editing (insert, replace, delete)",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -452,7 +452,7 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
-			Name:        "fast_search_and_replace",
+			Name:        "llm_filesystem_search_and_replace",
 			Description: "Regex search and replace across files",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
