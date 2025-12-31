@@ -382,6 +382,91 @@ func TestListDirectoryPaginationEnforced(t *testing.T) {
 			t.Errorf("expected 0 entries for out-of-range page, got %d", len(resp.Entries))
 		}
 	})
+
+	t.Run("continuation token returned when has_more", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(1),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if !resp.HasMore {
+			t.Error("expected has_more=true for page 1 of 3")
+		}
+		if resp.ContinuationToken == "" {
+			t.Error("expected continuation_token when has_more=true")
+		}
+	})
+
+	t.Run("continuation token resumes from correct position", func(t *testing.T) {
+		// Get page 1
+		result1, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(1),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp1 ListDirectoryResult
+		if err := json.Unmarshal([]byte(result1), &resp1); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		// Use continuation token to get page 2
+		result2, err := server.handleListDirectory(map[string]interface{}{
+			"path":               tmpDir,
+			"page_size":          float64(5),
+			"continuation_token": resp1.ContinuationToken,
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() with token error = %v", err)
+		}
+
+		var resp2 ListDirectoryResult
+		if err := json.Unmarshal([]byte(result2), &resp2); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if resp2.Page != 2 {
+			t.Errorf("expected page=2 when using continuation token, got %d", resp2.Page)
+		}
+		if len(resp2.Entries) != 5 {
+			t.Errorf("expected 5 entries on page 2, got %d", len(resp2.Entries))
+		}
+	})
+
+	t.Run("last page has no continuation token", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(3),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if resp.HasMore {
+			t.Error("expected has_more=false for last page")
+		}
+		if resp.ContinuationToken != "" {
+			t.Error("expected no continuation_token on last page")
+		}
+	})
 }
 
 func TestGetDirectoryTreeMissingPath(t *testing.T) {

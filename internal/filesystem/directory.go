@@ -21,12 +21,14 @@ type DirectoryEntry struct {
 
 // ListDirectoryResult represents the result of a directory listing
 type ListDirectoryResult struct {
-	Path       string           `json:"path"`
-	Entries    []DirectoryEntry `json:"entries"`
-	Total      int              `json:"total"`
-	Page       int              `json:"page,omitempty"`
-	PageSize   int              `json:"page_size,omitempty"`
-	TotalPages int              `json:"total_pages,omitempty"`
+	Path              string           `json:"path"`
+	Entries           []DirectoryEntry `json:"entries"`
+	Total             int              `json:"total"`
+	Page              int              `json:"page,omitempty"`
+	PageSize          int              `json:"page_size,omitempty"`
+	TotalPages        int              `json:"total_pages,omitempty"`
+	ContinuationToken string           `json:"continuation_token,omitempty"`
+	HasMore           bool             `json:"has_more,omitempty"`
 }
 
 // TreeNode represents a node in the directory tree
@@ -78,6 +80,19 @@ func (s *Server) handleListDirectory(args map[string]interface{}) (string, error
 	reverse := GetBool(args, "reverse", false)
 	page := GetInt(args, "page", 0)
 	pageSize := GetInt(args, "page_size", 0)
+	continuationTokenStr := GetString(args, "continuation_token", "")
+
+	// If continuation token provided, decode and use its page
+	if continuationTokenStr != "" {
+		token, err := DecodeContinuationToken(continuationTokenStr)
+		if err != nil {
+			return "", fmt.Errorf("invalid continuation token: %w", err)
+		}
+		if err := ValidateToken(token, normalizedPath, "list"); err != nil {
+			return "", err
+		}
+		page = token.Page
+	}
 
 	// Read directory entries
 	dirEntries, err := os.ReadDir(normalizedPath)
@@ -125,6 +140,8 @@ func (s *Server) handleListDirectory(args map[string]interface{}) (string, error
 
 	// Apply pagination
 	var totalPages int
+	var hasMore bool
+	var nextToken string
 	if page > 0 && pageSize > 0 {
 		totalPages = (total + pageSize - 1) / pageSize
 		start := (page - 1) * pageSize
@@ -137,15 +154,22 @@ func (s *Server) handleListDirectory(args map[string]interface{}) (string, error
 			}
 			entries = entries[start:end]
 		}
+		// Generate continuation token if there are more pages
+		hasMore = page < totalPages
+		if hasMore {
+			nextToken, _ = CreateListToken(normalizedPath, page+1)
+		}
 	}
 
 	result := ListDirectoryResult{
-		Path:       normalizedPath,
-		Entries:    entries,
-		Total:      total,
-		Page:       page,
-		PageSize:   pageSize,
-		TotalPages: totalPages,
+		Path:              normalizedPath,
+		Entries:           entries,
+		Total:             total,
+		Page:              page,
+		PageSize:          pageSize,
+		TotalPages:        totalPages,
+		ContinuationToken: nextToken,
+		HasMore:           hasMore,
 	}
 
 	jsonBytes, err := json.Marshal(result)
