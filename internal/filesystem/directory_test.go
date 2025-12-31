@@ -1,6 +1,8 @@
 package filesystem
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -258,6 +260,128 @@ func TestListDirectoryMissingPath(t *testing.T) {
 	if err == nil {
 		t.Error("handleListDirectory() should error when path is missing")
 	}
+}
+
+func TestListDirectoryPaginationEnforced(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create 12 test files
+	for i := 1; i <= 12; i++ {
+		os.WriteFile(filepath.Join(tmpDir, fmt.Sprintf("file%02d.txt", i)), []byte("content"), 0644)
+	}
+
+	server, _ := NewServer([]string{tmpDir})
+
+	t.Run("page_size=5 returns exactly 5 items", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(1),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(resp.Entries) != 5 {
+			t.Errorf("expected 5 entries, got %d", len(resp.Entries))
+		}
+		if resp.Total != 12 {
+			t.Errorf("expected total=12, got %d", resp.Total)
+		}
+		if resp.TotalPages != 3 {
+			t.Errorf("expected total_pages=3, got %d", resp.TotalPages)
+		}
+		if resp.Page != 1 {
+			t.Errorf("expected page=1, got %d", resp.Page)
+		}
+	})
+
+	t.Run("page=2 returns items 6-10", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(2),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(resp.Entries) != 5 {
+			t.Errorf("expected 5 entries, got %d", len(resp.Entries))
+		}
+		if resp.Page != 2 {
+			t.Errorf("expected page=2, got %d", resp.Page)
+		}
+	})
+
+	t.Run("last page returns remaining items", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(3),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(resp.Entries) != 2 {
+			t.Errorf("expected 2 entries on last page, got %d", len(resp.Entries))
+		}
+	})
+
+	t.Run("page_size=0 returns all items", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page_size": float64(0),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(resp.Entries) != 12 {
+			t.Errorf("expected all 12 entries with page_size=0, got %d", len(resp.Entries))
+		}
+	})
+
+	t.Run("page out of range returns empty list", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(10),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(resp.Entries) != 0 {
+			t.Errorf("expected 0 entries for out-of-range page, got %d", len(resp.Entries))
+		}
+	})
 }
 
 func TestGetDirectoryTreeMissingPath(t *testing.T) {
