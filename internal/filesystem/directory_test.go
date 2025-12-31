@@ -393,3 +393,110 @@ func TestGetDirectoryTreeMissingPath(t *testing.T) {
 		t.Error("handleGetDirectoryTree() should error when path is missing")
 	}
 }
+
+func TestGetDirectoryTreeRecursionDepth(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create nested structure: level1/level2/level3/level4
+	os.MkdirAll(filepath.Join(tmpDir, "level1", "level2", "level3", "level4"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "root.txt"), []byte("content"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "level1", "l1.txt"), []byte("content"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "level1", "level2", "l2.txt"), []byte("content"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "level1", "level2", "level3", "l3.txt"), []byte("content"), 0644)
+
+	server, _ := NewServer([]string{tmpDir})
+
+	t.Run("depth=2 shows 2 levels deep", func(t *testing.T) {
+		result, err := server.handleGetDirectoryTree(map[string]interface{}{
+			"path":      tmpDir,
+			"max_depth": float64(2),
+		})
+		if err != nil {
+			t.Fatalf("handleGetDirectoryTree() error = %v", err)
+		}
+
+		var resp DirectoryTreeResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		// Root should have children (level1)
+		if resp.Root == nil {
+			t.Fatal("expected root node")
+		}
+		if len(resp.Root.Children) == 0 {
+			t.Error("expected root to have children")
+		}
+
+		// Find level1
+		var level1 *TreeNode
+		for _, child := range resp.Root.Children {
+			if child.Name == "level1" {
+				level1 = child
+				break
+			}
+		}
+		if level1 == nil {
+			t.Fatal("expected to find level1 in root children")
+		}
+
+		// level1 should have children (level2)
+		if len(level1.Children) == 0 {
+			t.Error("expected level1 to have children at depth=2")
+		}
+
+		// Find level2
+		var level2 *TreeNode
+		for _, child := range level1.Children {
+			if child.Name == "level2" {
+				level2 = child
+				break
+			}
+		}
+		if level2 == nil {
+			t.Fatal("expected to find level2 in level1 children")
+		}
+
+		// level2 should NOT have children at depth=2 (we're at limit)
+		// Actually depth=2 means we recurse 2 levels from root, so level2's children wouldn't be populated
+		// The depth logic starts at 0 and stops when depth >= maxDepth
+		// So depth=2: root is depth 0, level1 is depth 1, level2 is depth 2 (no children)
+	})
+
+	t.Run("depth=0 returns only root with no children", func(t *testing.T) {
+		result, err := server.handleGetDirectoryTree(map[string]interface{}{
+			"path":      tmpDir,
+			"max_depth": float64(0),
+		})
+		if err != nil {
+			t.Fatalf("handleGetDirectoryTree() error = %v", err)
+		}
+
+		var resp DirectoryTreeResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if resp.Root == nil {
+			t.Fatal("expected root node")
+		}
+		if len(resp.Root.Children) != 0 {
+			t.Errorf("expected 0 children at depth=0, got %d", len(resp.Root.Children))
+		}
+	})
+
+	t.Run("tree structure has nested children", func(t *testing.T) {
+		result, err := server.handleGetDirectoryTree(map[string]interface{}{
+			"path":      tmpDir,
+			"max_depth": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleGetDirectoryTree() error = %v", err)
+		}
+
+		// Result should contain level4 (deeply nested)
+		if !strings.Contains(result, "level4") {
+			t.Error("expected result to contain level4 at max_depth=5")
+		}
+	})
+}
