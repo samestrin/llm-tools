@@ -12,12 +12,18 @@ import (
 
 // ReadFileResult represents the result of a file read operation
 type ReadFileResult struct {
-	Path      string `json:"path"`
-	Content   string `json:"content"`
-	Size      int64  `json:"size"`
-	Lines     int    `json:"lines,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
-	Error     string `json:"error,omitempty"`
+	Path              string `json:"path"`
+	Content           string `json:"content"`
+	Size              int64  `json:"size"`
+	TotalSize         int64  `json:"total_size,omitempty"`
+	Lines             int    `json:"lines,omitempty"`
+	Truncated         bool   `json:"truncated,omitempty"`
+	AutoChunked       bool   `json:"auto_chunked,omitempty"`
+	ChunkIndex        int    `json:"chunk_index,omitempty"`
+	TotalChunks       int    `json:"total_chunks,omitempty"`
+	ContinuationToken string `json:"continuation_token,omitempty"`
+	HasMore           bool   `json:"has_more,omitempty"`
+	Error             string `json:"error,omitempty"`
 }
 
 // ReadMultipleFilesResult represents results from reading multiple files
@@ -26,6 +32,9 @@ type ReadMultipleFilesResult struct {
 	Success int              `json:"success"`
 	Failed  int              `json:"failed"`
 }
+
+// Default chunk size for auto-chunking (1MB)
+const DefaultChunkSize = 1024 * 1024
 
 func (s *Server) handleReadFile(args map[string]interface{}) (string, error) {
 	path := GetString(args, "path", "")
@@ -54,11 +63,33 @@ func (s *Server) handleReadFile(args map[string]interface{}) (string, error) {
 		return "", fmt.Errorf("path is a directory, not a file")
 	}
 
+	totalSize := info.Size()
+
 	// Read options
 	startOffset := GetInt(args, "start_offset", 0)
 	maxSize := GetInt(args, "max_size", 0)
 	lineStart := GetInt(args, "line_start", 0)
 	lineCount := GetInt(args, "line_count", 0)
+	autoChunk := GetBool(args, "auto_chunk", true)
+	continuationTokenStr := GetString(args, "continuation_token", "")
+
+	// If continuation token provided, decode and use its offset
+	if continuationTokenStr != "" {
+		token, err := DecodeContinuationToken(continuationTokenStr)
+		if err != nil {
+			return "", fmt.Errorf("invalid continuation token: %w", err)
+		}
+		if err := ValidateToken(token, path, "read"); err != nil {
+			return "", err
+		}
+		startOffset = int(token.Offset)
+	}
+
+	// Determine effective max size for auto-chunking
+	effectiveMaxSize := maxSize
+	if autoChunk && effectiveMaxSize == 0 && totalSize > int64(DefaultChunkSize) {
+		effectiveMaxSize = DefaultChunkSize
+	}
 
 	var content string
 	var lines int
@@ -66,8 +97,8 @@ func (s *Server) handleReadFile(args map[string]interface{}) (string, error) {
 	// Read by lines or bytes
 	if lineStart > 0 || lineCount > 0 {
 		content, lines, err = readFileByLines(path, lineStart, lineCount)
-	} else if startOffset > 0 || maxSize > 0 {
-		content, err = readFileByBytes(path, startOffset, maxSize)
+	} else if startOffset > 0 || effectiveMaxSize > 0 {
+		content, err = readFileByBytes(path, startOffset, effectiveMaxSize)
 	} else {
 		content, lines, err = readEntireFile(path)
 	}
@@ -77,10 +108,27 @@ func (s *Server) handleReadFile(args map[string]interface{}) (string, error) {
 	}
 
 	result := ReadFileResult{
-		Path:    path,
-		Content: content,
-		Size:    int64(len(content)),
-		Lines:   lines,
+		Path:      path,
+		Content:   content,
+		Size:      int64(len(content)),
+		TotalSize: totalSize,
+		Lines:     lines,
+	}
+
+	// Calculate chunking metadata
+	bytesRead := len(content)
+	nextOffset := int64(startOffset) + int64(bytesRead)
+
+	if autoChunk && effectiveMaxSize > 0 && totalSize > int64(effectiveMaxSize) {
+		result.AutoChunked = true
+		result.ChunkIndex = startOffset / effectiveMaxSize
+		result.TotalChunks = int((totalSize + int64(effectiveMaxSize) - 1) / int64(effectiveMaxSize))
+
+		// Generate continuation token if more data available
+		if nextOffset < totalSize {
+			result.HasMore = true
+			result.ContinuationToken, _ = CreateReadToken(path, nextOffset)
+		}
 	}
 
 	jsonBytes, err := json.Marshal(result)
