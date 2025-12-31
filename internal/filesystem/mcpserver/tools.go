@@ -125,7 +125,7 @@ func GetToolDefinitions() []ToolDefinition {
 				"type": "object",
 				"properties": {
 					"path": {"type": "string", "description": "Root directory path"},
-					"depth": {"type": "number", "description": "Maximum depth", "default": 5},
+					"max_depth": {"type": "number", "description": "Maximum depth", "default": 5},
 					"show_hidden": {"type": "boolean", "description": "Show hidden files", "default": false},
 					"include_files": {"type": "boolean", "description": "Include files", "default": false},
 					"pattern": {"type": "string", "description": "File pattern filter"}

@@ -235,8 +235,8 @@ func buildGetDirectoryTreeArgs(args map[string]interface{}) []string {
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
-	if depth, ok := getInt(args, "depth"); ok {
-		cmdArgs = append(cmdArgs, "--depth", strconv.Itoa(depth))
+	if maxDepth, ok := getInt(args, "max_depth"); ok {
+		cmdArgs = append(cmdArgs, "--depth", strconv.Itoa(maxDepth))
 	}
 	if getBool(args, "show_hidden") {
 		cmdArgs = append(cmdArgs, "--show-hidden")
