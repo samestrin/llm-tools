@@ -287,8 +287,8 @@ func TestListDirectoryPaginationEnforced(t *testing.T) {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if len(resp.Entries) != 5 {
-			t.Errorf("expected 5 entries, got %d", len(resp.Entries))
+		if len(resp.Items) != 5 {
+			t.Errorf("expected 5 entries, got %d", len(resp.Items))
 		}
 		if resp.Total != 12 {
 			t.Errorf("expected total=12, got %d", resp.Total)
@@ -316,8 +316,8 @@ func TestListDirectoryPaginationEnforced(t *testing.T) {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if len(resp.Entries) != 5 {
-			t.Errorf("expected 5 entries, got %d", len(resp.Entries))
+		if len(resp.Items) != 5 {
+			t.Errorf("expected 5 entries, got %d", len(resp.Items))
 		}
 		if resp.Page != 2 {
 			t.Errorf("expected page=2, got %d", resp.Page)
@@ -339,8 +339,8 @@ func TestListDirectoryPaginationEnforced(t *testing.T) {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if len(resp.Entries) != 2 {
-			t.Errorf("expected 2 entries on last page, got %d", len(resp.Entries))
+		if len(resp.Items) != 2 {
+			t.Errorf("expected 2 entries on last page, got %d", len(resp.Items))
 		}
 	})
 
@@ -358,8 +358,8 @@ func TestListDirectoryPaginationEnforced(t *testing.T) {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if len(resp.Entries) != 12 {
-			t.Errorf("expected all 12 entries with page_size=0, got %d", len(resp.Entries))
+		if len(resp.Items) != 12 {
+			t.Errorf("expected all 12 entries with page_size=0, got %d", len(resp.Items))
 		}
 	})
 
@@ -378,8 +378,8 @@ func TestListDirectoryPaginationEnforced(t *testing.T) {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if len(resp.Entries) != 0 {
-			t.Errorf("expected 0 entries for out-of-range page, got %d", len(resp.Entries))
+		if len(resp.Items) != 0 {
+			t.Errorf("expected 0 entries for out-of-range page, got %d", len(resp.Items))
 		}
 	})
 
@@ -440,8 +440,8 @@ func TestListDirectoryPaginationEnforced(t *testing.T) {
 		if resp2.Page != 2 {
 			t.Errorf("expected page=2 when using continuation token, got %d", resp2.Page)
 		}
-		if len(resp2.Entries) != 5 {
-			t.Errorf("expected 5 entries on page 2, got %d", len(resp2.Entries))
+		if len(resp2.Items) != 5 {
+			t.Errorf("expected 5 entries on page 2, got %d", len(resp2.Items))
 		}
 	})
 
@@ -506,16 +506,16 @@ func TestGetDirectoryTreeRecursionDepth(t *testing.T) {
 		}
 
 		// Root should have children (level1)
-		if resp.Root == nil {
+		if resp.Tree == nil {
 			t.Fatal("expected root node")
 		}
-		if len(resp.Root.Children) == 0 {
+		if len(resp.Tree.Children) == 0 {
 			t.Error("expected root to have children")
 		}
 
 		// Find level1
 		var level1 *TreeNode
-		for _, child := range resp.Root.Children {
+		for _, child := range resp.Tree.Children {
 			if child.Name == "level1" {
 				level1 = child
 				break
@@ -562,11 +562,11 @@ func TestGetDirectoryTreeRecursionDepth(t *testing.T) {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if resp.Root == nil {
+		if resp.Tree == nil {
 			t.Fatal("expected root node")
 		}
-		if len(resp.Root.Children) != 0 {
-			t.Errorf("expected 0 children at depth=0, got %d", len(resp.Root.Children))
+		if len(resp.Tree.Children) != 0 {
+			t.Errorf("expected 0 children at depth=0, got %d", len(resp.Tree.Children))
 		}
 	})
 

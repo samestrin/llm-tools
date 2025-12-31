@@ -15,6 +15,7 @@ type ReadFileResult struct {
 	Path              string `json:"path"`
 	Content           string `json:"content"`
 	Size              int64  `json:"size"`
+	Encoding          string `json:"encoding"`
 	TotalSize         int64  `json:"total_size,omitempty"`
 	Lines             int    `json:"lines,omitempty"`
 	Truncated         bool   `json:"truncated,omitempty"`
@@ -111,6 +112,7 @@ func (s *Server) handleReadFile(args map[string]interface{}) (string, error) {
 		Path:      path,
 		Content:   content,
 		Size:      int64(len(content)),
+		Encoding:  "utf-8",
 		TotalSize: totalSize,
 		Lines:     lines,
 	}
@@ -242,7 +244,7 @@ func (s *Server) handleReadMultipleFiles(args map[string]interface{}) (string, e
 				filePath = resolved
 			}
 
-			result := ReadFileResult{Path: filePath}
+			result := ReadFileResult{Path: filePath, Encoding: "utf-8"}
 
 			if err := ValidatePath(filePath, s.allowedDirs); err != nil {
 				result.Error = err.Error()

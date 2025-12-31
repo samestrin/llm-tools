@@ -3,33 +3,49 @@ package filesystem
 import (
 	"encoding/json"
 	"fmt"
+	"mime"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/dustin/go-humanize"
 )
 
 // DirectoryEntry represents a file or directory entry
 type DirectoryEntry struct {
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	IsDir   bool   `json:"is_dir"`
-	Size    int64  `json:"size"`
-	Mode    string `json:"mode"`
-	ModTime string `json:"mod_time"`
+	Name         string `json:"name"`
+	Path         string `json:"path"`
+	Type         string `json:"type"` // "file" or "directory"
+	IsDir        bool   `json:"is_dir"`
+	Size         int64  `json:"size"`
+	SizeReadable string `json:"size_readable"`
+	Mode         string `json:"mode"`
+	Permissions  uint32 `json:"permissions"`
+	Modified     string `json:"modified"`
+	Created      string `json:"created,omitempty"`
+	Accessed     string `json:"accessed,omitempty"`
+	Extension    string `json:"extension,omitempty"`
+	MimeType     string `json:"mime_type,omitempty"`
+	IsReadable   bool   `json:"is_readable"`
+	IsWritable   bool   `json:"is_writable"`
 }
 
 // ListDirectoryResult represents the result of a directory listing
 type ListDirectoryResult struct {
 	Path              string           `json:"path"`
-	Entries           []DirectoryEntry `json:"entries"`
+	Items             []DirectoryEntry `json:"items"` // renamed from "entries" for fast-filesystem parity
 	Total             int              `json:"total"`
 	Page              int              `json:"page,omitempty"`
 	PageSize          int              `json:"page_size,omitempty"`
 	TotalPages        int              `json:"total_pages,omitempty"`
 	ContinuationToken string           `json:"continuation_token,omitempty"`
 	HasMore           bool             `json:"has_more,omitempty"`
+	AutoChunked       bool             `json:"auto_chunked,omitempty"`
 }
+
+// DefaultListPageSize is the default page size for auto-chunking directory listings
+const DefaultListPageSize = 100
 
 // TreeNode represents a node in the directory tree
 type TreeNode struct {
@@ -42,7 +58,7 @@ type TreeNode struct {
 
 // DirectoryTreeResult represents the result of a directory tree operation
 type DirectoryTreeResult struct {
-	Root       *TreeNode `json:"root"`
+	Tree       *TreeNode `json:"tree"` // renamed from "root" for fast-filesystem parity
 	TotalDirs  int       `json:"total_dirs"`
 	TotalFiles int       `json:"total_files"`
 	TotalSize  int64     `json:"total_size"`
@@ -80,6 +96,7 @@ func (s *Server) handleListDirectory(args map[string]interface{}) (string, error
 	reverse := GetBool(args, "reverse", false)
 	page := GetInt(args, "page", 0)
 	pageSize := GetInt(args, "page_size", 0)
+	autoChunk := GetBool(args, "auto_chunk", true)
 	continuationTokenStr := GetString(args, "continuation_token", "")
 
 	// If continuation token provided, decode and use its page
@@ -122,13 +139,38 @@ func (s *Server) handleListDirectory(args map[string]interface{}) (string, error
 			continue
 		}
 
+		entryType := "file"
+		if info.IsDir() {
+			entryType = "directory"
+		}
+
+		// Get extension and MIME type for files
+		var ext, mimeType string
+		if !info.IsDir() {
+			ext = filepath.Ext(name)
+			if ext != "" {
+				mimeType = mime.TypeByExtension(ext)
+			}
+		}
+
+		// Check access permissions
+		entryPath := filepath.Join(normalizedPath, name)
+		isReadable, isWritable := checkAccess(entryPath)
+
 		entry := DirectoryEntry{
-			Name:    name,
-			Path:    filepath.Join(normalizedPath, name),
-			IsDir:   info.IsDir(),
-			Size:    info.Size(),
-			Mode:    info.Mode().String(),
-			ModTime: info.ModTime().Format("2006-01-02T15:04:05Z07:00"),
+			Name:         name,
+			Path:         entryPath,
+			Type:         entryType,
+			IsDir:        info.IsDir(),
+			Size:         info.Size(),
+			SizeReadable: humanize.Bytes(uint64(info.Size())),
+			Mode:         info.Mode().String(),
+			Permissions:  uint32(info.Mode().Perm()),
+			Modified:     info.ModTime().Format("2006-01-02T15:04:05Z07:00"),
+			Extension:    ext,
+			MimeType:     mimeType,
+			IsReadable:   isReadable,
+			IsWritable:   isWritable,
 		}
 		entries = append(entries, entry)
 	}
@@ -137,6 +179,14 @@ func (s *Server) handleListDirectory(args map[string]interface{}) (string, error
 	sortEntries(entries, sortBy, reverse)
 
 	total := len(entries)
+
+	// Apply auto-chunking if enabled and directory is large
+	autoChunked := false
+	if autoChunk && page == 0 && pageSize == 0 && total > DefaultListPageSize {
+		page = 1
+		pageSize = DefaultListPageSize
+		autoChunked = true
+	}
 
 	// Apply pagination
 	var totalPages int
@@ -163,13 +213,14 @@ func (s *Server) handleListDirectory(args map[string]interface{}) (string, error
 
 	result := ListDirectoryResult{
 		Path:              normalizedPath,
-		Entries:           entries,
+		Items:             entries,
 		Total:             total,
 		Page:              page,
 		PageSize:          pageSize,
 		TotalPages:        totalPages,
 		ContinuationToken: nextToken,
 		HasMore:           hasMore,
+		AutoChunked:       autoChunked,
 	}
 
 	jsonBytes, err := json.Marshal(result)
@@ -192,9 +243,24 @@ func sortEntries(entries []DirectoryEntry, sortBy string, reverse bool) {
 	case "modified", "time":
 		sort.Slice(entries, func(i, j int) bool {
 			if reverse {
-				return entries[i].ModTime > entries[j].ModTime
+				return entries[i].Modified > entries[j].Modified
 			}
-			return entries[i].ModTime < entries[j].ModTime
+			return entries[i].Modified < entries[j].Modified
+		})
+	case "type":
+		// Sort directories before files (or reverse for files first)
+		sort.Slice(entries, func(i, j int) bool {
+			if entries[i].IsDir != entries[j].IsDir {
+				if reverse {
+					return !entries[i].IsDir // files first when reversed
+				}
+				return entries[i].IsDir // directories first
+			}
+			// Secondary sort by name within same type
+			if reverse {
+				return entries[i].Name > entries[j].Name
+			}
+			return entries[i].Name < entries[j].Name
 		})
 	default: // name
 		sort.Slice(entries, func(i, j int) bool {
@@ -237,7 +303,7 @@ func (s *Server) handleGetDirectoryTree(args map[string]interface{}) (string, er
 	}
 
 	result := DirectoryTreeResult{
-		Root:       root,
+		Tree:       root,
 		TotalDirs:  totalDirs,
 		TotalFiles: totalFiles,
 		TotalSize:  totalSize,
@@ -317,4 +383,35 @@ func buildTree(path string, depth, maxDepth int, showHidden, includeFiles bool, 
 	}
 
 	return node, nil
+}
+
+// checkAccess checks if a file/directory is readable and writable
+func checkAccess(path string) (readable bool, writable bool) {
+	// Check read access by attempting to open for reading
+	file, err := os.Open(path)
+	if err == nil {
+		file.Close()
+		readable = true
+	}
+
+	// Check write access by checking if we can open for writing
+	// For directories, check if we can create a temp file
+	info, err := os.Stat(path)
+	if err != nil {
+		return readable, false
+	}
+
+	if info.IsDir() {
+		// For directories, check write permission via mode
+		writable = info.Mode().Perm()&0200 != 0
+	} else {
+		// For files, try opening with write flag (O_WRONLY)
+		file, err := os.OpenFile(path, os.O_WRONLY, 0)
+		if err == nil {
+			file.Close()
+			writable = true
+		}
+	}
+
+	return readable, writable
 }

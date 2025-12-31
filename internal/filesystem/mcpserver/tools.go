@@ -110,7 +110,7 @@ func GetToolDefinitions() []ToolDefinition {
 					"path": {"type": "string", "description": "Directory path"},
 					"show_hidden": {"type": "boolean", "description": "Show hidden files", "default": false},
 					"pattern": {"type": "string", "description": "Filename filter pattern"},
-					"sort_by": {"type": "string", "enum": ["name", "size", "modified"], "default": "name"},
+					"sort_by": {"type": "string", "enum": ["name", "size", "modified", "type"], "default": "name"},
 					"reverse": {"type": "boolean", "description": "Reverse sort order", "default": false},
 					"page": {"type": "number", "description": "Page number"},
 					"page_size": {"type": "number", "description": "Items per page"}
@@ -200,6 +200,31 @@ func GetToolDefinitions() []ToolDefinition {
 						},
 						"description": "List of edits"
 					}
+				},
+				"required": ["path", "edits"]
+			}`),
+		},
+		{
+			Name:        ToolPrefix + "edit_multiple_blocks",
+			Description: "Edits multiple parts of a file at once",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"path": {"type": "string", "description": "Path of the file to edit"},
+					"edits": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"old_text": {"type": "string", "description": "Existing text to find"},
+								"new_text": {"type": "string", "description": "The new text"},
+								"line_number": {"type": "number", "description": "Line number"},
+								"mode": {"type": "string", "enum": ["replace", "insert_before", "insert_after", "delete_line"], "default": "replace"}
+							}
+						},
+						"description": "List of edit operations"
+					},
+					"backup": {"type": "boolean", "description": "Create a backup", "default": true}
 				},
 				"required": ["path", "edits"]
 			}`),
@@ -342,8 +367,8 @@ func GetToolDefinitions() []ToolDefinition {
 				"type": "object",
 				"properties": {
 					"path": {"type": "string", "description": "Directory to search"},
-					"min_size": {"type": "number", "description": "Minimum size in bytes", "default": 0},
-					"limit": {"type": "number", "description": "Maximum results", "default": 100}
+					"min_size": {"type": "string", "description": "Minimum size (e.g., 100MB, 1GB)", "default": "100MB"},
+					"max_results": {"type": "number", "description": "Maximum results", "default": 100}
 				},
 				"required": ["path"]
 			}`),

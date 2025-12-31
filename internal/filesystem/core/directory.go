@@ -2,20 +2,32 @@ package core
 
 import (
 	"fmt"
+	"mime"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/dustin/go-humanize"
 )
 
 // DirectoryEntry represents a file or directory entry
 type DirectoryEntry struct {
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	IsDir   bool   `json:"is_dir"`
-	Size    int64  `json:"size"`
-	Mode    string `json:"mode"`
-	ModTime string `json:"mod_time"`
+	Name         string `json:"name"`
+	Path         string `json:"path"`
+	Type         string `json:"type"` // "file" or "directory"
+	IsDir        bool   `json:"is_dir"`
+	Size         int64  `json:"size"`
+	SizeReadable string `json:"size_readable"`
+	Mode         string `json:"mode"`
+	Permissions  uint32 `json:"permissions"`
+	Modified     string `json:"modified"`
+	Created      string `json:"created,omitempty"`
+	Accessed     string `json:"accessed,omitempty"`
+	Extension    string `json:"extension,omitempty"`
+	MimeType     string `json:"mime_type,omitempty"`
+	IsReadable   bool   `json:"is_readable"`
+	IsWritable   bool   `json:"is_writable"`
 }
 
 // ListDirectoryOptions contains input parameters for ListDirectory
@@ -33,7 +45,7 @@ type ListDirectoryOptions struct {
 // ListDirectoryResult represents the result of a directory listing
 type ListDirectoryResult struct {
 	Path       string           `json:"path"`
-	Entries    []DirectoryEntry `json:"entries"`
+	Items      []DirectoryEntry `json:"items"`
 	Total      int              `json:"total"`
 	Page       int              `json:"page,omitempty"`
 	PageSize   int              `json:"page_size,omitempty"`
@@ -93,13 +105,43 @@ func ListDirectory(opts ListDirectoryOptions) (*ListDirectoryResult, error) {
 			continue
 		}
 
+		entryType := "file"
+		if info.IsDir() {
+			entryType = "directory"
+		}
+
+		// Get extension and MIME type for files
+		var ext, mimeType string
+		if !info.IsDir() {
+			ext = filepath.Ext(name)
+			if ext != "" {
+				mimeType = mime.TypeByExtension(ext)
+			}
+		}
+
+		// Check access permissions
+		entryPath := filepath.Join(normalizedPath, name)
+		isReadable, isWritable := checkAccess(entryPath)
+
+		// Get all timestamps
+		created, accessed, modified := GetFileTimestamps(info)
+
 		entry := DirectoryEntry{
-			Name:    name,
-			Path:    filepath.Join(normalizedPath, name),
-			IsDir:   info.IsDir(),
-			Size:    info.Size(),
-			Mode:    info.Mode().String(),
-			ModTime: info.ModTime().Format("2006-01-02T15:04:05Z07:00"),
+			Name:         name,
+			Path:         entryPath,
+			Type:         entryType,
+			IsDir:        info.IsDir(),
+			Size:         info.Size(),
+			SizeReadable: humanize.Bytes(uint64(info.Size())),
+			Mode:         info.Mode().String(),
+			Permissions:  uint32(info.Mode().Perm()),
+			Modified:     modified.Format("2006-01-02T15:04:05Z07:00"),
+			Created:      created.Format("2006-01-02T15:04:05Z07:00"),
+			Accessed:     accessed.Format("2006-01-02T15:04:05Z07:00"),
+			Extension:    ext,
+			MimeType:     mimeType,
+			IsReadable:   isReadable,
+			IsWritable:   isWritable,
 		}
 		entries = append(entries, entry)
 	}
@@ -127,7 +169,7 @@ func ListDirectory(opts ListDirectoryOptions) (*ListDirectoryResult, error) {
 
 	return &ListDirectoryResult{
 		Path:       normalizedPath,
-		Entries:    entries,
+		Items:      entries,
 		Total:      total,
 		Page:       opts.Page,
 		PageSize:   opts.PageSize,
@@ -147,9 +189,9 @@ func sortEntries(entries []DirectoryEntry, sortBy string, reverse bool) {
 	case "modified", "time":
 		sort.Slice(entries, func(i, j int) bool {
 			if reverse {
-				return entries[i].ModTime > entries[j].ModTime
+				return entries[i].Modified > entries[j].Modified
 			}
-			return entries[i].ModTime < entries[j].ModTime
+			return entries[i].Modified < entries[j].Modified
 		})
 	default: // name
 		sort.Slice(entries, func(i, j int) bool {
@@ -182,7 +224,7 @@ type GetDirectoryTreeOptions struct {
 
 // GetDirectoryTreeResult represents the result of a directory tree operation
 type GetDirectoryTreeResult struct {
-	Root       *TreeNode `json:"root"`
+	Tree       *TreeNode `json:"tree"`
 	TotalDirs  int       `json:"total_dirs"`
 	TotalFiles int       `json:"total_files"`
 	TotalSize  int64     `json:"total_size"`
@@ -218,7 +260,7 @@ func GetDirectoryTree(opts GetDirectoryTreeOptions) (*GetDirectoryTreeResult, er
 	}
 
 	return &GetDirectoryTreeResult{
-		Root:       root,
+		Tree:       root,
 		TotalDirs:  totalDirs,
 		TotalFiles: totalFiles,
 		TotalSize:  totalSize,
@@ -291,4 +333,35 @@ func buildTree(path string, depth, maxDepth int, showHidden, includeFiles bool, 
 	}
 
 	return node, nil
+}
+
+// checkAccess checks if a file/directory is readable and writable
+func checkAccess(path string) (readable bool, writable bool) {
+	// Check read access by attempting to open for reading
+	file, err := os.Open(path)
+	if err == nil {
+		file.Close()
+		readable = true
+	}
+
+	// Check write access by checking if we can open for writing
+	// For directories, check if we can create a temp file
+	info, err := os.Stat(path)
+	if err != nil {
+		return readable, false
+	}
+
+	if info.IsDir() {
+		// For directories, check write permission via mode
+		writable = info.Mode().Perm()&0200 != 0
+	} else {
+		// For files, try opening with write flag (O_WRONLY)
+		file, err := os.OpenFile(path, os.O_WRONLY, 0)
+		if err == nil {
+			file.Close()
+			writable = true
+		}
+	}
+
+	return readable, writable
 }

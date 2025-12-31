@@ -89,6 +89,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildEditBlockArgs(args), nil
 	case "edit_blocks":
 		return buildEditBlocksArgs(args), nil
+	case "edit_multiple_blocks":
+		return buildEditMultipleBlocksArgs(args), nil
 	case "safe_edit":
 		return buildSafeEditArgs(args), nil
 	case "edit_file":
@@ -329,6 +331,21 @@ func buildEditBlocksArgs(args map[string]interface{}) []string {
 	return cmdArgs
 }
 
+func buildEditMultipleBlocksArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"edit-multiple-blocks"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	if edits, ok := args["edits"].([]interface{}); ok {
+		editsJSON, _ := json.Marshal(edits)
+		cmdArgs = append(cmdArgs, "--edits", string(editsJSON))
+	}
+	if !getBoolDefault(args, "backup", true) {
+		cmdArgs = append(cmdArgs, "--backup=false")
+	}
+	return cmdArgs
+}
+
 func buildSafeEditArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"safe-edit"}
 	if path, ok := args["path"].(string); ok {
@@ -469,11 +486,11 @@ func buildFindLargeFilesArgs(args map[string]interface{}) []string {
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
-	if minSize, ok := getInt(args, "min_size"); ok {
-		cmdArgs = append(cmdArgs, "--min-size", strconv.Itoa(minSize))
+	if minSize, ok := args["min_size"].(string); ok {
+		cmdArgs = append(cmdArgs, "--min-size", minSize)
 	}
-	if limit, ok := getInt(args, "limit"); ok {
-		cmdArgs = append(cmdArgs, "--limit", strconv.Itoa(limit))
+	if maxResults, ok := getInt(args, "max_results"); ok {
+		cmdArgs = append(cmdArgs, "--limit", strconv.Itoa(maxResults))
 	}
 	return cmdArgs
 }
