@@ -115,6 +115,7 @@ jobs:
           draft: false
           prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
           generate_release_notes: true
+          fail_on_unmatched_files: false
           files: |
             dist/llm-support-*
             dist/llm-support-mcp-*
