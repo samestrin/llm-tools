@@ -81,18 +81,18 @@ func TestToolSchemaRequiredFields(t *testing.T) {
 
 	// Map of tools to their required fields
 	requiredFields := map[string][]string{
-		"llm_clarify_match_clarification":    {"question"},
-		"llm_clarify_detect_conflicts":       {"tracking_file"},
+		"llm_clarify_match_clarification":     {"question"},
+		"llm_clarify_detect_conflicts":        {"tracking_file"},
 		"llm_clarify_validate_clarifications": {"tracking_file"},
-		"llm_clarify_init_tracking":          {"output"},
-		"llm_clarify_add_clarification":      {"tracking_file", "question"},
-		"llm_clarify_promote_clarification":  {"tracking_file", "id", "target"},
-		"llm_clarify_list_entries":           {"tracking_file"},
-		"llm_clarify_delete_clarification":   {"file", "id"},
-		"llm_clarify_export_memory":          {"source", "output"},
-		"llm_clarify_import_memory":          {"source", "target"},
-		"llm_clarify_optimize_memory":        {"file"},
-		"llm_clarify_reconcile_memory":       {"file", "project_root"},
+		"llm_clarify_init_tracking":           {"output"},
+		"llm_clarify_add_clarification":       {"tracking_file", "question"},
+		"llm_clarify_promote_clarification":   {"tracking_file", "id", "target"},
+		"llm_clarify_list_entries":            {"tracking_file"},
+		"llm_clarify_delete_clarification":    {"file", "id"},
+		"llm_clarify_export_memory":           {"source", "output"},
+		"llm_clarify_import_memory":           {"source", "target"},
+		"llm_clarify_optimize_memory":         {"file"},
+		"llm_clarify_reconcile_memory":        {"file", "project_root"},
 	}
 
 	for _, tool := range tools {

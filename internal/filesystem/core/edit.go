@@ -446,19 +446,19 @@ type MultiEditOperation struct {
 
 // MultiEditResult represents the detailed result of EditMultipleBlocks (fast-filesystem parity)
 type MultiEditResult struct {
-	Message         string           `json:"message"`
-	Path            string           `json:"path"`
-	TotalEdits      int              `json:"total_edits"`
-	SuccessfulEdits int              `json:"successful_edits"`
-	TotalChanges    int              `json:"total_changes"`
-	OriginalLines   int              `json:"original_lines"`
-	NewLines        int              `json:"new_lines"`
-	EditResults     []EditOpResult   `json:"edit_results"`
-	BackupCreated   *string          `json:"backup_created"`
-	BackupEnabled   bool             `json:"backup_enabled"`
-	Size            int64            `json:"size"`
-	SizeReadable    string           `json:"size_readable"`
-	Timestamp       string           `json:"timestamp"`
+	Message         string         `json:"message"`
+	Path            string         `json:"path"`
+	TotalEdits      int            `json:"total_edits"`
+	SuccessfulEdits int            `json:"successful_edits"`
+	TotalChanges    int            `json:"total_changes"`
+	OriginalLines   int            `json:"original_lines"`
+	NewLines        int            `json:"new_lines"`
+	EditResults     []EditOpResult `json:"edit_results"`
+	BackupCreated   *string        `json:"backup_created"`
+	BackupEnabled   bool           `json:"backup_enabled"`
+	Size            int64          `json:"size"`
+	SizeReadable    string         `json:"size_readable"`
+	Timestamp       string         `json:"timestamp"`
 }
 
 // EditOpResult represents the result of a single edit operation
