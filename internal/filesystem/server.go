@@ -13,7 +13,7 @@ import (
 
 const (
 	ServerName    = "llm-filesystem"
-	ServerVersion = "1.0.0"
+	ServerVersion = "1.2.0"
 )
 
 // Server wraps the MCP server with filesystem-specific configuration

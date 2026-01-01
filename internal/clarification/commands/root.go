@@ -8,7 +8,7 @@ import (
 )
 
 // Version is set at build time using ldflags
-var Version = "1.0.0"
+var Version = "1.2.0"
 
 // globalDBPath is the path set by the --db flag, overrides per-command --file flags
 var globalDBPath string

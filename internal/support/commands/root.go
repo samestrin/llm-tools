@@ -8,7 +8,7 @@ import (
 )
 
 // Version is set at build time via ldflags
-var Version = "1.0.0"
+var Version = "1.2.0"
 
 // RootCmd is the base command when called without any subcommands
 var RootCmd = &cobra.Command{
