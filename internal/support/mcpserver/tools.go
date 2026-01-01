@@ -1189,7 +1189,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 37. Initialize temp directory
 		{
 			Name:        ToolPrefix + "init_temp",
-			Description: "Initialize temp directory at .planning/.temp/{name}/. Returns TEMP_DIR, STATUS, CLEANED/EXISTING_FILES.",
+			Description: "Initialize temp directory at .planning/.temp/{name}/ with common variables. Returns TEMP_DIR, REPO_ROOT, TODAY, TIMESTAMP, EPOCH, STATUS, CONTEXT_FILE. Optionally includes BRANCH and COMMIT_SHORT with --with-git.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -1204,6 +1204,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"preserve": {
 						"type": "boolean",
 						"description": "Keep existing files"
+					},
+					"with_git": {
+						"type": "boolean",
+						"description": "Include BRANCH and COMMIT_SHORT in output"
+					},
+					"skip_context": {
+						"type": "boolean",
+						"description": "Don't create context.env file"
 					},
 					"json": {
 						"type": "boolean",

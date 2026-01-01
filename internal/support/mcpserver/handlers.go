@@ -1090,6 +1090,12 @@ func buildInitTempArgs(args map[string]interface{}) []string {
 	if getBool(args, "preserve") {
 		cmdArgs = append(cmdArgs, "--preserve")
 	}
+	if getBool(args, "with_git") {
+		cmdArgs = append(cmdArgs, "--with-git")
+	}
+	if getBool(args, "skip_context") {
+		cmdArgs = append(cmdArgs, "--skip-context")
+	}
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
 	}
