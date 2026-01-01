@@ -179,6 +179,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildHashArgs(args), nil
 	case "init_temp":
 		return buildInitTempArgs(args), nil
+	case "clean_temp":
+		return buildCleanTempArgs(args), nil
 	case "math":
 		return buildMathArgs(args), nil
 	case "prompt":
@@ -1095,6 +1097,31 @@ func buildInitTempArgs(args map[string]interface{}) []string {
 	}
 	if getBool(args, "skip_context") {
 		cmdArgs = append(cmdArgs, "--skip-context")
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildCleanTempArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"clean-temp"}
+
+	if name, ok := args["name"].(string); ok {
+		cmdArgs = append(cmdArgs, "--name", name)
+	}
+	if getBool(args, "all") {
+		cmdArgs = append(cmdArgs, "--all")
+	}
+	if olderThan, ok := args["older_than"].(string); ok {
+		cmdArgs = append(cmdArgs, "--older-than", olderThan)
+	}
+	if getBool(args, "dry_run") {
+		cmdArgs = append(cmdArgs, "--dry-run")
 	}
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")

@@ -1226,7 +1226,42 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 
-		// 38. Evaluate math expressions
+		// 38. Clean temp directory
+		{
+			Name:        ToolPrefix + "clean_temp",
+			Description: "Clean up temp directories created by init_temp. Removes specific directories by name, all directories, or directories older than a specified duration.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string",
+						"description": "Name of temp directory to remove"
+					},
+					"all": {
+						"type": "boolean",
+						"description": "Remove all temp directories"
+					},
+					"older_than": {
+						"type": "string",
+						"description": "Remove directories older than duration (e.g., 7d, 24h, 1h30m)"
+					},
+					"dry_run": {
+						"type": "boolean",
+						"description": "Show what would be removed without removing"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
+
+		// 39. Evaluate math expressions
 		{
 			Name:        ToolPrefix + "math",
 			Description: "Evaluate mathematical expressions safely. Supports basic arithmetic, functions (sin, cos, sqrt, etc.), and variables.",
