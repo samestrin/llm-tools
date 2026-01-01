@@ -7,6 +7,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-01-01
+
+### Added
+
+#### New Tool: llm-filesystem (27 commands)
+Full-featured filesystem operations as a drop-in replacement for fast-filesystem-mcp:
+
+**Core Operations:**
+- `read_file` - Read files with auto-chunking and continuation tokens
+- `read_multiple_files` - Read multiple files simultaneously
+- `write_file` - Write content to files
+- `large_write_file` - Write large files with backup and verification
+- `list_directory` - List directory with pagination and sorting
+- `get_directory_tree` - Recursive tree with configurable depth
+- `get_file_info` - Detailed file metadata
+- `create_directory` - Create directories recursively
+
+**Search:**
+- `search_files` - Find files by name pattern
+- `search_code` - Search file contents with context lines
+- `search_and_replace` - Bulk find/replace across files
+
+**Editing:**
+- `edit_block` - Precise block replacement
+- `edit_blocks` - Multiple block edits in one operation
+- `edit_file` - Line-based editing (insert/replace/delete)
+- `safe_edit` - Edit with backup and dry-run support
+- `extract_lines` - Extract specific line ranges
+
+**File Management:**
+- `copy_file` - Copy files/directories
+- `move_file` - Move/rename files
+- `delete_file` - Delete with confirmation
+- `batch_file_operations` - Bulk copy/move/delete
+- `sync_directories` - Directory synchronization
+- `compress_files` - Create zip/tar archives
+- `extract_archive` - Extract archives
+
+**Analysis:**
+- `get_disk_usage` - Disk space analysis
+- `find_large_files` - Find files by size threshold
+- `list_allowed_directories` - Show accessible paths
+
+#### New Tool: llm-semantic (4 commands)
+Semantic code search using local embeddings:
+- `index` - Build semantic index for codebase
+- `search` - Natural language code search
+- `update` - Incrementally update index
+- `status` - Check index status
+
+#### llm-support Enhancements
+
+**New Commands:**
+- `context multiset` - Set multiple context variables atomically
+- `context multiget` - Get multiple context variables in one call
+- `yaml-get` - Get value from YAML config by dot-notation key
+- `yaml-set` - Set value in YAML config
+- `yaml-multiget` - Get multiple YAML values
+- `yaml-multiset` - Set multiple YAML values atomically
+- `plan-type` - Detect plan type from metadata
+- `git-changes` - Count and list git working tree changes
+
+**Enhanced Commands:**
+- `init-temp` - Now returns REPO_ROOT, TODAY, TIMESTAMP, EPOCH, auto-creates context.env
+  - New `--with-git` flag adds BRANCH and COMMIT_SHORT
+  - New `--skip-context` flag skips context.env creation
+  - Reduces prompt setup from 7 operations to 1
+
+**Output Formatting:**
+- All commands now support `--min` flag for token-optimized output
+- All commands now support `--json` flag for structured output
+
+#### llm-clarification Enhancements
+- SQLite storage backend with YAML backward compatibility
+- Renamed MCP tools for consistency with CLI commands
+
+### Changed
+
+#### llm-filesystem Breaking Changes (API Parity with fast-filesystem)
+Parameter renames for fast-filesystem compatibility:
+- `depth` → `max_depth` (get_directory_tree)
+- `limit` → `max_results` (find_large_files)
+- `min_size` now accepts string format ("100MB" instead of bytes)
+
+Output key renames:
+- `root` → `tree` (get_directory_tree)
+- `entries` → `items` (list_directory)
+- `files` → `results` (search operations)
+- `is_dir` → `type` ("file" or "directory")
+- `mod_time` → `modified`
+
+New output fields:
+- `size_readable` - Human-readable size ("6.70 KB")
+- `created`, `accessed` - Additional timestamps
+- `extension`, `mime_type` - File type info
+- `is_readable`, `is_writable` - Access checks
+- `continuation_token`, `auto_chunked` - Pagination support
+- `context_before`, `context_after` - Search context lines
+- `permissions` - Numeric file permissions
+
+See `docs/llm-filesystem-migration.md` for upgrade guide.
+
+#### Architecture
+- CLI + MCP wrapper pattern: All tools now have separate CLI and MCP binaries
+- MCP servers wrap CLI binaries for consistent behavior
+
+### Fixed
+- llm-filesystem pagination now respects `page_size` parameter
+- llm-filesystem tree recursion properly traverses to `max_depth`
+- Context operations use file locking for concurrent safety
+
 ## [1.1.0] - 2025-12-27
 
 ### Added
@@ -143,7 +254,8 @@ Binary size: 14-15MB per platform.
 - OpenAI-compatible LLM API with retry and caching
 - Race-condition free (verified with `go test -race`)
 
-[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/samestrin/llm-tools/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/samestrin/llm-tools/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/samestrin/llm-tools/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/samestrin/llm-tools/releases/tag/v1.0.0

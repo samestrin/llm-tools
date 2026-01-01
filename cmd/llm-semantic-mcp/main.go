@@ -12,7 +12,7 @@ import (
 
 const (
 	serverName         = "llm-semantic-mcp"
-	serverVersion      = "1.0.0"
+	serverVersion      = "1.2.0"
 	serverInstructions = "llm-semantic-mcp provides semantic code search using local embedding models. It wraps the llm-semantic CLI with 4 tools for searching, indexing, and managing semantic code indexes."
 )
 
