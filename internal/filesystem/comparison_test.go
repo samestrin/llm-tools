@@ -734,13 +734,13 @@ func TestMoveFileOutputStructure(t *testing.T) {
 // TestEditMultipleBlocksAllModes validates all edit modes work correctly
 func TestEditMultipleBlocksAllModes(t *testing.T) {
 	tests := []struct {
-		name         string
+		name           string
 		initialContent string
-		edits        []interface{}
-		expectedLines int
+		edits          []interface{}
+		expectedLines  int
 	}{
 		{
-			name:         "replace mode",
+			name:           "replace mode",
 			initialContent: "hello world\nfoo bar\n",
 			edits: []interface{}{
 				map[string]interface{}{
@@ -752,7 +752,7 @@ func TestEditMultipleBlocksAllModes(t *testing.T) {
 			expectedLines: 3,
 		},
 		{
-			name:         "insert_before mode",
+			name:           "insert_before mode",
 			initialContent: "line1\nline2\n",
 			edits: []interface{}{
 				map[string]interface{}{
@@ -764,7 +764,7 @@ func TestEditMultipleBlocksAllModes(t *testing.T) {
 			expectedLines: 4,
 		},
 		{
-			name:         "insert_after mode",
+			name:           "insert_after mode",
 			initialContent: "line1\nline2\n",
 			edits: []interface{}{
 				map[string]interface{}{
@@ -776,7 +776,7 @@ func TestEditMultipleBlocksAllModes(t *testing.T) {
 			expectedLines: 4,
 		},
 		{
-			name:         "delete_line mode",
+			name:           "delete_line mode",
 			initialContent: "line1\nline2\nline3\n",
 			edits: []interface{}{
 				map[string]interface{}{
