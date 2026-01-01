@@ -19,7 +19,7 @@ func GetToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
 		// 1. Match clarification (API required)
 		{
-			Name:        ToolPrefix + "match",
+			Name:        ToolPrefix + "match_clarification",
 			Description: "Match a new question against existing clarification entries using LLM semantic matching. Returns match ID, confidence score (0-1), and reasoning. Use this to find if a question has been asked before. REQUIRES: OpenAI-compatible API configured via env vars or .planning/.config/openai_* files.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -55,7 +55,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 2. Cluster clarifications (API required)
 		{
-			Name:        ToolPrefix + "cluster",
+			Name:        ToolPrefix + "cluster_clarifications",
 			Description: "Group semantically similar questions into clusters. Useful for identifying duplicate or related clarifications across sprints. Returns clusters with labels and question lists. REQUIRES: OpenAI-compatible API configured.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -114,7 +114,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 4. Validate clarifications (API required)
 		{
-			Name:        ToolPrefix + "validate",
+			Name:        ToolPrefix + "validate_clarifications",
 			Description: "Validate clarifications against current project state. Flags entries that may be stale, outdated, or need review based on project context and last-seen dates. REQUIRES: OpenAI-compatible API configured.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -146,7 +146,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 5. Initialize tracking (no API)
 		{
-			Name:        ToolPrefix + "init",
+			Name:        ToolPrefix + "init_tracking",
 			Description: "Initialize a new clarification tracking file with proper schema. Creates the file at the specified path. Use before starting clarification tracking for a project.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -174,7 +174,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 6. Add clarification (no API)
 		{
-			Name:        ToolPrefix + "add",
+			Name:        ToolPrefix + "add_clarification",
 			Description: "Add or update a clarification entry in the tracking file. If a matching entry exists (by ID or simple match), updates it with incremented occurrence count. Otherwise creates a new entry with auto-generated ID. Handles all YAML serialization internally.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -222,7 +222,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 7. Promote clarification (no API)
 		{
-			Name:        ToolPrefix + "promote",
+			Name:        ToolPrefix + "promote_clarification",
 			Description: "Promote a clarification entry to CLAUDE.md. Updates entry status to 'promoted' and appends the clarification to the target CLAUDE.md file under a 'Learned Clarifications' section, organized by category based on context_tags.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -258,7 +258,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 8. List entries (no API)
 		{
-			Name:        ToolPrefix + "list",
+			Name:        ToolPrefix + "list_entries",
 			Description: "List entries in the tracking file with optional filtering by status or minimum occurrence count. Useful for reviewing what clarifications exist and identifying promotion candidates.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -291,7 +291,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 9. Delete clarification (no API)
 		{
-			Name:        ToolPrefix + "delete",
+			Name:        ToolPrefix + "delete_clarification",
 			Description: "Delete a clarification entry by ID from the storage file. Supports both YAML and SQLite storage backends.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -327,7 +327,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 10. Export memory (no API)
 		{
-			Name:        ToolPrefix + "export",
+			Name:        ToolPrefix + "export_memory",
 			Description: "Export clarification data from any storage format (SQLite or YAML) to a human-readable YAML file for editing or backup.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -359,7 +359,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 11. Import memory (no API)
 		{
-			Name:        ToolPrefix + "import",
+			Name:        ToolPrefix + "import_memory",
 			Description: "Import clarification data from a YAML file to any supported storage format (SQLite or YAML). Supports append, overwrite, and merge modes.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -396,7 +396,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 12. Optimize memory (no API)
 		{
-			Name:        ToolPrefix + "optimize",
+			Name:        ToolPrefix + "optimize_memory",
 			Description: "Optimize clarification storage for better performance. Supports vacuum (SQLite only), prune-stale, and stats operations.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -436,7 +436,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 13. Reconcile memory (no API)
 		{
-			Name:        ToolPrefix + "reconcile",
+			Name:        ToolPrefix + "reconcile_memory",
 			Description: "Scan clarification entries for file path references and identify references to files that no longer exist in the codebase. Marks stale entries for review.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",

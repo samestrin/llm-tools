@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // FileSearchResult represents a found file
@@ -29,10 +30,12 @@ type SearchFilesResult struct {
 
 // CodeMatch represents a single code match
 type CodeMatch struct {
-	File    string   `json:"file"`
-	Line    int      `json:"line"`
-	Content string   `json:"content"`
-	Context []string `json:"context,omitempty"`
+	File          string   `json:"file"`
+	Line          int      `json:"line"`
+	Content       string   `json:"content"`
+	Context       []string `json:"context,omitempty"`
+	ContextBefore []string `json:"context_before,omitempty"`
+	ContextAfter  []string `json:"context_after,omitempty"`
 }
 
 // SearchCodeResult represents the result of a code search
@@ -42,6 +45,8 @@ type SearchCodeResult struct {
 	Matches      []CodeMatch `json:"matches"`
 	TotalFiles   int         `json:"total_files"`
 	TotalMatches int         `json:"total_matches"`
+	RipgrepUsed  bool        `json:"ripgrep_used"`
+	SearchTimeMs int64       `json:"search_time_ms"`
 }
 
 func (s *Server) handleSearchFiles(args map[string]interface{}) (string, error) {
@@ -133,6 +138,8 @@ func (s *Server) handleSearchFiles(args map[string]interface{}) (string, error) 
 }
 
 func (s *Server) handleSearchCode(args map[string]interface{}) (string, error) {
+	startTime := time.Now()
+
 	path := GetString(args, "path", "")
 	pattern := GetString(args, "pattern", "")
 
@@ -253,6 +260,8 @@ func (s *Server) handleSearchCode(args map[string]interface{}) (string, error) {
 		Matches:      matches,
 		TotalFiles:   len(filesWithMatches),
 		TotalMatches: len(matches),
+		RipgrepUsed:  false, // We use Go's built-in search
+		SearchTimeMs: time.Since(startTime).Milliseconds(),
 	}
 
 	jsonBytes, err := json.Marshal(result)
@@ -287,14 +296,28 @@ func searchInFile(filePath string, matchFn func(string) bool, contextLines int) 
 			if matchFn(line) {
 				start := max(0, i-contextLines)
 				end := min(len(lines), i+contextLines+1)
+
+				// Build full context array
 				context := make([]string, 0, end-start)
 				for j := start; j < end; j++ {
 					context = append(context, lines[j])
 				}
+
+				// Build context_before and context_after separately
+				var contextBefore, contextAfter []string
+				if start < i {
+					contextBefore = lines[start:i]
+				}
+				if i+1 < end {
+					contextAfter = lines[i+1 : end]
+				}
+
 				matches = append(matches, CodeMatch{
-					Line:    i + 1,
-					Content: line,
-					Context: context,
+					Line:          i + 1,
+					Content:       line,
+					Context:       context,
+					ContextBefore: contextBefore,
+					ContextAfter:  contextAfter,
 				})
 			}
 		}

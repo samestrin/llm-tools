@@ -53,7 +53,7 @@ func TestExecuteHandler(t *testing.T) {
 			args: map[string]interface{}{
 				"path": tmpDir,
 			},
-			wantContains: "entries",
+			wantContains: "items",
 			wantErr:      false,
 		},
 		{
@@ -62,7 +62,7 @@ func TestExecuteHandler(t *testing.T) {
 			args: map[string]interface{}{
 				"path": tmpDir,
 			},
-			wantContains: "root",
+			wantContains: "tree",
 			wantErr:      false,
 		},
 		{

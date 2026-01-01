@@ -10,7 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+
+	"github.com/dustin/go-humanize"
+	ignore "github.com/sabhiram/go-gitignore"
 )
 
 // DiskUsageResult represents disk usage information
@@ -30,10 +34,12 @@ type LargeFileInfo struct {
 
 // LargeFilesResult represents find large files result
 type LargeFilesResult struct {
-	Path    string          `json:"path"`
-	MinSize int64           `json:"min_size"`
-	Files   []LargeFileInfo `json:"files"`
-	Total   int             `json:"total"`
+	Path       string          `json:"path"`
+	MinSize    int64           `json:"min_size"`
+	Files      []LargeFileInfo `json:"files"`
+	Total      int             `json:"total"`
+	TotalCount int             `json:"total_count"`
+	TotalSize  int64           `json:"total_size"`
 }
 
 // CompressResult represents compression result
@@ -118,8 +124,17 @@ func (s *Server) handleFindLargeFiles(args map[string]interface{}) (string, erro
 		return "", fmt.Errorf("path is required")
 	}
 
-	minSize := int64(GetInt(args, "min_size", 0))
-	limit := GetInt(args, "limit", 100)
+	// Parse min_size as string (supports "100MB", "1GB", "500KB", or plain numbers)
+	minSize, err := parseMinSize(args)
+	if err != nil {
+		return "", fmt.Errorf("invalid min_size: %w", err)
+	}
+
+	limit := GetInt(args, "max_results", 100)
+	// Also support legacy 'limit' parameter
+	if GetInt(args, "limit", 0) > 0 {
+		limit = GetInt(args, "limit", 100)
+	}
 
 	normalizedPath, err := NormalizePath(path)
 	if err != nil {
@@ -130,12 +145,29 @@ func (s *Server) handleFindLargeFiles(args map[string]interface{}) (string, erro
 		return "", err
 	}
 
+	// Load gitignore patterns
+	gitignoreFile := loadGitignore(normalizedPath)
+
 	var files []LargeFileInfo
 
 	err = filepath.Walk(normalizedPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
+
+		// Skip .git directory
+		if strings.Contains(path, string(os.PathSeparator)+".git"+string(os.PathSeparator)) {
+			return nil
+		}
+
+		// Apply gitignore filtering
+		if gitignoreFile != nil {
+			relPath, _ := filepath.Rel(normalizedPath, path)
+			if gitignoreFile.MatchesPath(relPath) {
+				return nil
+			}
+		}
+
 		if info.Size() >= minSize {
 			files = append(files, LargeFileInfo{
 				Path:    path,
@@ -156,15 +188,23 @@ func (s *Server) handleFindLargeFiles(args map[string]interface{}) (string, erro
 	})
 
 	// Apply limit
+	totalCount := len(files)
+	var totalSize int64
+	for _, f := range files {
+		totalSize += f.Size
+	}
+
 	if limit > 0 && len(files) > limit {
 		files = files[:limit]
 	}
 
 	result := LargeFilesResult{
-		Path:    normalizedPath,
-		MinSize: minSize,
-		Files:   files,
-		Total:   len(files),
+		Path:       normalizedPath,
+		MinSize:    minSize,
+		Files:      files,
+		Total:      len(files),
+		TotalCount: totalCount,
+		TotalSize:  totalSize,
 	}
 
 	jsonBytes, err := json.Marshal(result)
@@ -173,6 +213,63 @@ func (s *Server) handleFindLargeFiles(args map[string]interface{}) (string, erro
 	}
 
 	return string(jsonBytes), nil
+}
+
+// parseMinSize parses the min_size parameter which can be a string like "100MB" or a number
+func parseMinSize(args map[string]interface{}) (int64, error) {
+	// Try to get as string first
+	minSizeStr := GetString(args, "min_size", "")
+	if minSizeStr != "" {
+		// Try parsing as human-readable size (e.g., "100MB", "1GB")
+		bytes, err := humanize.ParseBytes(minSizeStr)
+		if err == nil {
+			return int64(bytes), nil
+		}
+		// Try parsing as plain number string
+		if num, err := strconv.ParseInt(minSizeStr, 10, 64); err == nil {
+			return num, nil
+		}
+		return 0, fmt.Errorf("cannot parse size: %s", minSizeStr)
+	}
+
+	// Fall back to integer parameter for backward compatibility
+	return int64(GetInt(args, "min_size", 0)), nil
+}
+
+// loadGitignore loads the .gitignore file from the given path or any parent directory
+func loadGitignore(path string) *ignore.GitIgnore {
+	// Check if path is a file, get directory
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil
+	}
+
+	searchPath := path
+	if !info.IsDir() {
+		searchPath = filepath.Dir(path)
+	}
+
+	// Walk up to find .gitignore
+	for searchPath != "/" && searchPath != "." {
+		gitignorePath := filepath.Join(searchPath, ".gitignore")
+		if _, err := os.Stat(gitignorePath); err == nil {
+			gi, err := ignore.CompileIgnoreFile(gitignorePath)
+			if err == nil {
+				return gi
+			}
+		}
+
+		// Check for .git directory (root of repo)
+		gitDir := filepath.Join(searchPath, ".git")
+		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+			// Found git root, stop searching
+			break
+		}
+
+		searchPath = filepath.Dir(searchPath)
+	}
+
+	return nil
 }
 
 func (s *Server) handleCompressFiles(args map[string]interface{}) (string, error) {

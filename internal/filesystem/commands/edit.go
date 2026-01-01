@@ -11,6 +11,7 @@ import (
 func addEditCommands(rootCmd *cobra.Command) {
 	rootCmd.AddCommand(editBlockCmd())
 	rootCmd.AddCommand(editBlocksCmd())
+	rootCmd.AddCommand(editMultipleBlocksCmd())
 	rootCmd.AddCommand(safeEditCmd())
 	rootCmd.AddCommand(editFileCmd())
 	rootCmd.AddCommand(searchAndReplaceCmd())
@@ -77,6 +78,48 @@ func editBlocksCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&path, "path", "", "File path (required)")
 	cmd.Flags().StringVar(&editsJSON, "edits", "", `JSON array of edits: [{"old_string":"x","new_string":"y"}]`)
+	cmd.MarkFlagRequired("path")
+	cmd.MarkFlagRequired("edits")
+
+	return cmd
+}
+
+func editMultipleBlocksCmd() *cobra.Command {
+	var path, editsJSON string
+	var backup bool
+
+	cmd := &cobra.Command{
+		Use:   "edit-multiple-blocks",
+		Short: "Edit multiple parts of a file with different modes",
+		Long:  "Applies multiple edits with modes: replace, insert_before, insert_after, delete_line",
+		Run: func(cmd *cobra.Command, args []string) {
+			var edits []core.MultiEditOperation
+			if err := json.Unmarshal([]byte(editsJSON), &edits); err != nil {
+				OutputError(fmt.Errorf("invalid edits JSON: %w", err))
+			}
+
+			result, err := core.EditMultipleBlocks(core.EditMultipleBlocksOptions{
+				Path:        path,
+				Edits:       edits,
+				Backup:      backup,
+				AllowedDirs: GetAllowedDirs(),
+			})
+			if err != nil {
+				OutputError(err)
+			}
+			OutputResult(result, func() string {
+				msg := fmt.Sprintf("Edited %s: %d change(s)", result.Path, result.TotalChanges)
+				if result.BackupCreated != nil {
+					msg += fmt.Sprintf("\nBackup: %s", *result.BackupCreated)
+				}
+				return msg
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&path, "path", "", "File path (required)")
+	cmd.Flags().StringVar(&editsJSON, "edits", "", `JSON array of edits: [{"old_text":"x","new_text":"y","mode":"replace"}]`)
+	cmd.Flags().BoolVar(&backup, "backup", true, "Create backup before editing")
 	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("edits")
 

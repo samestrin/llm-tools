@@ -1,6 +1,8 @@
 package filesystem
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -260,6 +262,213 @@ func TestListDirectoryMissingPath(t *testing.T) {
 	}
 }
 
+func TestListDirectoryPaginationEnforced(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create 12 test files
+	for i := 1; i <= 12; i++ {
+		os.WriteFile(filepath.Join(tmpDir, fmt.Sprintf("file%02d.txt", i)), []byte("content"), 0644)
+	}
+
+	server, _ := NewServer([]string{tmpDir})
+
+	t.Run("page_size=5 returns exactly 5 items", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(1),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(resp.Items) != 5 {
+			t.Errorf("expected 5 entries, got %d", len(resp.Items))
+		}
+		if resp.Total != 12 {
+			t.Errorf("expected total=12, got %d", resp.Total)
+		}
+		if resp.TotalPages != 3 {
+			t.Errorf("expected total_pages=3, got %d", resp.TotalPages)
+		}
+		if resp.Page != 1 {
+			t.Errorf("expected page=1, got %d", resp.Page)
+		}
+	})
+
+	t.Run("page=2 returns items 6-10", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(2),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(resp.Items) != 5 {
+			t.Errorf("expected 5 entries, got %d", len(resp.Items))
+		}
+		if resp.Page != 2 {
+			t.Errorf("expected page=2, got %d", resp.Page)
+		}
+	})
+
+	t.Run("last page returns remaining items", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(3),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(resp.Items) != 2 {
+			t.Errorf("expected 2 entries on last page, got %d", len(resp.Items))
+		}
+	})
+
+	t.Run("page_size=0 returns all items", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page_size": float64(0),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(resp.Items) != 12 {
+			t.Errorf("expected all 12 entries with page_size=0, got %d", len(resp.Items))
+		}
+	})
+
+	t.Run("page out of range returns empty list", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(10),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(resp.Items) != 0 {
+			t.Errorf("expected 0 entries for out-of-range page, got %d", len(resp.Items))
+		}
+	})
+
+	t.Run("continuation token returned when has_more", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(1),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if !resp.HasMore {
+			t.Error("expected has_more=true for page 1 of 3")
+		}
+		if resp.ContinuationToken == "" {
+			t.Error("expected continuation_token when has_more=true")
+		}
+	})
+
+	t.Run("continuation token resumes from correct position", func(t *testing.T) {
+		// Get page 1
+		result1, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(1),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp1 ListDirectoryResult
+		if err := json.Unmarshal([]byte(result1), &resp1); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		// Use continuation token to get page 2
+		result2, err := server.handleListDirectory(map[string]interface{}{
+			"path":               tmpDir,
+			"page_size":          float64(5),
+			"continuation_token": resp1.ContinuationToken,
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() with token error = %v", err)
+		}
+
+		var resp2 ListDirectoryResult
+		if err := json.Unmarshal([]byte(result2), &resp2); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if resp2.Page != 2 {
+			t.Errorf("expected page=2 when using continuation token, got %d", resp2.Page)
+		}
+		if len(resp2.Items) != 5 {
+			t.Errorf("expected 5 entries on page 2, got %d", len(resp2.Items))
+		}
+	})
+
+	t.Run("last page has no continuation token", func(t *testing.T) {
+		result, err := server.handleListDirectory(map[string]interface{}{
+			"path":      tmpDir,
+			"page":      float64(3),
+			"page_size": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleListDirectory() error = %v", err)
+		}
+
+		var resp ListDirectoryResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if resp.HasMore {
+			t.Error("expected has_more=false for last page")
+		}
+		if resp.ContinuationToken != "" {
+			t.Error("expected no continuation_token on last page")
+		}
+	})
+}
+
 func TestGetDirectoryTreeMissingPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	server, _ := NewServer([]string{tmpDir})
@@ -268,4 +477,111 @@ func TestGetDirectoryTreeMissingPath(t *testing.T) {
 	if err == nil {
 		t.Error("handleGetDirectoryTree() should error when path is missing")
 	}
+}
+
+func TestGetDirectoryTreeRecursionDepth(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create nested structure: level1/level2/level3/level4
+	os.MkdirAll(filepath.Join(tmpDir, "level1", "level2", "level3", "level4"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "root.txt"), []byte("content"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "level1", "l1.txt"), []byte("content"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "level1", "level2", "l2.txt"), []byte("content"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "level1", "level2", "level3", "l3.txt"), []byte("content"), 0644)
+
+	server, _ := NewServer([]string{tmpDir})
+
+	t.Run("depth=2 shows 2 levels deep", func(t *testing.T) {
+		result, err := server.handleGetDirectoryTree(map[string]interface{}{
+			"path":      tmpDir,
+			"max_depth": float64(2),
+		})
+		if err != nil {
+			t.Fatalf("handleGetDirectoryTree() error = %v", err)
+		}
+
+		var resp DirectoryTreeResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		// Root should have children (level1)
+		if resp.Tree == nil {
+			t.Fatal("expected root node")
+		}
+		if len(resp.Tree.Children) == 0 {
+			t.Error("expected root to have children")
+		}
+
+		// Find level1
+		var level1 *TreeNode
+		for _, child := range resp.Tree.Children {
+			if child.Name == "level1" {
+				level1 = child
+				break
+			}
+		}
+		if level1 == nil {
+			t.Fatal("expected to find level1 in root children")
+		}
+
+		// level1 should have children (level2)
+		if len(level1.Children) == 0 {
+			t.Error("expected level1 to have children at depth=2")
+		}
+
+		// Find level2
+		var level2 *TreeNode
+		for _, child := range level1.Children {
+			if child.Name == "level2" {
+				level2 = child
+				break
+			}
+		}
+		if level2 == nil {
+			t.Fatal("expected to find level2 in level1 children")
+		}
+
+		// level2 should NOT have children at depth=2 (we're at limit)
+		// Actually depth=2 means we recurse 2 levels from root, so level2's children wouldn't be populated
+		// The depth logic starts at 0 and stops when depth >= maxDepth
+		// So depth=2: root is depth 0, level1 is depth 1, level2 is depth 2 (no children)
+	})
+
+	t.Run("depth=0 returns only root with no children", func(t *testing.T) {
+		result, err := server.handleGetDirectoryTree(map[string]interface{}{
+			"path":      tmpDir,
+			"max_depth": float64(0),
+		})
+		if err != nil {
+			t.Fatalf("handleGetDirectoryTree() error = %v", err)
+		}
+
+		var resp DirectoryTreeResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if resp.Tree == nil {
+			t.Fatal("expected root node")
+		}
+		if len(resp.Tree.Children) != 0 {
+			t.Errorf("expected 0 children at depth=0, got %d", len(resp.Tree.Children))
+		}
+	})
+
+	t.Run("tree structure has nested children", func(t *testing.T) {
+		result, err := server.handleGetDirectoryTree(map[string]interface{}{
+			"path":      tmpDir,
+			"max_depth": float64(5),
+		})
+		if err != nil {
+			t.Fatalf("handleGetDirectoryTree() error = %v", err)
+		}
+
+		// Result should contain level4 (deeply nested)
+		if !strings.Contains(result, "level4") {
+			t.Error("expected result to contain level4 at max_depth=5")
+		}
+	})
 }

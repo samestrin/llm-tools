@@ -435,3 +435,249 @@ func countChanges(old, new, pattern string, useRegex bool) int {
 	}
 	return strings.Count(old, pattern)
 }
+
+// MultiEditOperation represents a single edit operation in EditMultipleBlocks
+type MultiEditOperation struct {
+	OldText    string `json:"old_text,omitempty"`
+	NewText    string `json:"new_text,omitempty"`
+	LineNumber int    `json:"line_number,omitempty"`
+	Mode       string `json:"mode,omitempty"` // "replace", "insert_before", "insert_after", "delete_line"
+}
+
+// MultiEditResult represents the detailed result of EditMultipleBlocks (fast-filesystem parity)
+type MultiEditResult struct {
+	Message         string           `json:"message"`
+	Path            string           `json:"path"`
+	TotalEdits      int              `json:"total_edits"`
+	SuccessfulEdits int              `json:"successful_edits"`
+	TotalChanges    int              `json:"total_changes"`
+	OriginalLines   int              `json:"original_lines"`
+	NewLines        int              `json:"new_lines"`
+	EditResults     []EditOpResult   `json:"edit_results"`
+	BackupCreated   *string          `json:"backup_created"`
+	BackupEnabled   bool             `json:"backup_enabled"`
+	Size            int64            `json:"size"`
+	SizeReadable    string           `json:"size_readable"`
+	Timestamp       string           `json:"timestamp"`
+}
+
+// EditOpResult represents the result of a single edit operation
+type EditOpResult struct {
+	EditIndex    int    `json:"edit_index"`
+	Mode         string `json:"mode"`
+	Status       string `json:"status"`
+	LineNumber   int    `json:"line_number,omitempty"`
+	OldText      string `json:"old_text_preview,omitempty"`
+	NewText      string `json:"new_text_preview,omitempty"`
+	InsertedLine string `json:"inserted_line,omitempty"`
+	DeletedLine  string `json:"deleted_line,omitempty"`
+	ChangesMade  int    `json:"changes_made"`
+}
+
+// EditMultipleBlocksOptions contains input parameters for EditMultipleBlocks
+type EditMultipleBlocksOptions struct {
+	Path        string
+	Edits       []MultiEditOperation
+	Backup      bool
+	AllowedDirs []string
+}
+
+// EditMultipleBlocks applies multiple edits to a file with support for different modes
+// Modes: replace (text matching), insert_before (line-based), insert_after (line-based), delete_line (line-based)
+func EditMultipleBlocks(opts EditMultipleBlocksOptions) (*MultiEditResult, error) {
+	if opts.Path == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+
+	// Normalize and validate path
+	normalizedPath, err := NormalizePath(opts.Path)
+	if err != nil {
+		return nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	if err := ValidatePath(normalizedPath, opts.AllowedDirs); err != nil {
+		return nil, err
+	}
+
+	// Read file content
+	content, err := os.ReadFile(normalizedPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var backupPath *string
+	if opts.Backup {
+		bp := createEditBackup(normalizedPath)
+		if bp != "" {
+			backupPath = &bp
+		}
+	}
+
+	contentStr := string(content)
+	originalLines := len(strings.Split(contentStr, "\n"))
+	totalChanges := 0
+	successfulEdits := 0
+	editResults := make([]EditOpResult, 0, len(opts.Edits))
+
+	// Process each edit
+	for i, edit := range opts.Edits {
+		mode := edit.Mode
+		if mode == "" {
+			mode = "replace"
+		}
+
+		opResult := EditOpResult{
+			EditIndex:  i + 1,
+			Mode:       mode,
+			LineNumber: edit.LineNumber,
+		}
+
+		switch mode {
+		case "replace":
+			if edit.OldText == "" {
+				opResult.Status = "skipped"
+				opResult.ChangesMade = 0
+				editResults = append(editResults, opResult)
+				continue
+			}
+			if strings.Contains(contentStr, edit.OldText) {
+				contentStr = strings.Replace(contentStr, edit.OldText, edit.NewText, 1)
+				opResult.Status = "success"
+				opResult.ChangesMade = 1
+				opResult.OldText = truncatePreview(edit.OldText, 50)
+				opResult.NewText = truncatePreview(edit.NewText, 50)
+				totalChanges++
+				successfulEdits++
+			} else {
+				opResult.Status = "not_found"
+				opResult.ChangesMade = 0
+			}
+
+		case "insert_before":
+			if edit.LineNumber < 1 {
+				opResult.Status = "invalid_line"
+				opResult.ChangesMade = 0
+				editResults = append(editResults, opResult)
+				continue
+			}
+			lines := strings.Split(contentStr, "\n")
+			if edit.LineNumber > len(lines)+1 {
+				opResult.Status = "line_out_of_range"
+				opResult.ChangesMade = 0
+				editResults = append(editResults, opResult)
+				continue
+			}
+			newLines := make([]string, 0, len(lines)+1)
+			newLines = append(newLines, lines[:edit.LineNumber-1]...)
+			newLines = append(newLines, edit.NewText)
+			newLines = append(newLines, lines[edit.LineNumber-1:]...)
+			contentStr = strings.Join(newLines, "\n")
+			opResult.Status = "success"
+			opResult.ChangesMade = 1
+			opResult.InsertedLine = truncatePreview(edit.NewText, 50)
+			totalChanges++
+			successfulEdits++
+
+		case "insert_after":
+			if edit.LineNumber < 1 {
+				opResult.Status = "invalid_line"
+				opResult.ChangesMade = 0
+				editResults = append(editResults, opResult)
+				continue
+			}
+			lines := strings.Split(contentStr, "\n")
+			if edit.LineNumber > len(lines) {
+				opResult.Status = "line_out_of_range"
+				opResult.ChangesMade = 0
+				editResults = append(editResults, opResult)
+				continue
+			}
+			newLines := make([]string, 0, len(lines)+1)
+			newLines = append(newLines, lines[:edit.LineNumber]...)
+			newLines = append(newLines, edit.NewText)
+			newLines = append(newLines, lines[edit.LineNumber:]...)
+			contentStr = strings.Join(newLines, "\n")
+			opResult.Status = "success"
+			opResult.ChangesMade = 1
+			opResult.InsertedLine = truncatePreview(edit.NewText, 50)
+			totalChanges++
+			successfulEdits++
+
+		case "delete_line":
+			if edit.LineNumber < 1 {
+				opResult.Status = "invalid_line"
+				opResult.ChangesMade = 0
+				editResults = append(editResults, opResult)
+				continue
+			}
+			lines := strings.Split(contentStr, "\n")
+			if edit.LineNumber > len(lines) {
+				opResult.Status = "line_out_of_range"
+				opResult.ChangesMade = 0
+				editResults = append(editResults, opResult)
+				continue
+			}
+			opResult.DeletedLine = truncatePreview(lines[edit.LineNumber-1], 50)
+			lines = append(lines[:edit.LineNumber-1], lines[edit.LineNumber:]...)
+			contentStr = strings.Join(lines, "\n")
+			opResult.Status = "success"
+			opResult.ChangesMade = 1
+			totalChanges++
+			successfulEdits++
+		}
+
+		editResults = append(editResults, opResult)
+	}
+
+	// Write file
+	if err := os.WriteFile(normalizedPath, []byte(contentStr), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write file: %w", err)
+	}
+
+	// Get final file info
+	finalInfo, _ := os.Stat(normalizedPath)
+	var finalSize int64
+	if finalInfo != nil {
+		finalSize = finalInfo.Size()
+	}
+
+	newLines := len(strings.Split(contentStr, "\n"))
+
+	return &MultiEditResult{
+		Message:         "Safe multiple blocks edited successfully",
+		Path:            normalizedPath,
+		TotalEdits:      len(opts.Edits),
+		SuccessfulEdits: successfulEdits,
+		TotalChanges:    totalChanges,
+		OriginalLines:   originalLines,
+		NewLines:        newLines,
+		EditResults:     editResults,
+		BackupCreated:   backupPath,
+		BackupEnabled:   opts.Backup,
+		Size:            finalSize,
+		SizeReadable:    formatBytes(finalSize),
+		Timestamp:       time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
+// truncatePreview truncates a string to maxLen characters with ellipsis
+func truncatePreview(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// formatBytes formats bytes as human-readable string
+func formatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}

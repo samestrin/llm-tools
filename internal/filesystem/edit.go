@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/samestrin/llm-tools/internal/filesystem/core"
 )
 
 // EditResult represents the result of an edit operation
@@ -158,8 +160,60 @@ func (s *Server) handleEditBlocks(args map[string]interface{}) (string, error) {
 }
 
 func (s *Server) handleEditMultipleBlocks(args map[string]interface{}) (string, error) {
-	// This is similar to handleEditBlocks but may support multiple files
-	return s.handleEditBlocks(args)
+	path := GetString(args, "path", "")
+	backup := GetBool(args, "backup", true)
+
+	if path == "" {
+		return "", fmt.Errorf("path is required")
+	}
+
+	// Parse edits array
+	editsRaw, ok := args["edits"].([]interface{})
+	if !ok {
+		return "", fmt.Errorf("edits is required and must be an array")
+	}
+
+	var edits []core.MultiEditOperation
+	for _, e := range editsRaw {
+		editMap, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		edit := core.MultiEditOperation{
+			OldText:    GetString(editMap, "old_text", ""),
+			NewText:    GetString(editMap, "new_text", ""),
+			LineNumber: GetInt(editMap, "line_number", 0),
+			Mode:       GetString(editMap, "mode", "replace"),
+		}
+
+		// Also support old_string/new_string for backwards compatibility
+		if edit.OldText == "" {
+			edit.OldText = GetString(editMap, "old_string", "")
+		}
+		if edit.NewText == "" {
+			edit.NewText = GetString(editMap, "new_string", "")
+		}
+
+		edits = append(edits, edit)
+	}
+
+	result, err := core.EditMultipleBlocks(core.EditMultipleBlocksOptions{
+		Path:        path,
+		Edits:       edits,
+		Backup:      backup,
+		AllowedDirs: s.allowedDirs,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(jsonBytes), nil
 }
 
 func (s *Server) handleSafeEdit(args map[string]interface{}) (string, error) {

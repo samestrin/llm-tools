@@ -13,7 +13,7 @@ import (
 // EmbedderConfig holds configuration for the embedding client
 type EmbedderConfig struct {
 	APIURL     string        // Base URL for embedding API (OpenAI-compatible)
-	Model      string        // Model name (e.g., "mxbai-embed-large", "text-embedding-ada-002")
+	Model      string        // Model name (e.g., "nomic-embed-text", "mxbai-embed-large", "text-embedding-ada-002")
 	APIKey     string        // API key (optional for local models)
 	Timeout    time.Duration // Request timeout
 	MaxRetries int           // Maximum retry attempts
@@ -23,7 +23,7 @@ type EmbedderConfig struct {
 func DefaultEmbedderConfig() EmbedderConfig {
 	return EmbedderConfig{
 		APIURL:     "http://localhost:11434", // Ollama default
-		Model:      "mxbai-embed-large",
+		Model:      "nomic-embed-text",       // 768 dims, 8192 context - best all-rounder for code
 		Timeout:    30 * time.Second,
 		MaxRetries: 3,
 	}
@@ -42,7 +42,7 @@ func NewEmbedder(cfg EmbedderConfig) (*Embedder, error) {
 		cfg.APIURL = "http://localhost:11434"
 	}
 	if cfg.Model == "" {
-		cfg.Model = "mxbai-embed-large"
+		cfg.Model = "nomic-embed-text"
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = 30 * time.Second

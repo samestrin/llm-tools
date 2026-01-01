@@ -51,31 +51,31 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 // buildArgs builds CLI arguments for the given tool
 func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 	switch cmdName {
-	case "match":
+	case "match_clarification":
 		return buildMatchArgs(args), nil
-	case "cluster":
+	case "cluster_clarifications":
 		return buildClusterArgs(args), nil
 	case "detect_conflicts":
 		return buildDetectConflictsArgs(args), nil
-	case "validate":
+	case "validate_clarifications":
 		return buildValidateArgs(args), nil
-	case "init":
+	case "init_tracking":
 		return buildInitArgs(args), nil
-	case "add":
+	case "add_clarification":
 		return buildAddArgs(args), nil
-	case "promote":
+	case "promote_clarification":
 		return buildPromoteArgs(args), nil
-	case "list":
+	case "list_entries":
 		return buildListArgs(args), nil
-	case "delete":
+	case "delete_clarification":
 		return buildDeleteArgs(args), nil
-	case "export":
+	case "export_memory":
 		return buildExportArgs(args), nil
-	case "import":
+	case "import_memory":
 		return buildImportArgs(args), nil
-	case "optimize":
+	case "optimize_memory":
 		return buildOptimizeArgs(args), nil
-	case "reconcile":
+	case "reconcile_memory":
 		return buildReconcileArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)

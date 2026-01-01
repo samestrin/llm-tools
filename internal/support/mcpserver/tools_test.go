@@ -8,9 +8,9 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Verify we have exactly 28 tools
-	if len(tools) != 28 {
-		t.Errorf("Expected 28 tools, got %d", len(tools))
+	// Verify we have exactly 50 tools
+	if len(tools) != 50 {
+		t.Errorf("Expected 50 tools, got %d", len(tools))
 	}
 
 	// Verify all tools have the correct prefix
@@ -63,6 +63,28 @@ func TestGetToolDefinitions(t *testing.T) {
 		"llm_support_yaml_set",
 		"llm_support_yaml_multiget",
 		"llm_support_yaml_multiset",
+		"llm_support_args",
+		"llm_support_catfiles",
+		"llm_support_decode",
+		"llm_support_diff",
+		"llm_support_encode",
+		"llm_support_extract",
+		"llm_support_foreach",
+		"llm_support_hash",
+		"llm_support_init_temp",
+		"llm_support_math",
+		"llm_support_prompt",
+		"llm_support_report",
+		"llm_support_stats",
+		"llm_support_toml_query",
+		"llm_support_toml_validate",
+		"llm_support_toml_parse",
+		"llm_support_transform_case",
+		"llm_support_transform_csv_to_json",
+		"llm_support_transform_json_to_csv",
+		"llm_support_transform_filter",
+		"llm_support_transform_sort",
+		"llm_support_validate",
 	}
 
 	toolMap := make(map[string]bool)

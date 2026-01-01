@@ -304,30 +304,161 @@ func TestEditMultipleBlocks(t *testing.T) {
 	tmpDir := t.TempDir()
 	server, _ := NewServer([]string{tmpDir})
 
-	// This is a delegation test - it delegates to handleEditBlocks
-	path := filepath.Join(tmpDir, "multi_blocks.txt")
-	os.WriteFile(path, []byte("Hello World"), 0644)
-
-	result, err := server.handleEditMultipleBlocks(map[string]interface{}{
-		"path": path,
-		"edits": []interface{}{
-			map[string]interface{}{
-				"old_string": "Hello",
-				"new_string": "Hi",
+	tests := []struct {
+		name        string
+		setup       func() string
+		args        map[string]interface{}
+		wantContent string
+		wantErr     bool
+	}{
+		{
+			name: "replace mode with old_text/new_text",
+			setup: func() string {
+				path := filepath.Join(tmpDir, "multi1.txt")
+				os.WriteFile(path, []byte("Hello World"), 0644)
+				return path
 			},
+			args: map[string]interface{}{
+				"backup": false,
+				"edits": []interface{}{
+					map[string]interface{}{
+						"old_text": "Hello",
+						"new_text": "Hi",
+						"mode":     "replace",
+					},
+				},
+			},
+			wantContent: "Hi World",
+			wantErr:     false,
 		},
-	})
-	if err != nil {
-		t.Errorf("handleEditMultipleBlocks() error = %v", err)
+		{
+			name: "replace mode with old_string/new_string (backwards compat)",
+			setup: func() string {
+				path := filepath.Join(tmpDir, "multi2.txt")
+				os.WriteFile(path, []byte("Hello World"), 0644)
+				return path
+			},
+			args: map[string]interface{}{
+				"backup": false,
+				"edits": []interface{}{
+					map[string]interface{}{
+						"old_string": "Hello",
+						"new_string": "Hi",
+					},
+				},
+			},
+			wantContent: "Hi World",
+			wantErr:     false,
+		},
+		{
+			name: "insert_before mode",
+			setup: func() string {
+				path := filepath.Join(tmpDir, "multi3.txt")
+				os.WriteFile(path, []byte("line1\nline2\nline3"), 0644)
+				return path
+			},
+			args: map[string]interface{}{
+				"backup": false,
+				"edits": []interface{}{
+					map[string]interface{}{
+						"line_number": float64(2),
+						"new_text":    "inserted",
+						"mode":        "insert_before",
+					},
+				},
+			},
+			wantContent: "line1\ninserted\nline2\nline3",
+			wantErr:     false,
+		},
+		{
+			name: "insert_after mode",
+			setup: func() string {
+				path := filepath.Join(tmpDir, "multi4.txt")
+				os.WriteFile(path, []byte("line1\nline2\nline3"), 0644)
+				return path
+			},
+			args: map[string]interface{}{
+				"backup": false,
+				"edits": []interface{}{
+					map[string]interface{}{
+						"line_number": float64(2),
+						"new_text":    "inserted",
+						"mode":        "insert_after",
+					},
+				},
+			},
+			wantContent: "line1\nline2\ninserted\nline3",
+			wantErr:     false,
+		},
+		{
+			name: "delete_line mode",
+			setup: func() string {
+				path := filepath.Join(tmpDir, "multi5.txt")
+				os.WriteFile(path, []byte("line1\nline2\nline3"), 0644)
+				return path
+			},
+			args: map[string]interface{}{
+				"backup": false,
+				"edits": []interface{}{
+					map[string]interface{}{
+						"line_number": float64(2),
+						"mode":        "delete_line",
+					},
+				},
+			},
+			wantContent: "line1\nline3",
+			wantErr:     false,
+		},
+		{
+			name: "multiple mixed operations",
+			setup: func() string {
+				path := filepath.Join(tmpDir, "multi6.txt")
+				os.WriteFile(path, []byte("Hello World\nline2\nline3"), 0644)
+				return path
+			},
+			args: map[string]interface{}{
+				"backup": false,
+				"edits": []interface{}{
+					map[string]interface{}{
+						"old_text": "Hello",
+						"new_text": "Hi",
+						"mode":     "replace",
+					},
+					map[string]interface{}{
+						"line_number": float64(2),
+						"new_text":    "inserted",
+						"mode":        "insert_after",
+					},
+				},
+			},
+			wantContent: "Hi World\nline2\ninserted\nline3",
+			wantErr:     false,
+		},
 	}
 
-	if !strings.Contains(result, "success") && !strings.Contains(result, "true") {
-		t.Errorf("handleEditMultipleBlocks() should indicate success")
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := tt.setup()
+			tt.args["path"] = path
 
-	content, _ := os.ReadFile(path)
-	if !strings.Contains(string(content), "Hi") {
-		t.Errorf("File content should contain 'Hi', got %s", string(content))
+			result, err := server.handleEditMultipleBlocks(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleEditMultipleBlocks() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+
+			if !strings.Contains(result, "success") && !strings.Contains(result, "true") {
+				t.Errorf("handleEditMultipleBlocks() should indicate success, got %s", result)
+			}
+
+			content, _ := os.ReadFile(path)
+			if string(content) != tt.wantContent {
+				t.Errorf("File content = %q, want %q", string(content), tt.wantContent)
+			}
+		})
 	}
 }
 
