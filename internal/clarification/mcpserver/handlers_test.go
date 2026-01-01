@@ -279,14 +279,14 @@ func TestBuildArgsDispatcher(t *testing.T) {
 		wantFirst string
 		wantErr   bool
 	}{
-		{"match", map[string]interface{}{"question": "q"}, 3, "match-clarification", false},
-		{"cluster", map[string]interface{}{"questions_file": "f"}, 3, "cluster-clarifications", false},
+		{"match_clarification", map[string]interface{}{"question": "q"}, 3, "match-clarification", false},
+		{"cluster_clarifications", map[string]interface{}{"questions_file": "f"}, 3, "cluster-clarifications", false},
 		{"detect_conflicts", map[string]interface{}{"tracking_file": "f"}, 2, "detect-conflicts", false},
-		{"validate", map[string]interface{}{"tracking_file": "f"}, 2, "validate-clarifications", false},
-		{"init", map[string]interface{}{"output": "f"}, 3, "init-tracking", false},
-		{"add", map[string]interface{}{"tracking_file": "f"}, 3, "add-clarification", false},
-		{"promote", map[string]interface{}{"tracking_file": "f"}, 3, "promote-clarification", false},
-		{"list", map[string]interface{}{"tracking_file": "f"}, 2, "list-entries", false},
+		{"validate_clarifications", map[string]interface{}{"tracking_file": "f"}, 2, "validate-clarifications", false},
+		{"init_tracking", map[string]interface{}{"output": "f"}, 3, "init-tracking", false},
+		{"add_clarification", map[string]interface{}{"tracking_file": "f"}, 3, "add-clarification", false},
+		{"promote_clarification", map[string]interface{}{"tracking_file": "f"}, 3, "promote-clarification", false},
+		{"list_entries", map[string]interface{}{"tracking_file": "f"}, 2, "list-entries", false},
 		{"unknown_command", map[string]interface{}{}, 0, "", true},
 	}
 
@@ -592,11 +592,11 @@ func TestBuildArgsDispatcherNewCommands(t *testing.T) {
 		wantFirst string
 		wantErr   bool
 	}{
-		{"delete", map[string]interface{}{"file": "f", "id": "i"}, 5, "delete-clarification", false},
-		{"export", map[string]interface{}{"source": "s", "output": "o"}, 5, "export-memory", false},
-		{"import", map[string]interface{}{"source": "s", "target": "t"}, 5, "import-memory", false},
-		{"optimize", map[string]interface{}{"file": "f"}, 3, "optimize-memory", false},
-		{"reconcile", map[string]interface{}{"file": "f", "project_root": "p"}, 5, "reconcile-memory", false},
+		{"delete_clarification", map[string]interface{}{"file": "f", "id": "i"}, 5, "delete-clarification", false},
+		{"export_memory", map[string]interface{}{"source": "s", "output": "o"}, 5, "export-memory", false},
+		{"import_memory", map[string]interface{}{"source": "s", "target": "t"}, 5, "import-memory", false},
+		{"optimize_memory", map[string]interface{}{"file": "f"}, 3, "optimize-memory", false},
+		{"reconcile_memory", map[string]interface{}{"file": "f", "project_root": "p"}, 5, "reconcile-memory", false},
 	}
 
 	for _, tt := range tests {

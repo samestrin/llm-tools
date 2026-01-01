@@ -1,6 +1,6 @@
 # llm-filesystem Commands
 
-High-performance filesystem operations CLI with 27 commands for reading, writing, editing, and managing files.
+High-performance filesystem operations CLI with 26 commands for reading, writing, editing, and managing files.
 
 ## Installation
 
@@ -49,7 +49,7 @@ go install github.com/samestrin/llm-tools/cmd/llm-filesystem@latest
 | Command | Description | Example |
 |---------|-------------|---------|
 | `list-directory` | List directory contents | `llm-filesystem list-directory --path /tmp --json` |
-| `get-directory-tree` | Get directory tree | `llm-filesystem get-directory-tree --path /tmp --depth 3` |
+| `get-directory-tree` | Get directory tree | `llm-filesystem get-directory-tree --path /tmp --max-depth 3` |
 
 ### Search Operations
 
@@ -72,7 +72,7 @@ go install github.com/samestrin/llm-tools/cmd/llm-filesystem@latest
 | Command | Description | Example |
 |---------|-------------|---------|
 | `get-disk-usage` | Get disk usage stats | `llm-filesystem get-disk-usage --path /tmp` |
-| `find-large-files` | Find files over size | `llm-filesystem find-large-files --path ./src --min-size 1048576` |
+| `find-large-files` | Find files over size | `llm-filesystem find-large-files --path ./src --min-size "1MB"` |
 | `compress-files` | Create archive | `llm-filesystem compress-files --paths file1.txt --paths file2.txt --output archive.zip` |
 | `extract-archive` | Extract archive | `llm-filesystem extract-archive --archive file.zip --dest /tmp/extracted` |
 | `sync-directories` | Sync directories | `llm-filesystem sync-directories --source /src --dest /backup` |
@@ -80,11 +80,26 @@ go install github.com/samestrin/llm-tools/cmd/llm-filesystem@latest
 
 ## MCP Integration
 
-The MCP wrapper (`llm-filesystem-mcp`) exposes all 27 commands as MCP tools with the `fast_` prefix:
+The MCP wrapper (`llm-filesystem-mcp`) exposes all 26 commands as MCP tools with the `llm_filesystem_` prefix:
 
-- `fast_read_file`
-- `fast_write_file`
-- `fast_edit_block`
+- `llm_filesystem_read_file`
+- `llm_filesystem_write_file`
+- `llm_filesystem_list_directory`
+- `llm_filesystem_get_directory_tree`
+- `llm_filesystem_search_code`
 - etc.
 
 See [MCP Setup Guide](MCP_SETUP.md) for integration instructions.
+
+## API Parity with fast-filesystem
+
+llm-filesystem is designed as a drop-in replacement for fast-filesystem MCP. Key features:
+
+- **Output Structure**: Uses `items` instead of `entries`, `tree` instead of `root`
+- **File Info**: Includes `type` ("file"/"directory"), `size_readable`, `permissions`, `extension`, `mime_type`
+- **Access Checks**: Provides `is_readable` and `is_writable` fields
+- **Search Results**: Includes `context_before`, `context_after`, `ripgrep_used`, `search_time_ms`
+- **Pagination**: Supports `continuation_token` for large results
+- **Filtering**: Respects `.gitignore` patterns in `find-large-files`
+
+See [Migration Guide](llm-filesystem-migration.md) for details on migrating from fast-filesystem.

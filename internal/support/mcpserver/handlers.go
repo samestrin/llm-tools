@@ -161,6 +161,50 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildYamlMultigetArgs(args), nil
 	case "yaml_multiset":
 		return buildYamlMultisetArgs(args), nil
+	case "args":
+		return buildArgsParserArgs(args), nil
+	case "catfiles":
+		return buildCatfilesArgs(args), nil
+	case "decode":
+		return buildDecodeArgs(args), nil
+	case "diff":
+		return buildDiffArgs(args), nil
+	case "encode":
+		return buildEncodeArgs(args), nil
+	case "extract":
+		return buildExtractArgs(args), nil
+	case "foreach":
+		return buildForeachArgs(args), nil
+	case "hash":
+		return buildHashArgs(args), nil
+	case "init_temp":
+		return buildInitTempArgs(args), nil
+	case "math":
+		return buildMathArgs(args), nil
+	case "prompt":
+		return buildPromptArgs(args), nil
+	case "report":
+		return buildReportArgs(args), nil
+	case "stats":
+		return buildStatsArgs(args), nil
+	case "toml_query":
+		return buildTomlQueryArgs(args), nil
+	case "toml_validate":
+		return buildTomlValidateArgs(args), nil
+	case "toml_parse":
+		return buildTomlParseArgs(args), nil
+	case "transform_case":
+		return buildTransformCaseArgs(args), nil
+	case "transform_csv_to_json":
+		return buildTransformCsvToJsonArgs(args), nil
+	case "transform_json_to_csv":
+		return buildTransformJsonToCsvArgs(args), nil
+	case "transform_filter":
+		return buildTransformFilterArgs(args), nil
+	case "transform_sort":
+		return buildTransformSortArgs(args), nil
+	case "validate":
+		return buildValidateArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -825,6 +869,480 @@ func buildYamlMultisetArgs(args map[string]interface{}) []string {
 	}
 
 	// Output format flags
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildArgsParserArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"args"}
+
+	// Add arguments as positional parameters
+	if arguments, ok := args["arguments"].([]interface{}); ok {
+		for _, arg := range arguments {
+			if s, ok := arg.(string); ok {
+				cmdArgs = append(cmdArgs, s)
+			}
+		}
+	}
+
+	return cmdArgs
+}
+
+func buildCatfilesArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"catfiles"}
+
+	if paths, ok := args["paths"].([]interface{}); ok {
+		for _, p := range paths {
+			if s, ok := p.(string); ok {
+				cmdArgs = append(cmdArgs, s)
+			}
+		}
+	}
+	if maxSize, ok := getInt(args, "max_size"); ok {
+		cmdArgs = append(cmdArgs, "--max-size", strconv.Itoa(maxSize))
+	}
+	if getBool(args, "no_gitignore") {
+		cmdArgs = append(cmdArgs, "--no-gitignore")
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildDecodeArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"decode"}
+
+	if text, ok := args["text"].(string); ok {
+		cmdArgs = append(cmdArgs, text)
+	}
+	if encoding, ok := args["encoding"].(string); ok {
+		cmdArgs = append(cmdArgs, "--encoding", encoding)
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildDiffArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"diff"}
+
+	if file1, ok := args["file1"].(string); ok {
+		cmdArgs = append(cmdArgs, file1)
+	}
+	if file2, ok := args["file2"].(string); ok {
+		cmdArgs = append(cmdArgs, file2)
+	}
+	if getBool(args, "unified") {
+		cmdArgs = append(cmdArgs, "--unified")
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildEncodeArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"encode"}
+
+	if text, ok := args["text"].(string); ok {
+		cmdArgs = append(cmdArgs, text)
+	}
+	if encoding, ok := args["encoding"].(string); ok {
+		cmdArgs = append(cmdArgs, "--encoding", encoding)
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildExtractArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"extract"}
+
+	if t, ok := args["type"].(string); ok {
+		cmdArgs = append(cmdArgs, t)
+	}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, file)
+	}
+	if getBool(args, "count") {
+		cmdArgs = append(cmdArgs, "--count")
+	}
+	if getBool(args, "unique") {
+		cmdArgs = append(cmdArgs, "--unique")
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildForeachArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"foreach"}
+
+	if files, ok := args["files"].([]interface{}); ok {
+		for _, f := range files {
+			if s, ok := f.(string); ok {
+				cmdArgs = append(cmdArgs, "--files", s)
+			}
+		}
+	}
+	if glob, ok := args["glob"].(string); ok {
+		cmdArgs = append(cmdArgs, "--glob", glob)
+	}
+	if template, ok := args["template"].(string); ok {
+		cmdArgs = append(cmdArgs, "--template", template)
+	}
+	if llm, ok := args["llm"].(string); ok {
+		cmdArgs = append(cmdArgs, "--llm", llm)
+	}
+	if outputDir, ok := args["output_dir"].(string); ok {
+		cmdArgs = append(cmdArgs, "--output-dir", outputDir)
+	}
+	if outputPattern, ok := args["output_pattern"].(string); ok {
+		cmdArgs = append(cmdArgs, "--output-pattern", outputPattern)
+	}
+	if parallel, ok := getInt(args, "parallel"); ok {
+		cmdArgs = append(cmdArgs, "--parallel", strconv.Itoa(parallel))
+	}
+	if getBool(args, "skip_existing") {
+		cmdArgs = append(cmdArgs, "--skip-existing")
+	}
+	if timeout, ok := getInt(args, "timeout"); ok {
+		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(timeout))
+	}
+	if vars, ok := args["vars"].(map[string]interface{}); ok {
+		for k, v := range vars {
+			cmdArgs = append(cmdArgs, "--var", fmt.Sprintf("%s=%v", k, v))
+		}
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildHashArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"hash"}
+
+	if paths, ok := args["paths"].([]interface{}); ok {
+		for _, p := range paths {
+			if s, ok := p.(string); ok {
+				cmdArgs = append(cmdArgs, s)
+			}
+		}
+	}
+	if algorithm, ok := args["algorithm"].(string); ok {
+		cmdArgs = append(cmdArgs, "--algorithm", algorithm)
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildInitTempArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"init-temp"}
+
+	if name, ok := args["name"].(string); ok {
+		cmdArgs = append(cmdArgs, "--name", name)
+	}
+	// clean defaults to true, only add flag if explicitly false
+	if v, ok := args["clean"].(bool); ok && !v {
+		cmdArgs = append(cmdArgs, "--clean=false")
+	}
+	if getBool(args, "preserve") {
+		cmdArgs = append(cmdArgs, "--preserve")
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildMathArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"math"}
+
+	if expr, ok := args["expression"].(string); ok {
+		cmdArgs = append(cmdArgs, expr)
+	}
+
+	return cmdArgs
+}
+
+func buildPromptArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"prompt"}
+
+	if prompt, ok := args["prompt"].(string); ok {
+		cmdArgs = append(cmdArgs, "--prompt", prompt)
+	}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+	if template, ok := args["template"].(string); ok {
+		cmdArgs = append(cmdArgs, "--template", template)
+	}
+	if llm, ok := args["llm"].(string); ok {
+		cmdArgs = append(cmdArgs, "--llm", llm)
+	}
+	if instruction, ok := args["instruction"].(string); ok {
+		cmdArgs = append(cmdArgs, "--instruction", instruction)
+	}
+	if vars, ok := args["vars"].(map[string]interface{}); ok {
+		for k, v := range vars {
+			cmdArgs = append(cmdArgs, "--var", fmt.Sprintf("%s=%v", k, v))
+		}
+	}
+	if retries, ok := getInt(args, "retries"); ok {
+		cmdArgs = append(cmdArgs, "--retries", strconv.Itoa(retries))
+	}
+	if retryDelay, ok := getInt(args, "retry_delay"); ok {
+		cmdArgs = append(cmdArgs, "--retry-delay", strconv.Itoa(retryDelay))
+	}
+	if timeout, ok := getInt(args, "timeout"); ok {
+		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(timeout))
+	}
+	if getBool(args, "cache") {
+		cmdArgs = append(cmdArgs, "--cache")
+	}
+	if cacheTtl, ok := getInt(args, "cache_ttl"); ok {
+		cmdArgs = append(cmdArgs, "--cache-ttl", strconv.Itoa(cacheTtl))
+	}
+	if getBool(args, "refresh") {
+		cmdArgs = append(cmdArgs, "--refresh")
+	}
+	if minLength, ok := getInt(args, "min_length"); ok {
+		cmdArgs = append(cmdArgs, "--min-length", strconv.Itoa(minLength))
+	}
+	if mustContain, ok := args["must_contain"].([]interface{}); ok {
+		for _, m := range mustContain {
+			if s, ok := m.(string); ok {
+				cmdArgs = append(cmdArgs, "--must-contain", s)
+			}
+		}
+	}
+	if getBool(args, "no_error_check") {
+		cmdArgs = append(cmdArgs, "--no-error-check")
+	}
+	if output, ok := args["output"].(string); ok {
+		cmdArgs = append(cmdArgs, "--output", output)
+	}
+	if getBool(args, "strip") {
+		cmdArgs = append(cmdArgs, "--strip")
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildReportArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"report"}
+
+	if title, ok := args["title"].(string); ok {
+		cmdArgs = append(cmdArgs, "--title", title)
+	}
+	if status, ok := args["status"].(string); ok {
+		cmdArgs = append(cmdArgs, "--status", status)
+	}
+	if stats, ok := args["stats"].(map[string]interface{}); ok {
+		for k, v := range stats {
+			cmdArgs = append(cmdArgs, "--stat", fmt.Sprintf("%s=%v", k, v))
+		}
+	}
+	if output, ok := args["output"].(string); ok {
+		cmdArgs = append(cmdArgs, "--output", output)
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildStatsArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"stats"}
+
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	if getBool(args, "no_gitignore") {
+		cmdArgs = append(cmdArgs, "--no-gitignore")
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildTomlQueryArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"toml", "query"}
+
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, file)
+	}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, path)
+	}
+
+	return cmdArgs
+}
+
+func buildTomlValidateArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"toml", "validate"}
+
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, file)
+	}
+
+	return cmdArgs
+}
+
+func buildTomlParseArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"toml", "parse"}
+
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, file)
+	}
+
+	return cmdArgs
+}
+
+func buildTransformCaseArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"transform", "case"}
+
+	if text, ok := args["text"].(string); ok {
+		cmdArgs = append(cmdArgs, text)
+	}
+	if to, ok := args["to"].(string); ok {
+		cmdArgs = append(cmdArgs, "--to", to)
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildTransformCsvToJsonArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"transform", "csv-to-json"}
+
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, file)
+	}
+
+	return cmdArgs
+}
+
+func buildTransformJsonToCsvArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"transform", "json-to-csv"}
+
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, file)
+	}
+
+	return cmdArgs
+}
+
+func buildTransformFilterArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"transform", "filter"}
+
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, file)
+	}
+	if pattern, ok := args["pattern"].(string); ok {
+		cmdArgs = append(cmdArgs, pattern)
+	}
+	if getBool(args, "invert") {
+		cmdArgs = append(cmdArgs, "--invert")
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildTransformSortArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"transform", "sort"}
+
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, file)
+	}
+	if getBool(args, "reverse") {
+		cmdArgs = append(cmdArgs, "--reverse")
+	}
+
+	return cmdArgs
+}
+
+func buildValidateArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"validate"}
+
+	if files, ok := args["files"].([]interface{}); ok {
+		for _, f := range files {
+			if s, ok := f.(string); ok {
+				cmdArgs = append(cmdArgs, s)
+			}
+		}
+	}
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
 	}

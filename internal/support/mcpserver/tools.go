@@ -909,5 +909,719 @@ func GetToolDefinitions() []ToolDefinition {
 				"required": ["file", "pairs"]
 			}`),
 		},
+
+		// 29. Parse arguments into structured format
+		{
+			Name:        ToolPrefix + "args",
+			Description: "Parse command-line arguments into structured format. Separates positional arguments from flags and key-value pairs. Returns POSITIONAL, FLAG_NAME: value, BOOLEAN_FLAG: true.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"arguments": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Arguments to parse"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["arguments"]
+			}`),
+		},
+
+		// 30. Concatenate files with headers
+		{
+			Name:        ToolPrefix + "catfiles",
+			Description: "Concatenate multiple files or directory contents with headers. Each file is prefixed with a header showing file path and size. Respects .gitignore by default.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"paths": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Files or directories to concatenate"
+					},
+					"max_size": {
+						"type": "integer",
+						"description": "Maximum total size in MB (default: 10)"
+					},
+					"no_gitignore": {
+						"type": "boolean",
+						"description": "Disable .gitignore filtering"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["paths"]
+			}`),
+		},
+
+		// 31. Decode text
+		{
+			Name:        ToolPrefix + "decode",
+			Description: "Decode text using base64, base32, hex, or URL encoding.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"text": {
+						"type": "string",
+						"description": "Text to decode"
+					},
+					"encoding": {
+						"type": "string",
+						"enum": ["base64", "base32", "hex", "url"],
+						"description": "Encoding type (default: base64)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["text"]
+			}`),
+		},
+
+		// 32. Compare files
+		{
+			Name:        ToolPrefix + "diff",
+			Description: "Compare two files and show the differences.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file1": {
+						"type": "string",
+						"description": "First file path"
+					},
+					"file2": {
+						"type": "string",
+						"description": "Second file path"
+					},
+					"unified": {
+						"type": "boolean",
+						"description": "Use unified diff format"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["file1", "file2"]
+			}`),
+		},
+
+		// 33. Encode text
+		{
+			Name:        ToolPrefix + "encode",
+			Description: "Encode text using base64, base32, hex, or URL encoding.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"text": {
+						"type": "string",
+						"description": "Text to encode"
+					},
+					"encoding": {
+						"type": "string",
+						"enum": ["base64", "base32", "hex", "url"],
+						"description": "Encoding type (default: base64)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["text"]
+			}`),
+		},
+
+		// 34. Extract patterns from text
+		{
+			Name:        ToolPrefix + "extract",
+			Description: "Extract patterns from text files. Types: urls, paths, variables, todos, emails, ips.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"type": {
+						"type": "string",
+						"enum": ["urls", "paths", "variables", "todos", "emails", "ips"],
+						"description": "Type of pattern to extract"
+					},
+					"file": {
+						"type": "string",
+						"description": "File to extract from"
+					},
+					"count": {
+						"type": "boolean",
+						"description": "Show count only"
+					},
+					"unique": {
+						"type": "boolean",
+						"description": "Remove duplicates"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["type", "file"]
+			}`),
+		},
+
+		// 35. Batch process files with LLM
+		{
+			Name:        ToolPrefix + "foreach",
+			Description: "Process multiple files through an LLM using a template. Template variables: [[CONTENT]], [[FILENAME]], [[FILEPATH]], [[EXTENSION]], [[DIRNAME]], [[INDEX]], [[TOTAL]].",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"files": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Files to process"
+					},
+					"glob": {
+						"type": "string",
+						"description": "Glob pattern to match files (alternative to files)"
+					},
+					"template": {
+						"type": "string",
+						"description": "Template file with [[var]] placeholders (required)"
+					},
+					"llm": {
+						"type": "string",
+						"description": "LLM binary to use (default: from config or 'gemini')"
+					},
+					"output_dir": {
+						"type": "string",
+						"description": "Output directory for processed files"
+					},
+					"output_pattern": {
+						"type": "string",
+						"description": "Output filename pattern (e.g., '{{name}}-processed.md')"
+					},
+					"parallel": {
+						"type": "integer",
+						"description": "Number of parallel processes (default: 1)"
+					},
+					"skip_existing": {
+						"type": "boolean",
+						"description": "Skip files where output already exists"
+					},
+					"timeout": {
+						"type": "integer",
+						"description": "Timeout per file in seconds (default: 120)"
+					},
+					"vars": {
+						"type": "object",
+						"description": "Template variables as key-value pairs"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["template"]
+			}`),
+		},
+
+		// 36. Generate hash checksums
+		{
+			Name:        ToolPrefix + "hash",
+			Description: "Generate hash checksums for files. Algorithms: md5, sha1, sha256 (default), sha512.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"paths": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Files to hash"
+					},
+					"algorithm": {
+						"type": "string",
+						"enum": ["md5", "sha1", "sha256", "sha512"],
+						"description": "Hash algorithm (default: sha256)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["paths"]
+			}`),
+		},
+
+		// 37. Initialize temp directory
+		{
+			Name:        ToolPrefix + "init_temp",
+			Description: "Initialize temp directory at .planning/.temp/{name}/. Returns TEMP_DIR, STATUS, CLEANED/EXISTING_FILES.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string",
+						"description": "Name for temp directory (required)"
+					},
+					"clean": {
+						"type": "boolean",
+						"description": "Remove existing files (default: true)"
+					},
+					"preserve": {
+						"type": "boolean",
+						"description": "Keep existing files"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["name"]
+			}`),
+		},
+
+		// 38. Evaluate math expressions
+		{
+			Name:        ToolPrefix + "math",
+			Description: "Evaluate mathematical expressions safely. Supports basic arithmetic, functions (sin, cos, sqrt, etc.), and variables.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"expression": {
+						"type": "string",
+						"description": "Mathematical expression to evaluate"
+					}
+				},
+				"required": ["expression"]
+			}`),
+		},
+
+		// 39. Execute LLM prompt
+		{
+			Name:        ToolPrefix + "prompt",
+			Description: "Execute an LLM prompt with template substitution, retry logic, and validation. Supports caching and response validation.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"prompt": {
+						"type": "string",
+						"description": "Direct prompt text"
+					},
+					"file": {
+						"type": "string",
+						"description": "Read prompt from file"
+					},
+					"template": {
+						"type": "string",
+						"description": "Template file with [[var]] placeholders"
+					},
+					"llm": {
+						"type": "string",
+						"description": "LLM binary to use (default: from config or 'gemini')"
+					},
+					"instruction": {
+						"type": "string",
+						"description": "System instruction for the LLM"
+					},
+					"vars": {
+						"type": "object",
+						"description": "Template variables as key-value pairs"
+					},
+					"retries": {
+						"type": "integer",
+						"description": "Number of retries on failure"
+					},
+					"retry_delay": {
+						"type": "integer",
+						"description": "Initial retry delay in seconds (default: 2)"
+					},
+					"timeout": {
+						"type": "integer",
+						"description": "Timeout in seconds (default: 120)"
+					},
+					"cache": {
+						"type": "boolean",
+						"description": "Enable response caching"
+					},
+					"cache_ttl": {
+						"type": "integer",
+						"description": "Cache TTL in seconds (default: 3600)"
+					},
+					"refresh": {
+						"type": "boolean",
+						"description": "Force refresh cached response"
+					},
+					"min_length": {
+						"type": "integer",
+						"description": "Minimum response length"
+					},
+					"must_contain": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Required text in response"
+					},
+					"no_error_check": {
+						"type": "boolean",
+						"description": "Skip error pattern checking"
+					},
+					"output": {
+						"type": "string",
+						"description": "Output file path"
+					},
+					"strip": {
+						"type": "boolean",
+						"description": "Strip whitespace from file variable values"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
+
+		// 40. Generate status report
+		{
+			Name:        ToolPrefix + "report",
+			Description: "Generate a formatted markdown status report with title, statistics, and status.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"title": {
+						"type": "string",
+						"description": "Report title (required)"
+					},
+					"status": {
+						"type": "string",
+						"enum": ["success", "partial", "failed"],
+						"description": "Report status (required)"
+					},
+					"stats": {
+						"type": "object",
+						"description": "Statistics as key-value pairs"
+					},
+					"output": {
+						"type": "string",
+						"description": "Output file path"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["title", "status"]
+			}`),
+		},
+
+		// 41. Directory statistics
+		{
+			Name:        ToolPrefix + "stats",
+			Description: "Display statistics about a directory including file counts, total size, and breakdown by file extension.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Directory path to analyze (default: current directory)"
+					},
+					"no_gitignore": {
+						"type": "boolean",
+						"description": "Disable .gitignore filtering"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
+
+		// 42. TOML query
+		{
+			Name:        ToolPrefix + "toml_query",
+			Description: "Query TOML file with dot-notation path.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "TOML file to query"
+					},
+					"path": {
+						"type": "string",
+						"description": "Dot-notation query path"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["file", "path"]
+			}`),
+		},
+
+		// 43. TOML validate
+		{
+			Name:        ToolPrefix + "toml_validate",
+			Description: "Validate TOML file syntax.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "TOML file to validate"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["file"]
+			}`),
+		},
+
+		// 44. TOML parse
+		{
+			Name:        ToolPrefix + "toml_parse",
+			Description: "Parse and display TOML file contents.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "TOML file to parse"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["file"]
+			}`),
+		},
+
+		// 45. Transform case
+		{
+			Name:        ToolPrefix + "transform_case",
+			Description: "Transform text case. Formats: camelCase, PascalCase, snake_case, kebab-case, UPPERCASE, lowercase, Title Case.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"text": {
+						"type": "string",
+						"description": "Text to transform"
+					},
+					"to": {
+						"type": "string",
+						"enum": ["camelCase", "PascalCase", "snake_case", "kebab-case", "UPPERCASE", "lowercase", "Title Case"],
+						"description": "Target case format"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["text", "to"]
+			}`),
+		},
+
+		// 46. Transform CSV to JSON
+		{
+			Name:        ToolPrefix + "transform_csv_to_json",
+			Description: "Convert CSV file to JSON.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "CSV file to convert"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["file"]
+			}`),
+		},
+
+		// 47. Transform JSON to CSV
+		{
+			Name:        ToolPrefix + "transform_json_to_csv",
+			Description: "Convert JSON array file to CSV.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "JSON file to convert"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["file"]
+			}`),
+		},
+
+		// 48. Transform filter lines
+		{
+			Name:        ToolPrefix + "transform_filter",
+			Description: "Filter lines in a file by regex pattern.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "File to filter"
+					},
+					"pattern": {
+						"type": "string",
+						"description": "Regex pattern to match"
+					},
+					"invert": {
+						"type": "boolean",
+						"description": "Invert match (exclude matching lines)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["file", "pattern"]
+			}`),
+		},
+
+		// 49. Transform sort lines
+		{
+			Name:        ToolPrefix + "transform_sort",
+			Description: "Sort lines in a file.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "File to sort"
+					},
+					"reverse": {
+						"type": "boolean",
+						"description": "Sort in reverse order"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["file"]
+			}`),
+		},
+
+		// 50. Validate files
+		{
+			Name:        ToolPrefix + "validate",
+			Description: "Validate files of various formats: JSON, TOML, YAML, CSV, Markdown.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"files": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Files to validate"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["files"]
+			}`),
+		},
 	}
 }

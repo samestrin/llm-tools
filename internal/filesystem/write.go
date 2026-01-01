@@ -4,9 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/dustin/go-humanize"
+	"github.com/samestrin/llm-tools/internal/filesystem/core"
 )
 
 // WriteFileResult represents the result of a write operation
@@ -220,13 +224,43 @@ func (s *Server) handleGetFileInfo(args map[string]interface{}) (string, error) 
 		return "", fmt.Errorf("failed to stat: %w", err)
 	}
 
+	// Determine type
+	entryType := "file"
+	if info.IsDir() {
+		entryType = "directory"
+	}
+
+	// Get extension and MIME type for files
+	var ext, mimeType string
+	if !info.IsDir() {
+		ext = filepath.Ext(info.Name())
+		if ext != "" {
+			mimeType = mime.TypeByExtension(ext)
+		}
+	}
+
+	// Check access permissions
+	isReadable, isWritable := checkAccess(normalizedPath)
+
+	// Get all timestamps
+	created, accessed, modified := core.GetFileTimestamps(info)
+
 	result := map[string]interface{}{
-		"path":     normalizedPath,
-		"name":     info.Name(),
-		"size":     info.Size(),
-		"is_dir":   info.IsDir(),
-		"mode":     info.Mode().String(),
-		"modified": info.ModTime().Format(time.RFC3339),
+		"path":          normalizedPath,
+		"name":          info.Name(),
+		"type":          entryType,
+		"size":          info.Size(),
+		"size_readable": humanize.Bytes(uint64(info.Size())),
+		"is_dir":        info.IsDir(),
+		"mode":          info.Mode().String(),
+		"permissions":   uint32(info.Mode().Perm()),
+		"modified":      modified.Format(time.RFC3339),
+		"created":       created.Format(time.RFC3339),
+		"accessed":      accessed.Format(time.RFC3339),
+		"extension":     ext,
+		"mime_type":     mimeType,
+		"is_readable":   isReadable,
+		"is_writable":   isWritable,
 	}
 
 	jsonBytes, err := json.Marshal(result)

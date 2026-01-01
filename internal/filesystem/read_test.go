@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -454,4 +455,139 @@ func TestReadMultipleFilesErrorCases(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReadFileAutoChunking(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a file larger than 1MB chunk size for testing
+	// Use a smaller chunk for testing - we'll use max_size to simulate
+	content := strings.Repeat("a", 500) // 500 bytes
+	testFile := filepath.Join(tmpDir, "large.txt")
+	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	server, _ := NewServer([]string{tmpDir})
+
+	t.Run("auto_chunk with max_size returns chunk metadata", func(t *testing.T) {
+		result, err := server.handleReadFile(map[string]interface{}{
+			"path":       testFile,
+			"max_size":   float64(100),
+			"auto_chunk": true,
+		})
+		if err != nil {
+			t.Fatalf("handleReadFile() error = %v", err)
+		}
+
+		var resp ReadFileResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if !resp.AutoChunked {
+			t.Error("expected auto_chunked=true")
+		}
+		if resp.ChunkIndex != 0 {
+			t.Errorf("expected chunk_index=0, got %d", resp.ChunkIndex)
+		}
+		if resp.TotalChunks != 5 {
+			t.Errorf("expected total_chunks=5 (500/100), got %d", resp.TotalChunks)
+		}
+		if !resp.HasMore {
+			t.Error("expected has_more=true")
+		}
+		if resp.ContinuationToken == "" {
+			t.Error("expected continuation_token when has_more=true")
+		}
+	})
+
+	t.Run("continuation token reads next chunk", func(t *testing.T) {
+		// Get first chunk
+		result1, err := server.handleReadFile(map[string]interface{}{
+			"path":       testFile,
+			"max_size":   float64(100),
+			"auto_chunk": true,
+		})
+		if err != nil {
+			t.Fatalf("handleReadFile() error = %v", err)
+		}
+
+		var resp1 ReadFileResult
+		if err := json.Unmarshal([]byte(result1), &resp1); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		// Use token to get second chunk
+		result2, err := server.handleReadFile(map[string]interface{}{
+			"path":               testFile,
+			"max_size":           float64(100),
+			"auto_chunk":         true,
+			"continuation_token": resp1.ContinuationToken,
+		})
+		if err != nil {
+			t.Fatalf("handleReadFile() with token error = %v", err)
+		}
+
+		var resp2 ReadFileResult
+		if err := json.Unmarshal([]byte(result2), &resp2); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if resp2.ChunkIndex != 1 {
+			t.Errorf("expected chunk_index=1 for second chunk, got %d", resp2.ChunkIndex)
+		}
+	})
+
+	t.Run("last chunk has no continuation token", func(t *testing.T) {
+		// Read from near end
+		result, err := server.handleReadFile(map[string]interface{}{
+			"path":         testFile,
+			"start_offset": float64(400),
+			"max_size":     float64(100),
+			"auto_chunk":   true,
+		})
+		if err != nil {
+			t.Fatalf("handleReadFile() error = %v", err)
+		}
+
+		var resp ReadFileResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if resp.HasMore {
+			t.Error("expected has_more=false for last chunk")
+		}
+		if resp.ContinuationToken != "" {
+			t.Error("expected no continuation_token on last chunk")
+		}
+	})
+
+	t.Run("auto_chunk=false returns full content", func(t *testing.T) {
+		smallFile := filepath.Join(tmpDir, "small.txt")
+		if err := os.WriteFile(smallFile, []byte("small content"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		result, err := server.handleReadFile(map[string]interface{}{
+			"path":       smallFile,
+			"auto_chunk": false,
+		})
+		if err != nil {
+			t.Fatalf("handleReadFile() error = %v", err)
+		}
+
+		var resp ReadFileResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if resp.AutoChunked {
+			t.Error("expected auto_chunked=false")
+		}
+		if resp.Content != "small content" {
+			t.Errorf("expected full content, got %q", resp.Content)
+		}
+	})
 }

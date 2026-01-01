@@ -39,13 +39,13 @@ func listDirectoryCmd() *cobra.Command {
 			OutputResult(result, func() string {
 				var sb strings.Builder
 				sb.WriteString(fmt.Sprintf("Directory: %s (%d entries)\n\n", result.Path, result.Total))
-				for _, e := range result.Entries {
+				for _, e := range result.Items {
 					typeIndicator := " "
 					if e.IsDir {
 						typeIndicator = "/"
 					}
 					sb.WriteString(fmt.Sprintf("%s%s  %d  %s\n",
-						e.Name, typeIndicator, e.Size, e.ModTime))
+						e.Name, typeIndicator, e.Size, e.Modified))
 				}
 				if result.TotalPages > 0 {
 					sb.WriteString(fmt.Sprintf("\nPage %d/%d", result.Page, result.TotalPages))
@@ -90,10 +90,10 @@ func getDirectoryTreeCmd() *cobra.Command {
 			}
 			OutputResult(result, func() string {
 				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("Tree: %s\n", result.Root.Path))
+				sb.WriteString(fmt.Sprintf("Tree: %s\n", result.Tree.Path))
 				sb.WriteString(fmt.Sprintf("Dirs: %d, Files: %d, Size: %d bytes\n\n",
 					result.TotalDirs, result.TotalFiles, result.TotalSize))
-				printTree(&sb, result.Root, "", true)
+				printTree(&sb, result.Tree, "", true)
 				return sb.String()
 			})
 		},
