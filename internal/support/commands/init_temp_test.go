@@ -54,6 +54,7 @@ func TestInitTempCommand(t *testing.T) {
 			"TEMP_DIR=",
 			"REPO_ROOT=",
 			"TODAY=",
+			"TODAY_LONG=",
 			"TIMESTAMP=",
 			"EPOCH=",
 			"STATUS=CREATED",
@@ -152,14 +153,19 @@ func TestInitTempCommand(t *testing.T) {
 		if result.Today == "" {
 			t.Error("today should not be empty")
 		}
+		if result.TodayLong == "" {
+			t.Error("today_long should not be empty")
+		}
 		if result.Timestamp == "" {
 			t.Error("timestamp should not be empty")
 		}
 		if result.Epoch == 0 {
 			t.Error("epoch should not be zero")
 		}
-		if result.Branch == "" {
-			t.Error("branch should not be empty with --with-git")
+		// Branch may be empty in detached HEAD state (e.g., GitHub Actions)
+		// CommitShort should always be available though
+		if result.CommitShort == "" {
+			t.Error("commit_short should not be empty with --with-git")
 		}
 
 		// Cleanup
@@ -289,9 +295,11 @@ func TestInitTempCommand(t *testing.T) {
 		if result.TS == "" {
 			t.Error("ts (timestamp) should not be empty in minimal mode")
 		}
-		if result.BR == "" {
-			t.Error("br (branch) should not be empty in minimal mode with --with-git")
+		if result.TSLong == "" {
+			t.Error("ts_long (today_long) should not be empty in minimal mode")
 		}
+		// Branch may be empty in detached HEAD state (e.g., GitHub Actions)
+		// CommitShort should always be available though
 		if result.CS == "" {
 			t.Error("cs (commit_short) should not be empty in minimal mode with --with-git")
 		}
@@ -461,9 +469,9 @@ func TestGetGitBranch(t *testing.T) {
 		t.Fatalf("failed to get branch: %v", err)
 	}
 
-	if branch == "" {
-		t.Error("branch should not be empty")
-	}
+	// Branch may be empty in detached HEAD state (e.g., GitHub Actions checkout)
+	// Just verify the function doesn't error - empty branch is valid
+	t.Logf("branch: %q (may be empty in CI)", branch)
 }
 
 func TestGetGitCommitShort(t *testing.T) {
