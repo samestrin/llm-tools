@@ -31,6 +31,8 @@ type InitTempResult struct {
 	RepoRoot  string `json:"repo_root,omitempty"`
 	RR        string `json:"rr,omitempty"` // minimal alias
 	Today     string `json:"today,omitempty"`
+	TodayLong string `json:"today_long,omitempty"`
+	TSLong    string `json:"ts_long,omitempty"` // minimal alias
 	Timestamp string `json:"timestamp,omitempty"`
 	TS        string `json:"ts,omitempty"` // minimal alias
 	Epoch     int64  `json:"epoch,omitempty"`
@@ -70,6 +72,7 @@ Output (always returned):
   TEMP_DIR: path to temp directory
   REPO_ROOT: git repository root
   TODAY: YYYY-MM-DD
+  TODAY_LONG: January 02, 2006 03:04:05PM
   TIMESTAMP: YYYY-MM-DD HH:MM:SS
   EPOCH: Unix timestamp (seconds)
   STATUS: CREATED | EXISTS
@@ -137,6 +140,7 @@ func runInitTemp(cmd *cobra.Command, args []string) error {
 	// Generate timestamps
 	now := time.Now()
 	today := now.Format("2006-01-02")
+	todayLong := now.Format("January 02, 2006 03:04:05PM")
 	timestamp := now.Format("2006-01-02 15:04:05")
 	epoch := now.Unix()
 
@@ -161,12 +165,13 @@ func runInitTemp(cmd *cobra.Command, args []string) error {
 	var result InitTempResult
 	if initTempMinimal {
 		result = InitTempResult{
-			TD:    tempDir,
-			RR:    repoRoot,
-			Today: today,
-			TS:    timestamp,
-			Epoch: epoch,
-			S:     status,
+			TD:     tempDir,
+			RR:     repoRoot,
+			Today:  today,
+			TSLong: todayLong,
+			TS:     timestamp,
+			Epoch:  epoch,
+			S:      status,
 		}
 		if contextFile != "" {
 			result.CF = contextFile
@@ -185,6 +190,7 @@ func runInitTemp(cmd *cobra.Command, args []string) error {
 			TempDir:   tempDir,
 			RepoRoot:  repoRoot,
 			Today:     today,
+			TodayLong: todayLong,
 			Timestamp: timestamp,
 			Epoch:     epoch,
 			Status:    status,
@@ -209,6 +215,7 @@ func runInitTemp(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(w, "TEMP_DIR=%s\n", tempDir)
 		fmt.Fprintf(w, "REPO_ROOT=%s\n", repoRoot)
 		fmt.Fprintf(w, "TODAY=%s\n", today)
+		fmt.Fprintf(w, "TODAY_LONG=%s\n", todayLong)
 		fmt.Fprintf(w, "TIMESTAMP=%s\n", timestamp)
 		fmt.Fprintf(w, "EPOCH=%d\n", epoch)
 		fmt.Fprintf(w, "STATUS=%s\n", status)
