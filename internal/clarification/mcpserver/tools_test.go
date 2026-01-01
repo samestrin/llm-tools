@@ -35,19 +35,19 @@ func TestGetToolDefinitions(t *testing.T) {
 
 	// Verify specific tool names exist
 	expectedTools := []string{
-		"llm_clarify_match",
-		"llm_clarify_cluster",
+		"llm_clarify_match_clarification",
+		"llm_clarify_cluster_clarifications",
 		"llm_clarify_detect_conflicts",
-		"llm_clarify_validate",
-		"llm_clarify_init",
-		"llm_clarify_add",
-		"llm_clarify_promote",
-		"llm_clarify_list",
-		"llm_clarify_delete",
-		"llm_clarify_export",
-		"llm_clarify_import",
-		"llm_clarify_optimize",
-		"llm_clarify_reconcile",
+		"llm_clarify_validate_clarifications",
+		"llm_clarify_init_tracking",
+		"llm_clarify_add_clarification",
+		"llm_clarify_promote_clarification",
+		"llm_clarify_list_entries",
+		"llm_clarify_delete_clarification",
+		"llm_clarify_export_memory",
+		"llm_clarify_import_memory",
+		"llm_clarify_optimize_memory",
+		"llm_clarify_reconcile_memory",
 	}
 
 	toolMap := make(map[string]bool)
@@ -81,18 +81,18 @@ func TestToolSchemaRequiredFields(t *testing.T) {
 
 	// Map of tools to their required fields
 	requiredFields := map[string][]string{
-		"llm_clarify_match":            {"question"},
-		"llm_clarify_detect_conflicts": {"tracking_file"},
-		"llm_clarify_validate":         {"tracking_file"},
-		"llm_clarify_init":             {"output"},
-		"llm_clarify_add":              {"tracking_file", "question"},
-		"llm_clarify_promote":          {"tracking_file", "id", "target"},
-		"llm_clarify_list":             {"tracking_file"},
-		"llm_clarify_delete":           {"file", "id"},
-		"llm_clarify_export":           {"source", "output"},
-		"llm_clarify_import":           {"source", "target"},
-		"llm_clarify_optimize":         {"file"},
-		"llm_clarify_reconcile":        {"file", "project_root"},
+		"llm_clarify_match_clarification":    {"question"},
+		"llm_clarify_detect_conflicts":       {"tracking_file"},
+		"llm_clarify_validate_clarifications": {"tracking_file"},
+		"llm_clarify_init_tracking":          {"output"},
+		"llm_clarify_add_clarification":      {"tracking_file", "question"},
+		"llm_clarify_promote_clarification":  {"tracking_file", "id", "target"},
+		"llm_clarify_list_entries":           {"tracking_file"},
+		"llm_clarify_delete_clarification":   {"file", "id"},
+		"llm_clarify_export_memory":          {"source", "output"},
+		"llm_clarify_import_memory":          {"source", "target"},
+		"llm_clarify_optimize_memory":        {"file"},
+		"llm_clarify_reconcile_memory":       {"file", "project_root"},
 	}
 
 	for _, tool := range tools {
@@ -140,10 +140,10 @@ func TestAPIRequiringTools(t *testing.T) {
 
 	// These tools require API
 	apiTools := map[string]bool{
-		"llm_clarify_match":            true,
-		"llm_clarify_cluster":          true,
-		"llm_clarify_detect_conflicts": true,
-		"llm_clarify_validate":         true,
+		"llm_clarify_match_clarification":     true,
+		"llm_clarify_cluster_clarifications":  true,
+		"llm_clarify_detect_conflicts":        true,
+		"llm_clarify_validate_clarifications": true,
 	}
 
 	for _, tool := range tools {

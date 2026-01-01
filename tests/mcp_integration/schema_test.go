@@ -12,7 +12,7 @@ import (
 // TestLLMSupportToolCount verifies the correct number of tools
 func TestLLMSupportToolCount(t *testing.T) {
 	tools := supportserver.GetToolDefinitions()
-	expected := 28
+	expected := 50 // llm-support has 50 tools
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-support tools, got %d", expected, len(tools))
 	}
@@ -148,19 +148,19 @@ func TestExpectedSupportToolNames(t *testing.T) {
 // TestExpectedClarifyToolNames verifies all expected tools exist
 func TestExpectedClarifyToolNames(t *testing.T) {
 	expectedNames := []string{
-		"llm_clarify_match",
-		"llm_clarify_cluster",
+		"llm_clarify_match_clarification",
+		"llm_clarify_cluster_clarifications",
 		"llm_clarify_detect_conflicts",
-		"llm_clarify_validate",
-		"llm_clarify_init",
-		"llm_clarify_add",
-		"llm_clarify_promote",
-		"llm_clarify_list",
-		"llm_clarify_delete",
-		"llm_clarify_export",
-		"llm_clarify_import",
-		"llm_clarify_optimize",
-		"llm_clarify_reconcile",
+		"llm_clarify_validate_clarifications",
+		"llm_clarify_init_tracking",
+		"llm_clarify_add_clarification",
+		"llm_clarify_promote_clarification",
+		"llm_clarify_list_entries",
+		"llm_clarify_delete_clarification",
+		"llm_clarify_export_memory",
+		"llm_clarify_import_memory",
+		"llm_clarify_optimize_memory",
+		"llm_clarify_reconcile_memory",
 	}
 
 	tools := clarifyserver.GetToolDefinitions()
@@ -179,7 +179,7 @@ func TestExpectedClarifyToolNames(t *testing.T) {
 // TestLLMFilesystemToolCount verifies the correct number of filesystem tools
 func TestLLMFilesystemToolCount(t *testing.T) {
 	tools := filesystemserver.GetToolDefinitions()
-	expected := 26 // llm-filesystem has 26 tools
+	expected := 27 // llm-filesystem has 27 tools
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-filesystem tools, got %d", expected, len(tools))
 	}
