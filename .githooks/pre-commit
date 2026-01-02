@@ -1,0 +1,19 @@
+#!/bin/sh
+# Pre-commit hook to run gofmt and go vet
+
+# Run gofmt and auto-fix
+UNFORMATTED=$(gofmt -s -l . 2>/dev/null | grep -v vendor)
+if [ -n "$UNFORMATTED" ]; then
+    echo "Auto-formatting Go files..."
+    gofmt -s -w .
+    git add $UNFORMATTED
+    echo "Formatted: $UNFORMATTED"
+fi
+
+# Run go vet
+if ! go vet ./... 2>/dev/null; then
+    echo "go vet failed. Please fix the issues."
+    exit 1
+fi
+
+exit 0
