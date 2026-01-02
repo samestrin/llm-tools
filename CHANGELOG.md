@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `runtime` command - Calculate and format elapsed time between epoch timestamps with configurable format (secs, mins, mins-secs, hms, human, compact) and precision
+
 ## [1.2.0] - 2026-01-01
 
 ### Added

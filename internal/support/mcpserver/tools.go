@@ -1666,5 +1666,50 @@ func GetToolDefinitions() []ToolDefinition {
 				"required": ["files"]
 			}`),
 		},
+
+		// 51. Calculate runtime/elapsed time
+		{
+			Name:        ToolPrefix + "runtime",
+			Description: "Calculate and format elapsed time between epoch timestamps. Returns formatted duration with configurable format (secs, mins, mins-secs, hms, human, compact) and precision.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"start": {
+						"type": "integer",
+						"description": "Start epoch timestamp (required)"
+					},
+					"end": {
+						"type": "integer",
+						"description": "End epoch timestamp (default: now)"
+					},
+					"format": {
+						"type": "string",
+						"enum": ["secs", "mins", "mins-secs", "hms", "human", "compact"],
+						"description": "Output format (default: human)"
+					},
+					"precision": {
+						"type": "integer",
+						"description": "Decimal precision for output (default: 1)"
+					},
+					"label": {
+						"type": "boolean",
+						"description": "Include 'Runtime: ' prefix"
+					},
+					"raw": {
+						"type": "boolean",
+						"description": "Output raw number without unit suffix"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["start"]
+			}`),
+		},
 	}
 }

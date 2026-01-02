@@ -1173,3 +1173,158 @@ func TestBuildYamlMultisetArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildRuntimeArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic with start only (defaults to json+min)",
+			args: map[string]interface{}{
+				"start": float64(1735800000),
+			},
+			want: []string{"runtime", "--start", "1735800000", "--json", "--min"},
+		},
+		{
+			name: "with start and end",
+			args: map[string]interface{}{
+				"start": float64(1735800000),
+				"end":   float64(1735800127),
+			},
+			want: []string{"runtime", "--start", "1735800000", "--end", "1735800127", "--json", "--min"},
+		},
+		{
+			name: "with format",
+			args: map[string]interface{}{
+				"start":  float64(1735800000),
+				"format": "secs",
+			},
+			want: []string{"runtime", "--start", "1735800000", "--format", "secs", "--json", "--min"},
+		},
+		{
+			name: "with precision",
+			args: map[string]interface{}{
+				"start":     float64(1735800000),
+				"precision": float64(2),
+			},
+			want: []string{"runtime", "--start", "1735800000", "--precision", "2", "--json", "--min"},
+		},
+		{
+			name: "with label",
+			args: map[string]interface{}{
+				"start": float64(1735800000),
+				"label": true,
+			},
+			want: []string{"runtime", "--start", "1735800000", "--label", "--json", "--min"},
+		},
+		{
+			name: "with raw",
+			args: map[string]interface{}{
+				"start": float64(1735800000),
+				"raw":   true,
+			},
+			want: []string{"runtime", "--start", "1735800000", "--raw", "--json", "--min"},
+		},
+		{
+			name: "with all options",
+			args: map[string]interface{}{
+				"start":     float64(1735800000),
+				"end":       float64(1735800127),
+				"format":    "mins-secs",
+				"precision": float64(0),
+				"label":     true,
+				"raw":       true,
+			},
+			want: []string{"runtime", "--start", "1735800000", "--end", "1735800127", "--format", "mins-secs", "--precision", "0", "--label", "--raw", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{
+				"start": float64(1735800000),
+				"json":  false,
+				"min":   false,
+			},
+			want: []string{"runtime", "--start", "1735800000"},
+		},
+		{
+			name: "with int64 start",
+			args: map[string]interface{}{
+				"start": int64(1735800000),
+			},
+			want: []string{"runtime", "--start", "1735800000", "--json", "--min"},
+		},
+		{
+			name: "with int start",
+			args: map[string]interface{}{
+				"start": int(1735800000),
+			},
+			want: []string{"runtime", "--start", "1735800000", "--json", "--min"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildRuntimeArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildRuntimeArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetInt64(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		key     string
+		want    int64
+		wantOK  bool
+	}{
+		{
+			name:   "float64 value",
+			args:   map[string]interface{}{"val": float64(1735800000)},
+			key:    "val",
+			want:   1735800000,
+			wantOK: true,
+		},
+		{
+			name:   "int value",
+			args:   map[string]interface{}{"val": int(1735800000)},
+			key:    "val",
+			want:   1735800000,
+			wantOK: true,
+		},
+		{
+			name:   "int64 value",
+			args:   map[string]interface{}{"val": int64(1735800000)},
+			key:    "val",
+			want:   1735800000,
+			wantOK: true,
+		},
+		{
+			name:   "missing key",
+			args:   map[string]interface{}{},
+			key:    "val",
+			want:   0,
+			wantOK: false,
+		},
+		{
+			name:   "string value",
+			args:   map[string]interface{}{"val": "1735800000"},
+			key:    "val",
+			want:   0,
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := getInt64(tt.args, tt.key)
+			if got != tt.want || ok != tt.wantOK {
+				t.Errorf("getInt64() = (%v, %v), want (%v, %v)", got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}

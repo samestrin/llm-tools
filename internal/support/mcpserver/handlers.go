@@ -207,6 +207,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildTransformSortArgs(args), nil
 	case "validate":
 		return buildValidateArgs(args), nil
+	case "runtime":
+		return buildRuntimeArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -684,6 +686,18 @@ func getInt(args map[string]interface{}, key string) (int, bool) {
 		return int(v), true
 	case int64:
 		return int(v), true
+	}
+	return 0, false
+}
+
+func getInt64(args map[string]interface{}, key string) (int64, bool) {
+	switch v := args[key].(type) {
+	case int:
+		return int64(v), true
+	case float64:
+		return int64(v), true
+	case int64:
+		return v, true
 	}
 	return 0, false
 }
@@ -1375,6 +1389,37 @@ func buildValidateArgs(args map[string]interface{}) []string {
 				cmdArgs = append(cmdArgs, s)
 			}
 		}
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildRuntimeArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"runtime"}
+
+	if start, ok := getInt64(args, "start"); ok {
+		cmdArgs = append(cmdArgs, "--start", strconv.FormatInt(start, 10))
+	}
+	if end, ok := getInt64(args, "end"); ok {
+		cmdArgs = append(cmdArgs, "--end", strconv.FormatInt(end, 10))
+	}
+	if format, ok := args["format"].(string); ok {
+		cmdArgs = append(cmdArgs, "--format", format)
+	}
+	if precision, ok := getInt(args, "precision"); ok {
+		cmdArgs = append(cmdArgs, "--precision", strconv.Itoa(precision))
+	}
+	if getBool(args, "label") {
+		cmdArgs = append(cmdArgs, "--label")
+	}
+	if getBool(args, "raw") {
+		cmdArgs = append(cmdArgs, "--raw")
 	}
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
