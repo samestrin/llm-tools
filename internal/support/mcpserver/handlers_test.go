@@ -1276,11 +1276,11 @@ func TestBuildRuntimeArgs(t *testing.T) {
 
 func TestGetInt64(t *testing.T) {
 	tests := []struct {
-		name    string
-		args    map[string]interface{}
-		key     string
-		want    int64
-		wantOK  bool
+		name   string
+		args   map[string]interface{}
+		key    string
+		want   int64
+		wantOK bool
 	}{
 		{
 			name:   "float64 value",
