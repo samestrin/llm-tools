@@ -124,7 +124,7 @@ func TestBuildListArgs(t *testing.T) {
 		{
 			name: "basic list (defaults to json+min)",
 			args: map[string]interface{}{"file": "tracking.yaml"},
-			want: []string{"list-entries", "tracking.yaml", "--json", "--min"},
+			want: []string{"list-entries", "--file", "tracking.yaml", "--json", "--min"},
 		},
 		{
 			name: "with filters (defaults to json+min)",
@@ -133,12 +133,12 @@ func TestBuildListArgs(t *testing.T) {
 				"status":          "pending",
 				"min_occurrences": float64(3),
 			},
-			want: []string{"list-entries", "tracking.yaml", "--status", "pending", "--min-occurrences", "3", "--json", "--min"},
+			want: []string{"list-entries", "--file", "tracking.yaml", "--status", "pending", "--min-occurrences", "3", "--json", "--min"},
 		},
 		{
 			name: "with json+min disabled",
 			args: map[string]interface{}{"file": "tracking.yaml", "json": false, "min": false},
-			want: []string{"list-entries", "tracking.yaml"},
+			want: []string{"list-entries", "--file", "tracking.yaml"},
 		},
 	}
 
@@ -160,7 +160,7 @@ func TestBuildDetectConflictsArgs(t *testing.T) {
 	}
 
 	got := buildDetectConflictsArgs(args)
-	want := []string{"detect-conflicts", "tracking.yaml", "--timeout", "45", "--json", "--min"}
+	want := []string{"detect-conflicts", "--file", "tracking.yaml", "--timeout", "45", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildDetectConflictsArgs() = %v, want %v", got, want)
@@ -175,7 +175,7 @@ func TestBuildValidateArgs(t *testing.T) {
 	}
 
 	got := buildValidateArgs(args)
-	want := []string{"validate-clarifications", "tracking.yaml", "--context", "React frontend project", "--json", "--min"}
+	want := []string{"validate-clarifications", "--file", "tracking.yaml", "--context", "React frontend project", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildValidateArgs() = %v, want %v", got, want)
@@ -234,7 +234,7 @@ func TestBuildValidateArgsWithTimeout(t *testing.T) {
 	}
 
 	got := buildValidateArgs(args)
-	want := []string{"validate-clarifications", "tracking.yaml", "--timeout", "90", "--json", "--min"}
+	want := []string{"validate-clarifications", "--file", "tracking.yaml", "--timeout", "90", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildValidateArgs() = %v, want %v", got, want)
