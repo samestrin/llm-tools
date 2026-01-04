@@ -131,7 +131,7 @@ func buildClusterArgs(args map[string]interface{}) []string {
 func buildDetectConflictsArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"detect-conflicts"}
 	if f, ok := args["file"].(string); ok {
-		cmdArgs = append(cmdArgs, f)
+		cmdArgs = append(cmdArgs, "--file", f)
 	}
 	if t, ok := getInt(args, "timeout"); ok {
 		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(t))
@@ -148,7 +148,7 @@ func buildDetectConflictsArgs(args map[string]interface{}) []string {
 func buildValidateArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"validate-clarifications"}
 	if f, ok := args["file"].(string); ok {
-		cmdArgs = append(cmdArgs, f)
+		cmdArgs = append(cmdArgs, "--file", f)
 	}
 	if c, ok := args["context"].(string); ok {
 		cmdArgs = append(cmdArgs, "--context", c)
@@ -247,7 +247,7 @@ func buildPromoteArgs(args map[string]interface{}) []string {
 func buildListArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"list-entries"}
 	if f, ok := args["file"].(string); ok {
-		cmdArgs = append(cmdArgs, f)
+		cmdArgs = append(cmdArgs, "--file", f)
 	}
 	if s, ok := args["status"].(string); ok {
 		cmdArgs = append(cmdArgs, "--status", s)
