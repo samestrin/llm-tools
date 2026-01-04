@@ -23,6 +23,8 @@ func (s *Server) ExecuteHandler(toolName string, args map[string]interface{}) (s
 		return s.handleGetFileInfo(args)
 	case "llm_filesystem_create_directory":
 		return s.handleCreateDirectory(args)
+	case "llm_filesystem_create_directories":
+		return s.handleCreateDirectories(args)
 	case "llm_filesystem_search_files":
 		return s.handleSearchFiles(args)
 	case "llm_filesystem_search_code":

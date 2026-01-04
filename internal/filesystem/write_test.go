@@ -299,6 +299,180 @@ func TestCreateDirectory(t *testing.T) {
 	}
 }
 
+func TestCreateDirectories(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name        string
+		args        map[string]interface{}
+		wantSuccess int
+		wantFailed  int
+		wantErr     bool
+	}{
+		{
+			name: "create multiple directories",
+			args: map[string]interface{}{
+				"paths": []interface{}{
+					filepath.Join(tmpDir, "multi1"),
+					filepath.Join(tmpDir, "multi2"),
+					filepath.Join(tmpDir, "multi3"),
+				},
+			},
+			wantSuccess: 3,
+			wantFailed:  0,
+			wantErr:     false,
+		},
+		{
+			name: "create nested directories",
+			args: map[string]interface{}{
+				"paths": []interface{}{
+					filepath.Join(tmpDir, "nested1", "deep", "dir"),
+					filepath.Join(tmpDir, "nested2", "deep", "dir"),
+				},
+				"recursive": true,
+			},
+			wantSuccess: 2,
+			wantFailed:  0,
+			wantErr:     false,
+		},
+		{
+			name: "create without recursive flag fails for nested",
+			args: map[string]interface{}{
+				"paths": []interface{}{
+					filepath.Join(tmpDir, "simple_ok"),
+					filepath.Join(tmpDir, "parent_missing_multi", "child"),
+				},
+				"recursive": false,
+			},
+			wantSuccess: 1,
+			wantFailed:  1,
+			wantErr:     false,
+		},
+		{
+			name:    "missing paths",
+			args:    map[string]interface{}{},
+			wantErr: true,
+		},
+		{
+			name: "empty paths array",
+			args: map[string]interface{}{
+				"paths": []interface{}{},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := server.handleCreateDirectories(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("handleCreateDirectories() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+
+			// Verify directories were created for successful cases
+			if paths, ok := tt.args["paths"].([]interface{}); ok {
+				for _, p := range paths {
+					path := p.(string)
+					_, statErr := os.Stat(path)
+					if tt.wantSuccess > 0 && tt.wantFailed == 0 {
+						// All should succeed
+						if os.IsNotExist(statErr) {
+							t.Errorf("Directory was not created: %s", path)
+						}
+					}
+				}
+			}
+
+			// Verify result contains success count
+			if !strings.Contains(result, "success") && !strings.Contains(result, "Success") {
+				t.Errorf("handleCreateDirectories() result should contain success info: %s", result)
+			}
+		})
+	}
+}
+
+func TestCreateDirectoriesPartialFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	// Create one directory that will succeed and one that requires non-existent parent
+	args := map[string]interface{}{
+		"paths": []interface{}{
+			filepath.Join(tmpDir, "will_succeed"),
+			filepath.Join(tmpDir, "nonexistent_parent", "will_fail"),
+		},
+		"recursive": false,
+	}
+
+	result, err := server.handleCreateDirectories(args)
+	if err != nil {
+		t.Errorf("handleCreateDirectories() should not return error for partial failure: %v", err)
+		return
+	}
+
+	// First directory should exist
+	if _, err := os.Stat(filepath.Join(tmpDir, "will_succeed")); os.IsNotExist(err) {
+		t.Error("First directory should have been created")
+	}
+
+	// Second directory should NOT exist
+	if _, err := os.Stat(filepath.Join(tmpDir, "nonexistent_parent", "will_fail")); !os.IsNotExist(err) {
+		t.Error("Second directory should not have been created")
+	}
+
+	// Result should indicate partial success
+	if !strings.Contains(result, "1") {
+		t.Errorf("Result should indicate 1 success: %s", result)
+	}
+}
+
+func TestCreateDirectoriesPathSecurity(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	tests := []struct {
+		name       string
+		args       map[string]interface{}
+		wantFailed int
+	}{
+		{
+			name: "mixed allowed and disallowed paths",
+			args: map[string]interface{}{
+				"paths": []interface{}{
+					filepath.Join(tmpDir, "allowed_dir"),
+					"/tmp/outside_allowed",
+				},
+			},
+			wantFailed: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := server.handleCreateDirectories(tt.args)
+			if err != nil {
+				t.Errorf("handleCreateDirectories() error = %v", err)
+				return
+			}
+
+			// Verify allowed path was created
+			if _, err := os.Stat(filepath.Join(tmpDir, "allowed_dir")); os.IsNotExist(err) {
+				t.Error("Allowed directory should have been created")
+			}
+
+			// Result should show failure for disallowed path
+			if !strings.Contains(result, "failed") && !strings.Contains(result, "Failed") {
+				t.Errorf("Result should indicate failure: %s", result)
+			}
+		})
+	}
+}
+
 func TestLargeWriteFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	server, _ := NewServer([]string{tmpDir})
