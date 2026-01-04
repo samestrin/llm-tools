@@ -1,5 +1,9 @@
 # Claude Code Instructions for llm-tools
 
+## Important: llm-filesystem is a Port
+
+`llm-filesystem` is a port of an existing project. **Do not change existing behavior** - only add new features. The MCP wrapper (`llm-filesystem-mcp`) should only add `--json`, not `--min`, to preserve compatibility with the original project's output format.
+
 ## Build
 
 Build all binaries to the `build/` directory:

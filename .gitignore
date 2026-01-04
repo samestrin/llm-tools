@@ -34,6 +34,9 @@ go.sum
 .env.local
 *.pem
 *.key
+
+# Local install script
+install.sh
 # Local binaries (installed to /usr/local/bin)
 llm-support
 llm-clarification
