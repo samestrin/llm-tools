@@ -216,12 +216,12 @@ func TestCountMinimalJSONOutput(t *testing.T) {
 	}
 
 	output := buf.String()
-	// Minimal JSON should use abbreviated keys (count -> c per KeyAbbreviations)
-	if !strings.Contains(output, `"c"`) {
-		t.Errorf("minimal JSON output should use abbreviated key 'c' for count, got: %q", output)
+	// Minimal JSON should use "count" (not abbreviated, for consistency with other tools)
+	if !strings.Contains(output, `"count"`) {
+		t.Errorf("minimal JSON output should use 'count' key, got: %q", output)
 	}
 	// Verify it's valid JSON with expected values
-	if !strings.Contains(output, `"checked":2`) && !strings.Contains(output, `"chk":2`) {
+	if !strings.Contains(output, `"checked":2`) {
 		t.Errorf("minimal JSON output should contain checked count, got: %q", output)
 	}
 }

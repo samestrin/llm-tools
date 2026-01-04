@@ -14,32 +14,32 @@ func TestArgsCommand(t *testing.T) {
 	}{
 		{
 			name:     "no arguments",
-			args:     []string{},
+			args:     []string{"--"},
 			expected: []string{"NO_ARGS"},
 		},
 		{
 			name:     "positional arguments only",
-			args:     []string{"file1.txt", "file2.txt"},
+			args:     []string{"--", "file1.txt", "file2.txt"},
 			expected: []string{"POSITIONAL: file1.txt file2.txt"},
 		},
 		{
 			name:     "flag with value",
-			args:     []string{"--output", "result.txt"},
+			args:     []string{"--", "--output", "result.txt"},
 			expected: []string{"OUTPUT: result.txt"},
 		},
 		{
 			name:     "boolean flag",
-			args:     []string{"--verbose"},
+			args:     []string{"--", "--verbose"},
 			expected: []string{"VERBOSE: true"},
 		},
 		{
 			name:     "mixed positional and flags",
-			args:     []string{"file.txt", "--format", "json", "--quiet"},
+			args:     []string{"--", "file.txt", "--format", "json", "--quiet"},
 			expected: []string{"POSITIONAL: file.txt", "FORMAT: json", "QUIET: true"},
 		},
 		{
 			name:     "flag with dashes converted to underscores",
-			args:     []string{"--output-file", "test.txt"},
+			args:     []string{"--", "--output-file", "test.txt"},
 			expected: []string{"OUTPUT_FILE: test.txt"},
 		},
 	}
