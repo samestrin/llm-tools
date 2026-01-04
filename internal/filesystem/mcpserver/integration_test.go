@@ -162,6 +162,65 @@ func TestBuildArgsUnknownCommand(t *testing.T) {
 	}
 }
 
+// TestBuildArgsCreateDirectories verifies create_directories args are built correctly
+func TestBuildArgsCreateDirectories(t *testing.T) {
+	args := map[string]interface{}{
+		"paths": []interface{}{
+			"/tmp/dir1",
+			"/tmp/dir2",
+			"/tmp/dir3",
+		},
+		"recursive": true,
+	}
+
+	cmdArgs, err := buildArgs("create_directories", args)
+	if err != nil {
+		t.Fatalf("buildArgs failed: %v", err)
+	}
+
+	if cmdArgs[0] != "create-directories" {
+		t.Errorf("Expected 'create-directories', got %s", cmdArgs[0])
+	}
+
+	// Verify all paths are included
+	pathCount := 0
+	for i, arg := range cmdArgs {
+		if arg == "--paths" && i+1 < len(cmdArgs) {
+			pathCount++
+		}
+	}
+	if pathCount != 3 {
+		t.Errorf("Expected 3 --paths flags, got %d", pathCount)
+	}
+}
+
+// TestBuildArgsCreateDirectoriesNoRecursive verifies recursive=false is passed
+func TestBuildArgsCreateDirectoriesNoRecursive(t *testing.T) {
+	args := map[string]interface{}{
+		"paths": []interface{}{
+			"/tmp/dir1",
+		},
+		"recursive": false,
+	}
+
+	cmdArgs, err := buildArgs("create_directories", args)
+	if err != nil {
+		t.Fatalf("buildArgs failed: %v", err)
+	}
+
+	// Verify recursive=false is included
+	recursiveFalseFound := false
+	for _, arg := range cmdArgs {
+		if arg == "--recursive=false" {
+			recursiveFalseFound = true
+			break
+		}
+	}
+	if !recursiveFalseFound {
+		t.Error("Expected --recursive=false in args")
+	}
+}
+
 // TestBuildArgsEditBlocks verifies edit_blocks JSON encoding
 func TestBuildArgsEditBlocks(t *testing.T) {
 	args := map[string]interface{}{
@@ -364,6 +423,8 @@ func TestAllToolsHaveBuilders(t *testing.T) {
 		case "read_file", "get_file_info", "create_directory", "list_directory",
 			"get_directory_tree", "delete_file", "get_disk_usage", "find_large_files":
 			args["path"] = "/tmp"
+		case "create_directories":
+			args["paths"] = []interface{}{"/tmp/dir1", "/tmp/dir2"}
 		case "read_multiple_files":
 			args["paths"] = []interface{}{"/tmp/a.txt"}
 		case "write_file", "large_write_file":

@@ -8,9 +8,9 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Should have 27 tools
-	if len(tools) != 27 {
-		t.Errorf("GetToolDefinitions() = %d tools, want 27", len(tools))
+	// Should have 28 tools
+	if len(tools) != 28 {
+		t.Errorf("GetToolDefinitions() = %d tools, want 28", len(tools))
 	}
 
 	// Verify all tools have required fields
@@ -55,6 +55,7 @@ func TestGetToolDefinitionsNames(t *testing.T) {
 		"llm_filesystem_list_directory",
 		"llm_filesystem_get_file_info",
 		"llm_filesystem_create_directory",
+		"llm_filesystem_create_directories",
 		"llm_filesystem_search_files",
 		"llm_filesystem_search_code",
 		"llm_filesystem_get_directory_tree",

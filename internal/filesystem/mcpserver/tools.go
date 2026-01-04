@@ -100,6 +100,18 @@ func GetToolDefinitions() []ToolDefinition {
 				"required": ["path"]
 			}`),
 		},
+		{
+			Name:        ToolPrefix + "create_directories",
+			Description: "Creates multiple directories in a single operation",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"paths": {"type": "array", "items": {"type": "string"}, "description": "Directory paths to create"},
+					"recursive": {"type": "boolean", "description": "Create parent directories", "default": true}
+				},
+				"required": ["paths"]
+			}`),
+		},
 		// Directory Operations
 		{
 			Name:        ToolPrefix + "list_directory",

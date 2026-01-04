@@ -286,3 +286,55 @@ func CreateDirectory(opts CreateDirectoryOptions) (*CreateDirectoryResult, error
 		Message: "Directory created successfully",
 	}, nil
 }
+
+// CreateDirectoriesOptions contains input parameters for CreateDirectories
+type CreateDirectoriesOptions struct {
+	Paths       []string
+	Recursive   bool
+	AllowedDirs []string
+}
+
+// CreateDirectoriesResult represents the result of creating multiple directories
+type CreateDirectoriesResult struct {
+	Directories []CreateDirectoryResult `json:"directories"`
+	Success     int                     `json:"success"`
+	Failed      int                     `json:"failed"`
+	Message     string                  `json:"message"`
+}
+
+// CreateDirectories creates multiple directories concurrently
+func CreateDirectories(opts CreateDirectoriesOptions) (*CreateDirectoriesResult, error) {
+	if len(opts.Paths) == 0 {
+		return nil, fmt.Errorf("paths is required")
+	}
+
+	results := make([]CreateDirectoryResult, len(opts.Paths))
+	success := 0
+	failed := 0
+
+	for i, path := range opts.Paths {
+		result, err := CreateDirectory(CreateDirectoryOptions{
+			Path:        path,
+			Recursive:   opts.Recursive,
+			AllowedDirs: opts.AllowedDirs,
+		})
+		if err != nil {
+			results[i] = CreateDirectoryResult{
+				Path:    path,
+				Created: false,
+				Message: err.Error(),
+			}
+			failed++
+		} else {
+			results[i] = *result
+			success++
+		}
+	}
+
+	return &CreateDirectoriesResult{
+		Directories: results,
+		Success:     success,
+		Failed:      failed,
+		Message:     fmt.Sprintf("Created %d directories, %d failed", success, failed),
+	}, nil
+}

@@ -311,3 +311,28 @@ func (s *Server) handleCreateDirectory(args map[string]interface{}) (string, err
 
 	return string(jsonBytes), nil
 }
+
+func (s *Server) handleCreateDirectories(args map[string]interface{}) (string, error) {
+	paths := GetStringSlice(args, "paths")
+	recursive := GetBool(args, "recursive", true)
+
+	if len(paths) == 0 {
+		return "", fmt.Errorf("paths is required")
+	}
+
+	result, err := core.CreateDirectories(core.CreateDirectoriesOptions{
+		Paths:       paths,
+		Recursive:   recursive,
+		AllowedDirs: s.allowedDirs,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(jsonBytes), nil
+}

@@ -77,6 +77,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildGetFileInfoArgs(args), nil
 	case "create_directory":
 		return buildCreateDirectoryArgs(args), nil
+	case "create_directories":
+		return buildCreateDirectoriesArgs(args), nil
 	case "list_directory":
 		return buildListDirectoryArgs(args), nil
 	case "get_directory_tree":
@@ -199,6 +201,21 @@ func buildCreateDirectoryArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"create-directory"}
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	if !getBoolDefault(args, "recursive", true) {
+		cmdArgs = append(cmdArgs, "--recursive=false")
+	}
+	return cmdArgs
+}
+
+func buildCreateDirectoriesArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"create-directories"}
+	if paths, ok := args["paths"].([]interface{}); ok {
+		for _, p := range paths {
+			if s, ok := p.(string); ok {
+				cmdArgs = append(cmdArgs, "--paths", s)
+			}
+		}
 	}
 	if !getBoolDefault(args, "recursive", true) {
 		cmdArgs = append(cmdArgs, "--recursive=false")

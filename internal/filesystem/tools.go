@@ -126,6 +126,18 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 		{
+			Name:        "llm_filesystem_create_directories",
+			Description: "Creates multiple directories in a single operation",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"paths": {"type": "array", "items": {"type": "string"}, "description": "Directory paths to create"},
+					"recursive": {"type": "boolean", "description": "Create parent directories", "default": true}
+				},
+				"required": ["paths"]
+			}`),
+		},
+		{
 			Name:        "llm_filesystem_search_files",
 			Description: "Searches for files (by name/content) - supports auto-chunking, regex, context, and line numbers",
 			InputSchema: json.RawMessage(`{

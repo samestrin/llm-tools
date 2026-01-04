@@ -47,10 +47,10 @@ func TestServerToolCount(t *testing.T) {
 		t.Fatalf("NewServer() error = %v", err)
 	}
 
-	// Should have 27 tools registered (25 v3.4.0 + 2 v3.5.1)
+	// Should have 28 tools registered (25 v3.4.0 + 2 v3.5.1 + 1 create_directories)
 	count := server.ToolCount()
-	if count != 27 {
-		t.Errorf("ToolCount() = %d, want 27", count)
+	if count != 28 {
+		t.Errorf("ToolCount() = %d, want 28", count)
 	}
 }
 
@@ -103,8 +103,8 @@ func TestServerMultipleAllowedDirs(t *testing.T) {
 	allowedDirs := []string{"/tmp", "/home", "/var"}
 	server, _ := NewServer(allowedDirs)
 
-	if server.ToolCount() != 27 {
-		t.Errorf("ToolCount() = %d, want 27", server.ToolCount())
+	if server.ToolCount() != 28 {
+		t.Errorf("ToolCount() = %d, want 28", server.ToolCount())
 	}
 
 	if server.Name() != "llm-filesystem" {

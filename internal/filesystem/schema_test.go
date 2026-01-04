@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// TestSchemaParityToolCount validates we have exactly 27 tools
+// TestSchemaParityToolCount validates we have exactly 28 tools
 func TestSchemaParityToolCount(t *testing.T) {
 	tools := GetToolDefinitions()
-	if len(tools) != 27 {
-		t.Errorf("Expected 27 tools, got %d", len(tools))
+	if len(tools) != 28 {
+		t.Errorf("Expected 28 tools, got %d", len(tools))
 	}
 }
 
@@ -114,6 +114,7 @@ func TestSchemaParityExpectedTools(t *testing.T) {
 		"llm_filesystem_list_directory",
 		"llm_filesystem_get_directory_tree",
 		"llm_filesystem_create_directory",
+		"llm_filesystem_create_directories",
 
 		// File info
 		"llm_filesystem_get_file_info",

@@ -12,6 +12,7 @@ func addWriteCommands(rootCmd *cobra.Command) {
 	rootCmd.AddCommand(largeWriteFileCmd())
 	rootCmd.AddCommand(getFileInfoCmd())
 	rootCmd.AddCommand(createDirectoryCmd())
+	rootCmd.AddCommand(createDirectoriesCmd())
 }
 
 func writeFileCmd() *cobra.Command {
@@ -158,6 +159,36 @@ func createDirectoryCmd() *cobra.Command {
 	cmd.Flags().StringVar(&path, "path", "", "Directory path to create (required)")
 	cmd.Flags().BoolVar(&recursive, "recursive", true, "Create parent directories")
 	cmd.MarkFlagRequired("path")
+
+	return cmd
+}
+
+func createDirectoriesCmd() *cobra.Command {
+	var paths []string
+	var recursive bool
+
+	cmd := &cobra.Command{
+		Use:   "create-directories",
+		Short: "Create multiple directories",
+		Long:  "Creates multiple directories in a single operation, optionally with parent directories",
+		Run: func(cmd *cobra.Command, args []string) {
+			result, err := core.CreateDirectories(core.CreateDirectoriesOptions{
+				Paths:       paths,
+				Recursive:   recursive,
+				AllowedDirs: GetAllowedDirs(),
+			})
+			if err != nil {
+				OutputError(err)
+			}
+			OutputResult(result, func() string {
+				return fmt.Sprintf("Created %d directories, %d failed", result.Success, result.Failed)
+			})
+		},
+	}
+
+	cmd.Flags().StringArrayVar(&paths, "paths", nil, "Directory paths to create (required, can be specified multiple times)")
+	cmd.Flags().BoolVar(&recursive, "recursive", true, "Create parent directories")
+	cmd.MarkFlagRequired("paths")
 
 	return cmd
 }
