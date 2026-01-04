@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -9,10 +10,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	mathJSON bool
+	mathMin  bool
+)
+
 // newMathCmd creates the math command
 func newMathCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "math [expression]",
+		Use:   "math <expression>",
 		Short: "Evaluate mathematical expressions safely",
 		Long: `Evaluate mathematical expressions safely using the expr library.
 
@@ -20,11 +26,18 @@ Supported operators:
   + - * / % ** (power)
 
 Supported functions:
-  abs, round, min, max, floor, ceil, sqrt, pow`,
-		Args:               cobra.MinimumNArgs(1),
-		DisableFlagParsing: true, // Allow expressions like "-5 + 10"
-		RunE:               runMath,
+  abs, round, min, max, floor, ceil, sqrt, pow
+
+Note: For expressions starting with -, use quotes or = prefix:
+  llm-support math "(-5 + 10)"
+  llm-support math -- -5 + 10`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: runMath,
 	}
+
+	cmd.Flags().BoolVar(&mathJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&mathMin, "min", false, "Minimal output - just the value")
+
 	return cmd
 }
 
@@ -93,18 +106,35 @@ func runMath(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("evaluation error: %v", err)
 	}
 
-	// Format output
+	// Format result value
+	var resultStr string
 	switch v := result.(type) {
 	case float64:
 		if v == float64(int64(v)) {
-			fmt.Fprintf(cmd.OutOrStdout(), "RESULT: %d\n", int64(v))
+			resultStr = fmt.Sprintf("%d", int64(v))
 		} else {
-			fmt.Fprintf(cmd.OutOrStdout(), "RESULT: %.6g\n", v)
+			resultStr = fmt.Sprintf("%.6g", v)
 		}
-	case int, int64:
-		fmt.Fprintf(cmd.OutOrStdout(), "RESULT: %d\n", v)
+	case int:
+		resultStr = fmt.Sprintf("%d", v)
+	case int64:
+		resultStr = fmt.Sprintf("%d", v)
 	default:
-		fmt.Fprintf(cmd.OutOrStdout(), "RESULT: %v\n", v)
+		resultStr = fmt.Sprintf("%v", v)
+	}
+
+	// Output based on format flags
+	if mathJSON {
+		output := map[string]interface{}{
+			"expression": expression,
+			"result":     result,
+		}
+		jsonBytes, _ := json.Marshal(output)
+		fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+	} else if mathMin {
+		fmt.Fprintln(cmd.OutOrStdout(), resultStr)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "RESULT: %s\n", resultStr)
 	}
 
 	return nil
