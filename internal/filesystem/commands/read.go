@@ -24,10 +24,10 @@ func readFileCmd() *cobra.Command {
 		Short: "Read a file",
 		Long:  "Reads a file with optional line range or byte offset",
 		Run: func(cmd *cobra.Command, args []string) {
-			// Determine size limit: -1 means use default, 0 means no limit
+			// Size limit: 0 = use default, -1 = no limit, >0 = custom
 			sizeLimit := maxSize
 			if !cmd.Flags().Changed("max-size") {
-				sizeLimit = -1 // Use default
+				sizeLimit = 0 // Use default
 			}
 
 			result, err := core.ReadFile(core.ReadFileOptions{
@@ -57,7 +57,7 @@ func readFileCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&path, "path", "", "File path to read (required)")
 	cmd.Flags().IntVar(&startOffset, "start-offset", 0, "Starting byte offset")
-	cmd.Flags().Int64Var(&maxSize, "max-size", core.DefaultMaxSize, "Maximum file size in bytes (0 = no limit)")
+	cmd.Flags().Int64Var(&maxSize, "max-size", 0, "Maximum JSON output size in chars (0 = default 70000, -1 = no limit)")
 	cmd.Flags().IntVar(&lineStart, "line-start", 0, "Starting line number")
 	cmd.Flags().IntVar(&lineCount, "line-count", 0, "Number of lines to read")
 	cmd.MarkFlagRequired("path")
@@ -74,10 +74,10 @@ func readMultipleFilesCmd() *cobra.Command {
 		Short: "Read multiple files simultaneously",
 		Long:  "Reads multiple files concurrently and returns their contents",
 		Run: func(cmd *cobra.Command, args []string) {
-			// Determine size limit: -1 means use default, 0 means no limit
+			// Size limit: 0 = use default, -1 = no limit, >0 = custom
 			sizeLimit := maxTotalSize
 			if !cmd.Flags().Changed("max-total-size") {
-				sizeLimit = -1 // Use default
+				sizeLimit = 0 // Use default
 			}
 
 			result, err := core.ReadMultipleFiles(core.ReadMultipleFilesOptions{
@@ -114,7 +114,7 @@ func readMultipleFilesCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringSliceVar(&paths, "paths", nil, "File paths to read (comma-separated)")
-	cmd.Flags().Int64Var(&maxTotalSize, "max-total-size", core.DefaultMaxSize, "Maximum combined file size in bytes (0 = no limit)")
+	cmd.Flags().Int64Var(&maxTotalSize, "max-total-size", 0, "Maximum combined JSON output size in chars (0 = default 70000, -1 = no limit)")
 	cmd.MarkFlagRequired("paths")
 
 	return cmd

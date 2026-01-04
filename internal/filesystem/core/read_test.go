@@ -134,7 +134,7 @@ func TestReadFileSizeLimit(t *testing.T) {
 		_, err := ReadFile(ReadFileOptions{
 			Path:             largeFile,
 			AllowedDirs:      []string{tmpDir},
-			SizeCheckMaxSize: -1, // Use default (70000)
+			SizeCheckMaxSize: 0, // Use default (70000)
 		})
 
 		if err == nil {
@@ -158,7 +158,7 @@ func TestReadFileSizeLimit(t *testing.T) {
 		result, err := ReadFile(ReadFileOptions{
 			Path:             smallFile,
 			AllowedDirs:      []string{tmpDir},
-			SizeCheckMaxSize: -1, // Use default
+			SizeCheckMaxSize: 0, // Use default
 		})
 
 		if err != nil {
@@ -191,11 +191,11 @@ func TestReadFileSizeLimit(t *testing.T) {
 		}
 	})
 
-	t.Run("zero size limit disables checking", func(t *testing.T) {
+	t.Run("negative one size limit disables checking", func(t *testing.T) {
 		result, err := ReadFile(ReadFileOptions{
 			Path:             largeFile,
 			AllowedDirs:      []string{tmpDir},
-			SizeCheckMaxSize: 0, // No limit (0 = disabled)
+			SizeCheckMaxSize: -1, // No limit (-1 = disabled)
 		})
 
 		if err != nil {
@@ -249,7 +249,7 @@ func TestReadMultipleFilesSizeLimit(t *testing.T) {
 		_, err := ReadMultipleFiles(ReadMultipleFilesOptions{
 			Paths:                 []string{file1, file2},
 			AllowedDirs:           []string{tmpDir},
-			SizeCheckMaxTotalSize: -1, // Use default (70000)
+			SizeCheckMaxTotalSize: 0, // Use default (70000)
 		})
 
 		if err == nil {
@@ -276,7 +276,7 @@ func TestReadMultipleFilesSizeLimit(t *testing.T) {
 		result, err := ReadMultipleFiles(ReadMultipleFilesOptions{
 			Paths:                 []string{smallFile},
 			AllowedDirs:           []string{tmpDir},
-			SizeCheckMaxTotalSize: -1, // Use default
+			SizeCheckMaxTotalSize: 0, // Use default
 		})
 
 		if err != nil {
@@ -309,11 +309,11 @@ func TestReadMultipleFilesSizeLimit(t *testing.T) {
 		}
 	})
 
-	t.Run("zero total size limit disables checking", func(t *testing.T) {
+	t.Run("negative one total size limit disables checking", func(t *testing.T) {
 		result, err := ReadMultipleFiles(ReadMultipleFilesOptions{
 			Paths:                 []string{file1, file2},
 			AllowedDirs:           []string{tmpDir},
-			SizeCheckMaxTotalSize: 0, // No limit
+			SizeCheckMaxTotalSize: -1, // No limit
 		})
 
 		if err != nil {
@@ -329,7 +329,7 @@ func TestReadMultipleFilesSizeLimit(t *testing.T) {
 		_, err := ReadMultipleFiles(ReadMultipleFilesOptions{
 			Paths:                 []string{smallFile, filepath.Join(tmpDir, "nonexistent.txt")},
 			AllowedDirs:           []string{tmpDir},
-			SizeCheckMaxTotalSize: -1,
+			SizeCheckMaxTotalSize: 0, // Use default
 		})
 
 		// Should not error at size check stage - missing files are handled during read
@@ -345,7 +345,7 @@ func TestReadMultipleFilesSizeLimit(t *testing.T) {
 		_, err := ReadMultipleFiles(ReadMultipleFilesOptions{
 			Paths:                 []string{smallFile, subDir},
 			AllowedDirs:           []string{tmpDir},
-			SizeCheckMaxTotalSize: -1,
+			SizeCheckMaxTotalSize: 0, // Use default
 		})
 
 		// Should not error at size check stage - directories are handled during read

@@ -76,31 +76,25 @@ func (s *Server) handleReadFile(args map[string]interface{}) (string, error) {
 	autoChunk := GetBool(args, "auto_chunk", true)
 	continuationTokenStr := GetString(args, "continuation_token", "")
 
-	// Check file size limit before reading
-	// This check only applies when:
-	// 1. No chunking/offset parameters are being used (reading whole file)
-	// 2. max_size is not being used for chunking purposes
-	//
+	// Determine if size checking should be applied
 	// If max_size > 0 is provided, it's used for chunking (read this many bytes)
 	// If max_size == 0 explicitly, it means "no limit, read everything"
 	// If max_size is not provided at all, apply default size limit
 	_, maxSizeProvided := args["max_size"]
 
-	// Apply size limit check only when:
-	// - Reading the whole file (no offset/line params)
-	// - max_size was NOT explicitly provided (not being used for chunking)
+	// Pre-check: fail-fast if raw file size already exceeds limit
+	// JSON encoding only adds overhead, so if raw > limit, JSON will definitely > limit
 	if startOffset == 0 && lineStart == 0 && lineCount == 0 && continuationTokenStr == "" && !maxSizeProvided {
 		if totalSize > core.DefaultMaxSize {
 			return "", &core.SizeExceededError{
-				Message: fmt.Sprintf("File size (%d bytes) exceeds max_size (%d bytes)", totalSize, core.DefaultMaxSize),
-				Path:    path,
-				Size:    totalSize,
-				MaxSize: core.DefaultMaxSize,
+				Message:           fmt.Sprintf("File size (%d bytes) exceeds max_size (%d chars)", totalSize, core.DefaultMaxSize),
+				Path:              path,
+				Size:              totalSize,
+				EstimatedJSONSize: 0, // Not calculated for fail-fast
+				MaxSize:           core.DefaultMaxSize,
 			}
 		}
 	}
-
-	// Handle explicit max_size=0 (no limit) - done later in the read logic
 
 	// If continuation token provided, decode and use its offset
 	if continuationTokenStr != "" {
@@ -134,6 +128,21 @@ func (s *Server) handleReadFile(args map[string]interface{}) (string, error) {
 
 	if err != nil {
 		return "", err
+	}
+
+	// Post-read check: estimate JSON size to catch files with high encoding overhead
+	// Only apply when reading whole file without explicit chunking params
+	if startOffset == 0 && lineStart == 0 && lineCount == 0 && continuationTokenStr == "" && !maxSizeProvided {
+		estimatedJSONSize := int64(core.EstimateJSONStringSize(content))
+		if estimatedJSONSize > core.DefaultMaxSize {
+			return "", &core.SizeExceededError{
+				Message:           fmt.Sprintf("Estimated JSON size (%d chars) exceeds max_size (%d chars). Raw file: %d bytes", estimatedJSONSize, core.DefaultMaxSize, len(content)),
+				Path:              path,
+				Size:              int64(len(content)),
+				EstimatedJSONSize: estimatedJSONSize,
+				MaxSize:           core.DefaultMaxSize,
+			}
+		}
 	}
 
 	result := ReadFileResult{
@@ -255,20 +264,20 @@ func (s *Server) handleReadMultipleFiles(args map[string]interface{}) (string, e
 		return "", fmt.Errorf("paths is required")
 	}
 
-	// Check total size limit before reading
-	// max_total_size of 0 means no limit was explicitly set, use default
-	sizeLimit := int64(-1) // Use default
+	// Check total size limit (0 = use default, -1 = no limit, >0 = custom)
+	sizeLimit := int64(0) // Use default
 	if maxSizeVal, ok := args["max_total_size"]; ok {
 		if ms, ok := maxSizeVal.(float64); ok {
-			sizeLimit = int64(ms) // 0 = no limit, >0 = specific limit
+			sizeLimit = int64(ms)
 		}
 	}
 
 	// Determine effective limit
 	effectiveLimit := sizeLimit
-	if effectiveLimit == -1 {
+	if effectiveLimit == 0 {
 		effectiveLimit = core.DefaultMaxSize
 	}
+	// effectiveLimit is now: DefaultMaxSize, -1 (no limit), or custom value
 
 	// If size checking is enabled, stat all files first
 	if effectiveLimit > 0 {
@@ -298,12 +307,14 @@ func (s *Server) handleReadMultipleFiles(args map[string]interface{}) (string, e
 			fileSizes = append(fileSizes, core.FileSizeEntry{Path: path, Size: info.Size()})
 		}
 
+		// Pre-check: fail-fast if raw total size already exceeds limit
 		if totalSize > effectiveLimit {
 			return "", &core.TotalSizeExceededError{
-				Message:      fmt.Sprintf("Total size (%d bytes) exceeds max_total_size (%d bytes)", totalSize, effectiveLimit),
-				TotalSize:    totalSize,
-				MaxTotalSize: effectiveLimit,
-				Files:        fileSizes,
+				Message:           fmt.Sprintf("Total file size (%d bytes) exceeds max_total_size (%d chars)", totalSize, effectiveLimit),
+				TotalSize:         totalSize,
+				EstimatedJSONSize: 0, // Not calculated for fail-fast
+				MaxTotalSize:      effectiveLimit,
+				Files:             fileSizes,
 			}
 		}
 	}
@@ -356,6 +367,31 @@ func (s *Server) handleReadMultipleFiles(args map[string]interface{}) (string, e
 	}
 
 	wg.Wait()
+
+	// Post-read check: estimate total JSON size to catch files with high encoding overhead
+	if effectiveLimit > 0 {
+		var totalRawSize int64
+		var totalEstimatedJSONSize int64
+		fileSizes := make([]core.FileSizeEntry, 0, len(results))
+
+		for _, r := range results {
+			if r.Error == "" {
+				totalRawSize += r.Size
+				totalEstimatedJSONSize += int64(core.EstimateJSONStringSize(r.Content))
+			}
+			fileSizes = append(fileSizes, core.FileSizeEntry{Path: r.Path, Size: r.Size})
+		}
+
+		if totalEstimatedJSONSize > effectiveLimit {
+			return "", &core.TotalSizeExceededError{
+				Message:           fmt.Sprintf("Estimated total JSON size (%d chars) exceeds max_total_size (%d chars). Raw total: %d bytes", totalEstimatedJSONSize, effectiveLimit, totalRawSize),
+				TotalSize:         totalRawSize,
+				EstimatedJSONSize: totalEstimatedJSONSize,
+				MaxTotalSize:      effectiveLimit,
+				Files:             fileSizes,
+			}
+		}
+	}
 
 	response := ReadMultipleFilesResult{
 		Files:   results,
