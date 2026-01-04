@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -76,6 +77,9 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 	if err != nil {
 		return "", err
 	}
+
+	// Add --json and --min flags for machine-parseable, token-optimized output
+	cmdArgs = append(cmdArgs, "--json", "--min")
 
 	// Execute command
 	ctx, cancel := context.WithTimeout(context.Background(), CommandTimeout)
@@ -326,9 +330,9 @@ func buildDiscoverTestsArgs(args map[string]interface{}) []string {
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
 	}
-	if getBoolDefault(args, "min", true) {
-		cmdArgs = append(cmdArgs, "--min")
-	}
+	// NOTE: --min is intentionally NOT used here. This command documents specific
+	// output fields (PATTERN, FRAMEWORK, TEST_RUNNER, etc.) that must always be
+	// present in JSON output for reliable parsing. Using --min would omit empty fields.
 	return cmdArgs
 }
 
@@ -386,9 +390,9 @@ func buildDetectArgs(args map[string]interface{}) []string {
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
 	}
-	if getBoolDefault(args, "min", true) {
-		cmdArgs = append(cmdArgs, "--min")
-	}
+	// NOTE: --min is intentionally NOT used here. This command documents specific
+	// output fields (STACK, LANGUAGE, PACKAGE_MANAGER, etc.) that must always be
+	// present in JSON output for reliable parsing. Using --min would omit empty fields.
 	return cmdArgs
 }
 
@@ -837,14 +841,12 @@ func buildYamlMultigetArgs(args map[string]interface{}) []string {
 		}
 	}
 
-	// Add defaults as --default KEY=VALUE flags
-	if defaults, ok := args["defaults"].(map[string]interface{}); ok {
-		for key, value := range defaults {
-			if v, ok := value.(string); ok {
-				cmdArgs = append(cmdArgs, "--default", key+"="+v)
-			} else {
-				cmdArgs = append(cmdArgs, "--default", fmt.Sprintf("%s=%v", key, value))
-			}
+	// Add defaults as JSON string to --defaults flag
+	if defaults, ok := args["defaults"].(map[string]interface{}); ok && len(defaults) > 0 {
+		// Convert map to JSON string for the CLI
+		jsonBytes, err := json.Marshal(defaults)
+		if err == nil {
+			cmdArgs = append(cmdArgs, "--defaults", string(jsonBytes))
 		}
 	}
 
