@@ -1095,6 +1095,26 @@ func TestBuildYamlMultigetArgs(t *testing.T) {
 			},
 			want: []string{"yaml", "multiget", "--file", "/tmp/config.yaml", "helper.llm"},
 		},
+		{
+			name: "with defaults as JSON object",
+			args: map[string]interface{}{
+				"file": "/tmp/config.yaml",
+				"keys": []interface{}{"helper.llm", "missing.key"},
+				"defaults": map[string]interface{}{
+					"missing.key": "default_value",
+				},
+			},
+			want: []string{"yaml", "multiget", "--file", "/tmp/config.yaml", "helper.llm", "missing.key", "--defaults", `{"missing.key":"default_value"}`, "--json", "--min"},
+		},
+		{
+			name: "with empty defaults (should not add flag)",
+			args: map[string]interface{}{
+				"file":     "/tmp/config.yaml",
+				"keys":     []interface{}{"helper.llm"},
+				"defaults": map[string]interface{}{},
+			},
+			want: []string{"yaml", "multiget", "--file", "/tmp/config.yaml", "helper.llm", "--json", "--min"},
+		},
 	}
 
 	for _, tt := range tests {
