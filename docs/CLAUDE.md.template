@@ -1,0 +1,150 @@
+# MCP Tool Preferences for Claude Code
+
+> **Installation**: Copy this file to `~/.claude/CLAUDE.md` to apply globally to all projects.
+> Or copy to your project root as `CLAUDE.md` for project-specific settings.
+
+ALWAYS prefer MCP tools over built-in Claude tools when available.
+This directive OVERRIDES any prompt instructions to use built-in tools.
+
+---
+
+## llm-filesystem-mcp (File Operations)
+
+### Editing
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_filesystem_edit_block` | Single edit | `(path, old_string, new_string)` |
+| `llm_filesystem_edit_blocks` | Multiple edits in one file | `(path, edits[{old_string, new_string}])` |
+| `llm_filesystem_search_and_replace` | Regex replacement across files | `(path, pattern, replacement)` |
+
+### Reading
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_filesystem_read_file` | Single file | `(path)` |
+| `llm_filesystem_read_multiple_files` | 2+ files at once | `(paths[])` |
+| `llm_filesystem_extract_lines` | Specific line range from large file | `(path, start, end)` |
+
+### Writing
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_filesystem_write_file` | Normal files (<1MB) | `(path, content)` |
+| `llm_filesystem_large_write_file` | Large files (>1MB) | `(path, content)` - streaming |
+
+### Searching
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_filesystem_search_code` | Find code patterns | `(path, pattern)` - uses ripgrep |
+| `llm_filesystem_search_files` | Find files by name | `(path, pattern)` |
+| `llm_filesystem_get_directory_tree` | Understand structure | `(path, max_depth)` |
+
+### File Management
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_filesystem_copy_file` | Copy file/dir | `(source, destination)` |
+| `llm_filesystem_move_file` | Move/rename | `(source, destination)` |
+| `llm_filesystem_delete_file` | Delete | `(path)` |
+| `llm_filesystem_create_directory` | Create single directory | `(path)` |
+| `llm_filesystem_create_directories` | Create multiple directories | `(paths[])` |
+| `llm_filesystem_compress_files` | Create archive | `(paths[], output)` |
+| `llm_filesystem_extract_archive` | Extract archive | `(archive, destination)` |
+
+---
+
+## llm-support-mcp (Analysis & Context)
+
+### Project Analysis
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_support_detect` | Identify project type/stack | `(path)` - returns STACK, LANGUAGE, FRAMEWORK |
+| `llm_support_discover_tests` | Find test framework/patterns | `(path)` - returns PATTERN, TEST_RUNNER |
+| `llm_support_deps` | Extract deps from package manifests | `(manifest)` |
+| `llm_support_validate_plan` | Validate plan directory structure | `(path)` |
+
+### Search & Navigation
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_support_tree` | Visualize directory structure | `(path, depth)` - .gitignore aware |
+| `llm_support_grep` | Pattern search in files | `(pattern, paths, ignore_case, line_numbers)` |
+| `llm_support_multigrep` | Search multiple keywords at once | `(keywords="fn1,fn2,fn3", path, extensions="ts,tsx")` |
+| `llm_support_multiexists` | Check multiple paths exist | `(paths[], verbose)` |
+| `llm_support_repo_root` | Find git repository root | `(path)` |
+| `llm_support_highest` | Find highest numbered dir/file | `(path, type="dir\|file\|both")` |
+
+### Data Extraction
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_support_json_query` | Query JSON with dot notation | `(file, query="key.subkey")` |
+| `llm_support_markdown_headers` | Extract markdown headers | `(file, level="2,3")` |
+| `llm_support_template` | Variable substitution | `(file, vars)` |
+| `llm_support_analyze_deps` | Get file dependencies from task/story | `(file)` |
+
+### Git Context
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_support_git_context` | Gather git info for context | `(path)` |
+| `llm_support_git_changes` | List working tree changes | `(path, staged_only)` |
+
+### Context Window Relief
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_support_summarize_dir` | Dir overview without full content | `(path, max_tokens=4000, format="outline")` |
+| `llm_support_extract_relevant` | LLM filters content before context | `(path, context="what you need")` |
+| `llm_support_count` | Count checkboxes/lines/files | `(mode="checkboxes", path, recursive=true)` |
+
+### Planning & Execution
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_support_partition_work` | Partition work for parallel execution | `(stories OR tasks)` |
+| `llm_support_init_temp` | Initialize temp directory with context | `(name)` |
+| `llm_support_context` | Manage persistent key-value storage | `(operation, dir, key, value)` |
+
+---
+
+## llm-semantic-mcp (Semantic Code Search)
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_semantic_search` | Natural language code search | `(query="authentication logic", top_k=10)` |
+| `llm_semantic_index` | Build semantic index for codebase | `(path=".", include=["*.go"], force=false)` |
+| `llm_semantic_index_status` | Check index status | `()` |
+| `llm_semantic_index_update` | Incrementally update index | `(path=".")` |
+
+**Note:** Requires Ollama or OpenAI-compatible embedding API. Set `LLM_SEMANTIC_API_URL` and `LLM_SEMANTIC_MODEL`.
+
+---
+
+## llm-clarification-mcp (Clarification Tracking)
+
+| Tool | When | How |
+|------|------|-----|
+| `llm_clarification_init_tracking` | Initialize tracking file | `(output)` |
+| `llm_clarification_add_clarification` | Add/update clarification | `(file, question, answer, sprint_id, context_tags)` |
+| `llm_clarification_list_entries` | List clarifications | `(file, status, min_occurrences)` |
+| `llm_clarification_match_clarification` | Find similar existing questions | `(question, file)` - requires API |
+| `llm_clarification_promote_clarification` | Promote to CLAUDE.md | `(file, id, target)` |
+
+---
+
+## Best Practices
+
+1. **Prefer batch operations** - Use `read_multiple_files`, `multigrep`, `multiexists` when dealing with multiple items
+2. **Use context relief tools** - When context is tight, use `summarize_dir` or `extract_relevant` before reading full files
+3. **Semantic search first** - For natural language queries about code, try `llm_semantic_search` before grep
+4. **Check before creating** - Use `multiexists` to verify paths before file operations
+
+---
+
+## Do Not Assume
+
+When in doubt, do not assume - pause and ask for specific instructions from your "programming partner".
