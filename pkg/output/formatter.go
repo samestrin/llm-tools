@@ -36,6 +36,7 @@ func New(jsonOutput, minimal bool, w io.Writer) *Formatter {
 }
 
 // KeyAbbreviations maps full key names to abbreviated versions for minimal JSON output.
+// NOTE: "count" intentionally not abbreviated - other tools output "count" directly
 var KeyAbbreviations = map[string]string{
 	"file":        "f",
 	"line":        "l",
@@ -48,7 +49,6 @@ var KeyAbbreviations = map[string]string{
 	"path":        "p",
 	"message":     "msg",
 	"status":      "s",
-	"count":       "c",
 	"value":       "v",
 	"key":         "k",
 	"result":      "r",
