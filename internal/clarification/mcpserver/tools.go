@@ -5,7 +5,7 @@ import (
 )
 
 // ToolPrefix is the prefix for all llm-clarification tools
-const ToolPrefix = "llm_clarify_"
+const ToolPrefix = "llm_clarification_"
 
 // ToolDefinition defines a tool for the MCP SDK
 type ToolDefinition struct {
@@ -28,7 +28,7 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "string",
 						"description": "The new question to match against existing entries"
 					},
-					"entries_file": {
+					"file": {
 						"type": "string",
 						"description": "Path to YAML file containing existing clarification entries"
 					},
@@ -91,7 +91,7 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"tracking_file": {
+					"file": {
 						"type": "string",
 						"description": "Path to clarification-tracking.yaml file"
 					},
@@ -108,7 +108,7 @@ func GetToolDefinitions() []ToolDefinition {
 						"description": "Minimal output - token-optimized format"
 					}
 				},
-				"required": ["tracking_file"]
+				"required": ["file"]
 			}`),
 		},
 
@@ -119,7 +119,7 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"tracking_file": {
+					"file": {
 						"type": "string",
 						"description": "Path to clarification-tracking.yaml file"
 					},
@@ -140,7 +140,7 @@ func GetToolDefinitions() []ToolDefinition {
 						"description": "Minimal output - token-optimized format"
 					}
 				},
-				"required": ["tracking_file"]
+				"required": ["file"]
 			}`),
 		},
 
@@ -179,7 +179,7 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"tracking_file": {
+					"file": {
 						"type": "string",
 						"description": "Path to tracking YAML file"
 					},
@@ -216,7 +216,7 @@ func GetToolDefinitions() []ToolDefinition {
 						"description": "Minimal output - token-optimized format"
 					}
 				},
-				"required": ["tracking_file", "question"]
+				"required": ["file", "question"]
 			}`),
 		},
 
@@ -227,7 +227,7 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"tracking_file": {
+					"file": {
 						"type": "string",
 						"description": "Path to tracking YAML file"
 					},
@@ -252,7 +252,7 @@ func GetToolDefinitions() []ToolDefinition {
 						"description": "Minimal output - token-optimized format"
 					}
 				},
-				"required": ["tracking_file", "id", "target"]
+				"required": ["file", "id", "target"]
 			}`),
 		},
 
@@ -263,7 +263,7 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"tracking_file": {
+					"file": {
 						"type": "string",
 						"description": "Path to tracking YAML file"
 					},
@@ -285,7 +285,7 @@ func GetToolDefinitions() []ToolDefinition {
 						"description": "Minimal output - token-optimized format"
 					}
 				},
-				"required": ["tracking_file"]
+				"required": ["file"]
 			}`),
 		},
 
