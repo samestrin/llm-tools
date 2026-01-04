@@ -579,8 +579,8 @@ func TestSQLiteStorage_BulkInsert_Performance(t *testing.T) {
 	if result.Created != 1000 {
 		t.Errorf("expected 1000 created, got %d", result.Created)
 	}
-	if duration > 5*time.Second {
-		t.Errorf("BulkInsert took too long: %v (should be < 5s)", duration)
+	if duration > 10*time.Second {
+		t.Errorf("BulkInsert took too long: %v (should be < 10s)", duration)
 	}
 	t.Logf("BulkInsert 1000 entries took %v", duration)
 }

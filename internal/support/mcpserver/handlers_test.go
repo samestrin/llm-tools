@@ -353,23 +353,23 @@ func TestBuildDiscoverTestsArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "empty (defaults to json+min)",
+			name: "empty (defaults to json only, --min intentionally omitted)",
 			args: map[string]interface{}{},
-			want: []string{"discover-tests", "--json", "--min"},
+			want: []string{"discover-tests", "--json"},
 		},
 		{
-			name: "with path (defaults to json+min)",
+			name: "with path (defaults to json only)",
 			args: map[string]interface{}{"path": "/project"},
-			want: []string{"discover-tests", "--path", "/project", "--json", "--min"},
+			want: []string{"discover-tests", "--path", "/project", "--json"},
 		},
 		{
 			name: "with json explicitly true",
-			args: map[string]interface{}{"json": true, "min": true},
-			want: []string{"discover-tests", "--json", "--min"},
+			args: map[string]interface{}{"json": true},
+			want: []string{"discover-tests", "--json"},
 		},
 		{
-			name: "with json+min disabled",
-			args: map[string]interface{}{"json": false, "min": false},
+			name: "with json disabled",
+			args: map[string]interface{}{"json": false},
 			want: []string{"discover-tests"},
 		},
 	}
@@ -424,18 +424,18 @@ func TestBuildDetectArgs(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "empty (defaults to json+min)",
+			name: "empty (defaults to json only, --min intentionally omitted)",
 			args: map[string]interface{}{},
-			want: []string{"detect", "--json", "--min"},
+			want: []string{"detect", "--json"},
 		},
 		{
-			name: "with path (defaults to json+min)",
+			name: "with path (defaults to json only)",
 			args: map[string]interface{}{"path": "/project"},
-			want: []string{"detect", "--path", "/project", "--json", "--min"},
+			want: []string{"detect", "--path", "/project", "--json"},
 		},
 		{
-			name: "with json+min disabled",
-			args: map[string]interface{}{"json": false, "min": false},
+			name: "with json disabled",
+			args: map[string]interface{}{"json": false},
 			want: []string{"detect"},
 		},
 	}
@@ -671,10 +671,10 @@ func TestBuildArgsDispatcher(t *testing.T) {
 		{"json_query", map[string]interface{}{"file": "f", "query": "q"}, 4},
 		{"markdown_headers", map[string]interface{}{"file": "f"}, 3},
 		{"template", map[string]interface{}{"file": "f"}, 2},
-		{"discover_tests", map[string]interface{}{}, 3},                    // now includes --json --min
+		{"discover_tests", map[string]interface{}{}, 2},                    // --json only, --min intentionally omitted
 		{"multigrep", map[string]interface{}{"keywords": "a,b"}, 5},        // now includes --json --min
 		{"analyze_deps", map[string]interface{}{"file": "f"}, 4},           // now includes --json --min
-		{"detect", map[string]interface{}{}, 3},                            // now includes --json --min
+		{"detect", map[string]interface{}{}, 2},                            // --json only, --min intentionally omitted
 		{"count", map[string]interface{}{"mode": "lines", "path": "f"}, 6}, // now includes --json --min
 		{"summarize_dir", map[string]interface{}{"path": "p"}, 2},
 		{"deps", map[string]interface{}{"manifest": "m"}, 4},          // now includes --json --min

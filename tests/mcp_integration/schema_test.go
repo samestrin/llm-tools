@@ -77,8 +77,8 @@ func TestToolPrefixes(t *testing.T) {
 
 	clarifyTools := clarifyserver.GetToolDefinitions()
 	for _, tool := range clarifyTools {
-		if len(tool.Name) < len("llm_clarify_") || tool.Name[:12] != "llm_clarify_" {
-			t.Errorf("Tool %s should have 'llm_clarify_' prefix", tool.Name)
+		if len(tool.Name) < len("llm_clarification_") || tool.Name[:18] != "llm_clarification_" {
+			t.Errorf("Tool %s should have 'llm_clarification_' prefix", tool.Name)
 		}
 	}
 }
@@ -148,19 +148,19 @@ func TestExpectedSupportToolNames(t *testing.T) {
 // TestExpectedClarifyToolNames verifies all expected tools exist
 func TestExpectedClarifyToolNames(t *testing.T) {
 	expectedNames := []string{
-		"llm_clarify_match_clarification",
-		"llm_clarify_cluster_clarifications",
-		"llm_clarify_detect_conflicts",
-		"llm_clarify_validate_clarifications",
-		"llm_clarify_init_tracking",
-		"llm_clarify_add_clarification",
-		"llm_clarify_promote_clarification",
-		"llm_clarify_list_entries",
-		"llm_clarify_delete_clarification",
-		"llm_clarify_export_memory",
-		"llm_clarify_import_memory",
-		"llm_clarify_optimize_memory",
-		"llm_clarify_reconcile_memory",
+		"llm_clarification_match_clarification",
+		"llm_clarification_cluster_clarifications",
+		"llm_clarification_detect_conflicts",
+		"llm_clarification_validate_clarifications",
+		"llm_clarification_init_tracking",
+		"llm_clarification_add_clarification",
+		"llm_clarification_promote_clarification",
+		"llm_clarification_list_entries",
+		"llm_clarification_delete_clarification",
+		"llm_clarification_export_memory",
+		"llm_clarification_import_memory",
+		"llm_clarification_optimize_memory",
+		"llm_clarification_reconcile_memory",
 	}
 
 	tools := clarifyserver.GetToolDefinitions()
@@ -179,7 +179,7 @@ func TestExpectedClarifyToolNames(t *testing.T) {
 // TestLLMFilesystemToolCount verifies the correct number of filesystem tools
 func TestLLMFilesystemToolCount(t *testing.T) {
 	tools := filesystemserver.GetToolDefinitions()
-	expected := 27 // llm-filesystem has 27 tools
+	expected := 28 // llm-filesystem has 28 tools
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-filesystem tools, got %d", expected, len(tools))
 	}

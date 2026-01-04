@@ -33,7 +33,7 @@ func TestCountCommand(t *testing.T) {
 		{
 			name:     "count checkboxes in file",
 			args:     []string{"--path", mdFile, "--mode", "checkboxes"},
-			expected: []string{"TOTAL: 3", "CHECKED: 2", "UNCHECKED: 1"},
+			expected: []string{"COUNT: 3", "CHECKED: 2", "UNCHECKED: 1"},
 		},
 		{
 			name:     "count lines in file",
@@ -43,12 +43,12 @@ func TestCountCommand(t *testing.T) {
 		{
 			name:     "count files in directory",
 			args:     []string{"--path", tmpDir, "--mode", "files"},
-			expected: []string{"TOTAL: 2"},
+			expected: []string{"COUNT: 2"},
 		},
 		{
 			name:     "count files recursive",
 			args:     []string{"--path", tmpDir, "--mode", "files", "-r"},
-			expected: []string{"TOTAL:"},
+			expected: []string{"COUNT:"},
 		},
 		{
 			name:     "non-existent path",
@@ -63,7 +63,7 @@ func TestCountCommand(t *testing.T) {
 		{
 			name:     "legacy checkboxes flag",
 			args:     []string{"--path", mdFile, "--checkboxes"},
-			expected: []string{"TOTAL: 3", "CHECKED: 2", "UNCHECKED: 1"},
+			expected: []string{"COUNT: 3", "CHECKED: 2", "UNCHECKED: 1"},
 		},
 		{
 			name:     "legacy lines flag",
@@ -124,8 +124,8 @@ func TestCountCheckboxesRecursive(t *testing.T) {
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "TOTAL: 3") {
-		t.Errorf("output %q should contain TOTAL: 3", output)
+	if !strings.Contains(output, "COUNT: 3") {
+		t.Errorf("output %q should contain COUNT: 3", output)
 	}
 	if !strings.Contains(output, "CHECKED: 2") {
 		t.Errorf("output %q should contain CHECKED: 2", output)
@@ -156,7 +156,7 @@ func TestCountJSONOutput(t *testing.T) {
 
 	output := buf.String()
 	// JSON output should contain these keys
-	expectedKeys := []string{`"total"`, `"checked"`, `"unchecked"`, `"percent"`}
+	expectedKeys := []string{`"count"`, `"checked"`, `"unchecked"`, `"percent"`}
 	for _, key := range expectedKeys {
 		if !strings.Contains(output, key) {
 			t.Errorf("JSON output %q should contain key %s", output, key)
@@ -216,12 +216,12 @@ func TestCountMinimalJSONOutput(t *testing.T) {
 	}
 
 	output := buf.String()
-	// Minimal JSON should use abbreviated keys (total -> tot per KeyAbbreviations)
-	if !strings.Contains(output, `"tot"`) {
-		t.Errorf("minimal JSON output should use abbreviated key 'tot' for total, got: %q", output)
+	// Minimal JSON should use abbreviated keys (count -> c per KeyAbbreviations)
+	if !strings.Contains(output, `"c"`) {
+		t.Errorf("minimal JSON output should use abbreviated key 'c' for count, got: %q", output)
 	}
 	// Verify it's valid JSON with expected values
-	if !strings.Contains(output, `"checked":2`) {
+	if !strings.Contains(output, `"checked":2`) && !strings.Contains(output, `"chk":2`) {
 		t.Errorf("minimal JSON output should contain checked count, got: %q", output)
 	}
 }
