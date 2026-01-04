@@ -26,31 +26,31 @@ var (
 // InitTempResult holds the init-temp command result
 type InitTempResult struct {
 	// Core fields (always present)
-	TempDir   string `json:"temp_dir,omitempty"`
+	TempDir   string `json:"temp_dir"`
 	TD        string `json:"td,omitempty"` // minimal alias
-	RepoRoot  string `json:"repo_root,omitempty"`
+	RepoRoot  string `json:"repo_root"`
 	RR        string `json:"rr,omitempty"` // minimal alias
-	Today     string `json:"today,omitempty"`
+	Today     string `json:"today"`
 	TodayLong string `json:"today_long,omitempty"`
 	TSLong    string `json:"ts_long,omitempty"` // minimal alias
-	Timestamp string `json:"timestamp,omitempty"`
+	Timestamp string `json:"timestamp"`
 	TS        string `json:"ts,omitempty"` // minimal alias
-	Epoch     int64  `json:"epoch,omitempty"`
+	Epoch     int64  `json:"epoch"`
 
-	// Git fields (with --with-git)
+	// Git fields (with --with-git) - optional
 	Branch      string `json:"branch,omitempty"`
 	BR          string `json:"br,omitempty"` // minimal alias
 	CommitShort string `json:"commit_short,omitempty"`
 	CS          string `json:"cs,omitempty"` // minimal alias
 
 	// Status fields
-	Status        string `json:"status,omitempty"`
+	Status        string `json:"status"`
 	S             string `json:"s,omitempty"` // minimal alias
 	Cleaned       int    `json:"cleaned,omitempty"`
 	Cl            *int   `json:"cl,omitempty"` // minimal alias
 	ExistingFiles int    `json:"existing_files,omitempty"`
 	EF            *int   `json:"ef,omitempty"` // minimal alias
-	ContextFile   string `json:"context_file,omitempty"`
+	ContextFile   string `json:"context_file"`
 	CF            string `json:"cf,omitempty"` // minimal alias
 }
 

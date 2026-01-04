@@ -46,12 +46,12 @@ Output:
 // AnalyzeDepsResult represents the JSON output of the analyze-deps command.
 type AnalyzeDepsResult struct {
 	// Standard mode fields (always included when not minimal)
-	FilesRead   []string `json:"files_read,omitempty"`
-	FilesModify []string `json:"files_modify,omitempty"`
-	FilesCreate []string `json:"files_create,omitempty"`
-	Directories []string `json:"directories,omitempty"`
+	FilesRead   []string `json:"files_read"`
+	FilesModify []string `json:"files_modify"`
+	FilesCreate []string `json:"files_create"`
+	Directories []string `json:"directories"`
 	TotalFiles  *int     `json:"total_files,omitempty"`
-	Confidence  string   `json:"confidence,omitempty"`
+	Confidence  string   `json:"confidence"`
 	// Minimal mode fields
 	FR    []string `json:"fr,omitempty"`
 	FM    []string `json:"fm,omitempty"`
