@@ -7,9 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-01-04
+
 ### Added
 
+#### llm-filesystem
+
+- `create_directories` - Batch create multiple directories in a single operation
+- **Size limit protection for read operations** - Prevents tool output from exceeding Claude's context limits:
+  - Smart JSON size estimation accounts for encoding overhead (escaping `\n`, `\t`, `"`, `\` characters)
+  - Hybrid checking: pre-check (raw size) + post-read (estimated JSON size)
+  - Default 70,000 character limit with `-1` to disable
+  - Works for both `read_file` and `read_multiple_files`
+
+#### llm-support
+
 - `runtime` command - Calculate and format elapsed time between epoch timestamps with configurable format (secs, mins, mins-secs, hms, human, compact) and precision
+- `clean-temp` command - Clean up temp directories created by `init-temp` with options for removing specific directories, all directories, or directories older than a duration
+- Global `--json`/`--min` output modes added to: `math`, `context`, `yaml`, `count`, `args` commands
+
+#### llm-semantic
+
+- Global `--json`/`--min` output flags for all commands
+- Improved error handling
+
+#### llm-clarification
+
+- Global `--json`/`--min` output flags for all commands
+- Improved error handling
+
+### Fixed
+
+- **llm-clarification-mcp**: Fixed `--file` flag passing (was positional arg)
+- **llm-clarification-mcp**: Fixed `sprint_id` and `context_tags` parameter mapping
+- **llm-support-mcp**: Removed `--min` from `detect`/`discover_tests` handlers (not supported)
+- **llm-support**: Fixed `omitempty` on documented result fields causing missing output
+- **llm-support**: Resolved duplicate JSON tag errors in `prompt` and `runtime` commands
+- **llm-support**: Removed `count` from key abbreviations for consistency
+- **CI**: Fixed missing assets during release cleanup
+
+### Changed
+
+- Pre-commit hook now auto-formats Go files with `gofmt`
 
 ## [1.2.0] - 2026-01-01
 
@@ -258,7 +297,8 @@ Binary size: 14-15MB per platform.
 - OpenAI-compatible LLM API with retry and caching
 - Race-condition free (verified with `go test -race`)
 
-[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/samestrin/llm-tools/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/samestrin/llm-tools/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/samestrin/llm-tools/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/samestrin/llm-tools/compare/v1.0.0...v1.0.1
