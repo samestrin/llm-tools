@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/samestrin/llm-tools/internal/filesystem/core"
 )
 
 // ReadFileResult represents the result of a file read operation
@@ -73,6 +75,32 @@ func (s *Server) handleReadFile(args map[string]interface{}) (string, error) {
 	lineCount := GetInt(args, "line_count", 0)
 	autoChunk := GetBool(args, "auto_chunk", true)
 	continuationTokenStr := GetString(args, "continuation_token", "")
+
+	// Check file size limit before reading
+	// This check only applies when:
+	// 1. No chunking/offset parameters are being used (reading whole file)
+	// 2. max_size is not being used for chunking purposes
+	//
+	// If max_size > 0 is provided, it's used for chunking (read this many bytes)
+	// If max_size == 0 explicitly, it means "no limit, read everything"
+	// If max_size is not provided at all, apply default size limit
+	_, maxSizeProvided := args["max_size"]
+
+	// Apply size limit check only when:
+	// - Reading the whole file (no offset/line params)
+	// - max_size was NOT explicitly provided (not being used for chunking)
+	if startOffset == 0 && lineStart == 0 && lineCount == 0 && continuationTokenStr == "" && !maxSizeProvided {
+		if totalSize > core.DefaultMaxSize {
+			return "", &core.SizeExceededError{
+				Message: fmt.Sprintf("File size (%d bytes) exceeds max_size (%d bytes)", totalSize, core.DefaultMaxSize),
+				Path:    path,
+				Size:    totalSize,
+				MaxSize: core.DefaultMaxSize,
+			}
+		}
+	}
+
+	// Handle explicit max_size=0 (no limit) - done later in the read logic
 
 	// If continuation token provided, decode and use its offset
 	if continuationTokenStr != "" {
@@ -225,6 +253,59 @@ func (s *Server) handleReadMultipleFiles(args map[string]interface{}) (string, e
 	paths := GetStringSlice(args, "paths")
 	if len(paths) == 0 {
 		return "", fmt.Errorf("paths is required")
+	}
+
+	// Check total size limit before reading
+	// max_total_size of 0 means no limit was explicitly set, use default
+	sizeLimit := int64(-1) // Use default
+	if maxSizeVal, ok := args["max_total_size"]; ok {
+		if ms, ok := maxSizeVal.(float64); ok {
+			sizeLimit = int64(ms) // 0 = no limit, >0 = specific limit
+		}
+	}
+
+	// Determine effective limit
+	effectiveLimit := sizeLimit
+	if effectiveLimit == -1 {
+		effectiveLimit = core.DefaultMaxSize
+	}
+
+	// If size checking is enabled, stat all files first
+	if effectiveLimit > 0 {
+		var totalSize int64
+		fileSizes := make([]core.FileSizeEntry, 0, len(paths))
+
+		for _, path := range paths {
+			// Resolve symlink
+			resolved, _ := ResolveSymlink(path)
+			if resolved != "" {
+				path = resolved
+			}
+
+			info, err := os.Stat(path)
+			if err != nil {
+				// Skip files that can't be stat'd - they'll error during read
+				fileSizes = append(fileSizes, core.FileSizeEntry{Path: path, Size: 0})
+				continue
+			}
+
+			if info.IsDir() {
+				fileSizes = append(fileSizes, core.FileSizeEntry{Path: path, Size: 0})
+				continue
+			}
+
+			totalSize += info.Size()
+			fileSizes = append(fileSizes, core.FileSizeEntry{Path: path, Size: info.Size()})
+		}
+
+		if totalSize > effectiveLimit {
+			return "", &core.TotalSizeExceededError{
+				Message:      fmt.Sprintf("Total size (%d bytes) exceeds max_total_size (%d bytes)", totalSize, effectiveLimit),
+				TotalSize:    totalSize,
+				MaxTotalSize: effectiveLimit,
+				Files:        fileSizes,
+			}
+		}
 	}
 
 	results := make([]ReadFileResult, len(paths))

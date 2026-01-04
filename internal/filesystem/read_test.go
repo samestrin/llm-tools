@@ -591,3 +591,198 @@ func TestReadFileAutoChunking(t *testing.T) {
 		}
 	})
 }
+
+func TestReadFileSizeLimitHandler(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a file larger than 70KB
+	largeContent := strings.Repeat("a", 80000) // 80KB
+	largeFile := filepath.Join(tmpDir, "large.txt")
+	if err := os.WriteFile(largeFile, []byte(largeContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a small file
+	smallFile := filepath.Join(tmpDir, "small.txt")
+	if err := os.WriteFile(smallFile, []byte("small"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	server, _ := NewServer([]string{tmpDir})
+
+	t.Run("file exceeding default size limit returns structured error", func(t *testing.T) {
+		_, err := server.handleReadFile(map[string]interface{}{
+			"path": largeFile,
+			// No max_size means use default (70000)
+		})
+
+		if err == nil {
+			t.Fatal("Expected error for file exceeding size limit")
+		}
+
+		// Error message should indicate size exceeded
+		if !strings.Contains(err.Error(), "exceeds") {
+			t.Errorf("Error should mention size exceeded: %v", err)
+		}
+	})
+
+	t.Run("file within custom size limit succeeds", func(t *testing.T) {
+		result, err := server.handleReadFile(map[string]interface{}{
+			"path":     largeFile,
+			"max_size": float64(100000), // 100KB limit
+		})
+
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		if !strings.Contains(result, largeContent[:100]) {
+			t.Error("Result should contain file content")
+		}
+	})
+
+	t.Run("explicit max_size bypasses default limit", func(t *testing.T) {
+		// When max_size is explicitly provided (even if large), it's used for chunking
+		// not as a size limit check, so the default 70KB limit is not applied
+		result, err := server.handleReadFile(map[string]interface{}{
+			"path":     largeFile,
+			"max_size": float64(100000), // Explicit max_size bypasses default limit
+		})
+
+		if err != nil {
+			t.Fatalf("Unexpected error with explicit max_size: %v", err)
+		}
+
+		var resp ReadFileResult
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if len(resp.Content) != 80000 {
+			t.Errorf("Expected 80000 bytes, got %d", len(resp.Content))
+		}
+	})
+
+	t.Run("small file with default limit succeeds", func(t *testing.T) {
+		_, err := server.handleReadFile(map[string]interface{}{
+			"path": smallFile,
+		})
+
+		if err != nil {
+			t.Fatalf("Unexpected error for small file: %v", err)
+		}
+	})
+}
+
+func TestReadMultipleFilesSizeLimitHandler(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create files with known sizes
+	file1Content := strings.Repeat("a", 40000) // 40KB
+	file1 := filepath.Join(tmpDir, "file1.txt")
+	if err := os.WriteFile(file1, []byte(file1Content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	file2Content := strings.Repeat("b", 50000) // 50KB
+	file2 := filepath.Join(tmpDir, "file2.txt")
+	if err := os.WriteFile(file2, []byte(file2Content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	smallFile := filepath.Join(tmpDir, "small.txt")
+	if err := os.WriteFile(smallFile, []byte("small"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	server, _ := NewServer([]string{tmpDir})
+
+	t.Run("combined size exceeding default limit returns error", func(t *testing.T) {
+		_, err := server.handleReadMultipleFiles(map[string]interface{}{
+			"paths": []interface{}{file1, file2}, // 90KB total
+			// No max_total_size means use default (70000)
+		})
+
+		if err == nil {
+			t.Fatal("Expected error for files exceeding combined size limit")
+		}
+
+		// Error message should indicate size exceeded
+		if !strings.Contains(err.Error(), "exceeds") {
+			t.Errorf("Error should mention size exceeded: %v", err)
+		}
+	})
+
+	t.Run("combined size within custom limit succeeds", func(t *testing.T) {
+		result, err := server.handleReadMultipleFiles(map[string]interface{}{
+			"paths":          []interface{}{file1, file2},
+			"max_total_size": float64(100000), // 100KB limit
+		})
+
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+
+		if !strings.Contains(result, "success") {
+			t.Error("Result should indicate success")
+		}
+	})
+
+	t.Run("explicit max_total_size bypasses default limit", func(t *testing.T) {
+		// When max_total_size is explicitly provided, it's used as the limit
+		result, err := server.handleReadMultipleFiles(map[string]interface{}{
+			"paths":          []interface{}{file1, file2},
+			"max_total_size": float64(100000), // Explicit limit larger than files
+		})
+
+		if err != nil {
+			t.Fatalf("Unexpected error with explicit max_total_size: %v", err)
+		}
+
+		var resp struct {
+			Files   []struct{ Content string } `json:"files"`
+			Success int                        `json:"success"`
+		}
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if resp.Success != 2 {
+			t.Errorf("Expected success=2, got %d", resp.Success)
+		}
+	})
+
+	t.Run("zero max_total_size disables limit", func(t *testing.T) {
+		// max_total_size=0 means no limit checking at all
+		result, err := server.handleReadMultipleFiles(map[string]interface{}{
+			"paths":          []interface{}{file1, file2},
+			"max_total_size": float64(0), // No limit
+		})
+
+		if err != nil {
+			t.Fatalf("Unexpected error with size limit disabled: %v", err)
+		}
+
+		var resp struct {
+			Files   []struct{ Content string } `json:"files"`
+			Success int                        `json:"success"`
+		}
+		if err := json.Unmarshal([]byte(result), &resp); err != nil {
+			t.Fatalf("Failed to parse response: %v", err)
+		}
+
+		if resp.Success != 2 {
+			t.Errorf("Expected success=2, got %d", resp.Success)
+		}
+	})
+
+	t.Run("small file within default limit succeeds", func(t *testing.T) {
+		_, err := server.handleReadMultipleFiles(map[string]interface{}{
+			"paths": []interface{}{smallFile},
+		})
+
+		if err != nil {
+			t.Fatalf("Unexpected error for small file: %v", err)
+		}
+	})
+}
