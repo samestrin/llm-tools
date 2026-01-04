@@ -9,15 +9,37 @@ import (
 	"sync"
 )
 
-// DefaultMaxSize is the default maximum file size in bytes (70KB)
+// DefaultMaxSize is the default maximum JSON output size in characters (70K)
+// This accounts for Claude's ~75K character limit on tool responses
 const DefaultMaxSize = 70000
 
-// SizeExceededError represents an error when file size exceeds the limit
+// EstimateJSONStringSize estimates the size of a string after JSON encoding
+// JSON escapes: \n, \t, \r, ", \, and control characters
+func EstimateJSONStringSize(s string) int {
+	size := len(s)
+	for _, c := range s {
+		switch c {
+		case '"', '\\':
+			size++ // These become \" or \\
+		case '\n', '\t', '\r':
+			size++ // These become \n, \t, \r
+		default:
+			// Control characters (< 0x20) become \uXXXX (6 chars)
+			if c < 0x20 {
+				size += 5 // Original char counts as 1, \uXXXX is 6, so add 5
+			}
+		}
+	}
+	return size
+}
+
+// SizeExceededError represents an error when estimated JSON output size exceeds the limit
 type SizeExceededError struct {
-	Message string `json:"message"`
-	Path    string `json:"path"`
-	Size    int64  `json:"size"`
-	MaxSize int64  `json:"max_size"`
+	Message           string `json:"message"`
+	Path              string `json:"path"`
+	Size              int64  `json:"size"`                // Raw file size in bytes
+	EstimatedJSONSize int64  `json:"estimated_json_size"` // Estimated size after JSON encoding
+	MaxSize           int64  `json:"max_size"`            // Maximum allowed JSON size
 }
 
 func (e *SizeExceededError) Error() string {
@@ -27,22 +49,24 @@ func (e *SizeExceededError) Error() string {
 // ToJSON returns the error as a JSON object with error: true
 func (e *SizeExceededError) ToJSON() string {
 	result := map[string]interface{}{
-		"error":    true,
-		"message":  e.Message,
-		"path":     e.Path,
-		"size":     e.Size,
-		"max_size": e.MaxSize,
+		"error":               true,
+		"message":             e.Message,
+		"path":                e.Path,
+		"size":                e.Size,
+		"estimated_json_size": e.EstimatedJSONSize,
+		"max_size":            e.MaxSize,
 	}
 	jsonBytes, _ := json.Marshal(result)
 	return string(jsonBytes)
 }
 
-// TotalSizeExceededError represents an error when combined file size exceeds the limit
+// TotalSizeExceededError represents an error when combined estimated JSON size exceeds the limit
 type TotalSizeExceededError struct {
-	Message      string          `json:"message"`
-	TotalSize    int64           `json:"total_size"`
-	MaxTotalSize int64           `json:"max_total_size"`
-	Files        []FileSizeEntry `json:"files"`
+	Message           string          `json:"message"`
+	TotalSize         int64           `json:"total_size"`          // Raw total size in bytes
+	EstimatedJSONSize int64           `json:"estimated_json_size"` // Estimated size after JSON encoding
+	MaxTotalSize      int64           `json:"max_total_size"`      // Maximum allowed JSON size
+	Files             []FileSizeEntry `json:"files"`
 }
 
 // FileSizeEntry represents a file and its size
@@ -58,11 +82,12 @@ func (e *TotalSizeExceededError) Error() string {
 // ToJSON returns the error as a JSON object with error: true
 func (e *TotalSizeExceededError) ToJSON() string {
 	result := map[string]interface{}{
-		"error":          true,
-		"message":        e.Message,
-		"total_size":     e.TotalSize,
-		"max_total_size": e.MaxTotalSize,
-		"files":          e.Files,
+		"error":               true,
+		"message":             e.Message,
+		"total_size":          e.TotalSize,
+		"estimated_json_size": e.EstimatedJSONSize,
+		"max_total_size":      e.MaxTotalSize,
+		"files":               e.Files,
 	}
 	jsonBytes, _ := json.Marshal(result)
 	return string(jsonBytes)
@@ -76,7 +101,7 @@ type ReadFileOptions struct {
 	LineStart        int
 	LineCount        int
 	AllowedDirs      []string
-	SizeCheckMaxSize int64 // Maximum allowed file size (0 = no limit, -1 = use default)
+	SizeCheckMaxSize int64 // Maximum allowed JSON output size (0 = use default, -1 = no limit, >0 = custom)
 }
 
 // ReadFileResult represents the result of a file read operation
@@ -117,17 +142,23 @@ func ReadFile(opts ReadFileOptions) (*ReadFileResult, error) {
 		return nil, fmt.Errorf("path is a directory, not a file")
 	}
 
-	// Check file size limit
+	// Determine max size limit (0 = use default, -1 = no limit, >0 = custom)
 	maxSize := opts.SizeCheckMaxSize
-	if maxSize == -1 {
+	if maxSize == 0 {
 		maxSize = DefaultMaxSize
 	}
+	// maxSize is now: DefaultMaxSize, -1 (no limit), or custom value
+
+	// Pre-check: fail-fast if raw file size already exceeds limit
+	// JSON encoding only adds overhead, never reduces size, so if raw > limit, JSON will definitely > limit
+	// Skip check if maxSize == -1 (no limit)
 	if maxSize > 0 && info.Size() > maxSize {
 		return nil, &SizeExceededError{
-			Message: fmt.Sprintf("File size (%d bytes) exceeds max_size (%d bytes)", info.Size(), maxSize),
-			Path:    path,
-			Size:    info.Size(),
-			MaxSize: maxSize,
+			Message:           fmt.Sprintf("File size (%d bytes) exceeds max_size (%d chars)", info.Size(), maxSize),
+			Path:              path,
+			Size:              info.Size(),
+			EstimatedJSONSize: 0, // Not calculated for fail-fast
+			MaxSize:           maxSize,
 		}
 	}
 
@@ -145,6 +176,20 @@ func ReadFile(opts ReadFileOptions) (*ReadFileResult, error) {
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Post-read check: estimate JSON size to catch files with high encoding overhead
+	if maxSize > 0 {
+		estimatedJSONSize := int64(EstimateJSONStringSize(content))
+		if estimatedJSONSize > maxSize {
+			return nil, &SizeExceededError{
+				Message:           fmt.Sprintf("Estimated JSON size (%d chars) exceeds max_size (%d chars). Raw file: %d bytes", estimatedJSONSize, maxSize, len(content)),
+				Path:              path,
+				Size:              int64(len(content)),
+				EstimatedJSONSize: estimatedJSONSize,
+				MaxSize:           maxSize,
+			}
+		}
 	}
 
 	return &ReadFileResult{
@@ -239,7 +284,7 @@ func readFileByBytes(path string, startOffset, maxSize int) (string, error) {
 type ReadMultipleFilesOptions struct {
 	Paths                 []string
 	AllowedDirs           []string
-	SizeCheckMaxTotalSize int64 // Maximum allowed total size (0 = no limit, -1 = use default)
+	SizeCheckMaxTotalSize int64 // Maximum allowed total JSON output size (0 = use default, -1 = no limit, >0 = custom)
 }
 
 // ReadMultipleFilesResult represents results from reading multiple files
@@ -255,19 +300,21 @@ func ReadMultipleFiles(opts ReadMultipleFilesOptions) (*ReadMultipleFilesResult,
 		return nil, fmt.Errorf("paths is required")
 	}
 
-	// Determine max total size
+	// Determine max total size (0 = use default, -1 = no limit, >0 = custom)
 	maxTotalSize := opts.SizeCheckMaxTotalSize
-	if maxTotalSize == -1 {
+	if maxTotalSize == 0 {
 		maxTotalSize = DefaultMaxSize
 	}
+	// maxTotalSize is now: DefaultMaxSize, -1 (no limit), or custom value
 
-	// If size checking is enabled, stat all files first
+	// Pre-check: fail-fast if total raw file size already exceeds limit
+	// JSON encoding only adds overhead, so if raw total > limit, JSON total will definitely > limit
+	// Skip check if maxTotalSize == -1 (no limit)
 	if maxTotalSize > 0 {
-		var totalSize int64
+		var totalRawSize int64
 		fileSizes := make([]FileSizeEntry, 0, len(opts.Paths))
 
 		for _, path := range opts.Paths {
-			// Resolve symlink
 			resolved, _ := ResolveSymlink(path)
 			if resolved != "" {
 				path = resolved
@@ -275,26 +322,25 @@ func ReadMultipleFiles(opts ReadMultipleFilesOptions) (*ReadMultipleFilesResult,
 
 			info, err := os.Stat(path)
 			if err != nil {
-				// Skip files that can't be stat'd - they'll error during read
 				fileSizes = append(fileSizes, FileSizeEntry{Path: path, Size: 0})
 				continue
 			}
-
 			if info.IsDir() {
 				fileSizes = append(fileSizes, FileSizeEntry{Path: path, Size: 0})
 				continue
 			}
 
-			totalSize += info.Size()
+			totalRawSize += info.Size()
 			fileSizes = append(fileSizes, FileSizeEntry{Path: path, Size: info.Size()})
 		}
 
-		if totalSize > maxTotalSize {
+		if totalRawSize > maxTotalSize {
 			return nil, &TotalSizeExceededError{
-				Message:      fmt.Sprintf("Total size (%d bytes) exceeds max_total_size (%d bytes)", totalSize, maxTotalSize),
-				TotalSize:    totalSize,
-				MaxTotalSize: maxTotalSize,
-				Files:        fileSizes,
+				Message:           fmt.Sprintf("Total file size (%d bytes) exceeds max_total_size (%d chars)", totalRawSize, maxTotalSize),
+				TotalSize:         totalRawSize,
+				EstimatedJSONSize: 0, // Not calculated for fail-fast
+				MaxTotalSize:      maxTotalSize,
+				Files:             fileSizes,
 			}
 		}
 	}
@@ -347,6 +393,31 @@ func ReadMultipleFiles(opts ReadMultipleFilesOptions) (*ReadMultipleFilesResult,
 	}
 
 	wg.Wait()
+
+	// Check estimated total JSON size after reading all files (smarter than raw byte limits)
+	if maxTotalSize > 0 {
+		var totalRawSize int64
+		var totalEstimatedJSONSize int64
+		fileSizes := make([]FileSizeEntry, 0, len(results))
+
+		for _, r := range results {
+			if r.Error == "" {
+				totalRawSize += r.Size
+				totalEstimatedJSONSize += int64(EstimateJSONStringSize(r.Content))
+			}
+			fileSizes = append(fileSizes, FileSizeEntry{Path: r.Path, Size: r.Size})
+		}
+
+		if totalEstimatedJSONSize > maxTotalSize {
+			return nil, &TotalSizeExceededError{
+				Message:           fmt.Sprintf("Estimated total JSON size (%d chars) exceeds max_total_size (%d chars). Raw total: %d bytes", totalEstimatedJSONSize, maxTotalSize, totalRawSize),
+				TotalSize:         totalRawSize,
+				EstimatedJSONSize: totalEstimatedJSONSize,
+				MaxTotalSize:      maxTotalSize,
+				Files:             fileSizes,
+			}
+		}
+	}
 
 	return &ReadMultipleFilesResult{
 		Files:   results,

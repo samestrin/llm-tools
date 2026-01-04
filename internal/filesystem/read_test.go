@@ -752,11 +752,11 @@ func TestReadMultipleFilesSizeLimitHandler(t *testing.T) {
 		}
 	})
 
-	t.Run("zero max_total_size disables limit", func(t *testing.T) {
-		// max_total_size=0 means no limit checking at all
+	t.Run("negative one max_total_size disables limit", func(t *testing.T) {
+		// max_total_size=-1 means no limit checking at all
 		result, err := server.handleReadMultipleFiles(map[string]interface{}{
 			"paths":          []interface{}{file1, file2},
-			"max_total_size": float64(0), // No limit
+			"max_total_size": float64(-1), // No limit
 		})
 
 		if err != nil {
