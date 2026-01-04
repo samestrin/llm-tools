@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -912,5 +913,147 @@ func TestContextMultiGetNoArgs(t *testing.T) {
 	_, _, err := runContextCmd(t, "multiget", "--dir", tempDir)
 	if err == nil {
 		t.Error("expected error for no keys")
+	}
+}
+
+// Tests for --json/--min output formats
+
+func TestContextInitJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	stdout, _, err := runContextCmd(t, "init", "--dir", tempDir, "--json")
+	if err != nil {
+		t.Fatalf("init --json failed: %v", err)
+	}
+
+	var result map[string]string
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v", err)
+	}
+
+	if result["status"] != "CREATED" {
+		t.Errorf("expected status CREATED, got: %s", result["status"])
+	}
+	if result["context_file"] == "" {
+		t.Error("expected context_file in output")
+	}
+}
+
+func TestContextInitMin(t *testing.T) {
+	tempDir := t.TempDir()
+	stdout, _, err := runContextCmd(t, "init", "--dir", tempDir, "--min")
+	if err != nil {
+		t.Fatalf("init --min failed: %v", err)
+	}
+
+	// Should just be the file path
+	expected := filepath.Join(tempDir, "context.env")
+	if strings.TrimSpace(stdout) != expected {
+		t.Errorf("expected %s, got: %s", expected, stdout)
+	}
+}
+
+func TestContextSetJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	stdout, _, err := runContextCmd(t, "set", "--dir", tempDir, "MY_KEY", "my_value", "--json")
+	if err != nil {
+		t.Fatalf("set --json failed: %v", err)
+	}
+
+	var result map[string]string
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v", err)
+	}
+
+	if result["status"] != "ok" {
+		t.Errorf("expected status ok, got: %s", result["status"])
+	}
+	if result["key"] != "MY_KEY" {
+		t.Errorf("expected key MY_KEY, got: %s", result["key"])
+	}
+}
+
+func TestContextSetMin(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	stdout, _, err := runContextCmd(t, "set", "--dir", tempDir, "MY_KEY", "my_value", "--min")
+	if err != nil {
+		t.Fatalf("set --min failed: %v", err)
+	}
+
+	// Should just be the key name
+	if strings.TrimSpace(stdout) != "MY_KEY" {
+		t.Errorf("expected MY_KEY, got: %s", stdout)
+	}
+}
+
+func TestContextMultiSetJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	stdout, _, err := runContextCmd(t, "multiset", "--dir", tempDir, "KEY1", "value1", "KEY2", "value2", "--json")
+	if err != nil {
+		t.Fatalf("multiset --json failed: %v", err)
+	}
+
+	var result struct {
+		Status string   `json:"status"`
+		Keys   []string `json:"keys"`
+		Count  int      `json:"count"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v", err)
+	}
+
+	if result.Status != "ok" {
+		t.Errorf("expected status ok, got: %s", result.Status)
+	}
+	if result.Count != 2 {
+		t.Errorf("expected count 2, got: %d", result.Count)
+	}
+	if len(result.Keys) != 2 {
+		t.Errorf("expected 2 keys, got: %d", len(result.Keys))
+	}
+}
+
+func TestContextMultiSetMin(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	stdout, _, err := runContextCmd(t, "multiset", "--dir", tempDir, "KEY1", "value1", "KEY2", "value2", "--min")
+	if err != nil {
+		t.Fatalf("multiset --min failed: %v", err)
+	}
+
+	// Should just be the count
+	if strings.TrimSpace(stdout) != "2" {
+		t.Errorf("expected 2, got: %s", stdout)
+	}
+}
+
+func TestContextMultiSetJSONMin(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	stdout, _, err := runContextCmd(t, "multiset", "--dir", tempDir, "KEY1", "value1", "KEY2", "value2", "--json", "--min")
+	if err != nil {
+		t.Fatalf("multiset --json --min failed: %v", err)
+	}
+
+	var result struct {
+		Count  int    `json:"count"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v", err)
+	}
+
+	if result.Count != 2 {
+		t.Errorf("expected count 2, got: %d", result.Count)
+	}
+	if result.Status != "ok" {
+		t.Errorf("expected status ok, got: %s", result.Status)
 	}
 }

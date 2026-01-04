@@ -57,6 +57,8 @@ Subcommands:
 // newContextInitCmd creates the context init subcommand
 func newContextInitCmd() *cobra.Command {
 	var dir string
+	var jsonOutput bool
+	var minOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -66,9 +68,10 @@ func newContextInitCmd() *cobra.Command {
 Creates a new context.env file with header comments. If the file already
 exists, it is preserved (not overwritten).
 
-Output:
-  CONTEXT_FILE: path to context file
-  STATUS: CREATED | EXISTS`,
+Output Formats:
+  default: CONTEXT_FILE: path\nSTATUS: CREATED|EXISTS
+  --json:  {"context_file": "path", "status": "CREATED|EXISTS"}
+  --min:   path (just the file path)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dir == "" {
 				return fmt.Errorf("--dir flag is required")
@@ -102,14 +105,31 @@ Output:
 				}
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "CONTEXT_FILE: %s\n", contextFile)
-			fmt.Fprintf(cmd.OutOrStdout(), "STATUS: %s\n", status)
+			// Output based on format
+			if jsonOutput {
+				if minOutput {
+					// --json --min: minimal JSON
+					fmt.Fprintf(cmd.OutOrStdout(), "{\"file\":\"%s\",\"status\":\"%s\"}\n", contextFile, status)
+				} else {
+					// --json: full JSON output
+					fmt.Fprintf(cmd.OutOrStdout(), "{\"context_file\":\"%s\",\"status\":\"%s\"}\n", contextFile, status)
+				}
+			} else if minOutput {
+				// --min: just the file path
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\n", contextFile)
+			} else {
+				// default: human-readable
+				fmt.Fprintf(cmd.OutOrStdout(), "CONTEXT_FILE: %s\n", contextFile)
+				fmt.Fprintf(cmd.OutOrStdout(), "STATUS: %s\n", status)
+			}
 
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&dir, "dir", "", "Directory for context file (required)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output (file path only)")
 	cmd.MarkFlagRequired("dir")
 
 	return cmd
@@ -118,6 +138,8 @@ Output:
 // newContextSetCmd creates the context set subcommand
 func newContextSetCmd() *cobra.Command {
 	var dir string
+	var jsonOutput bool
+	var minOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "set KEY VALUE",
@@ -130,9 +152,15 @@ Keys are automatically uppercased. Valid keys must:
 
 Values are stored with proper shell escaping using single quotes.
 
+Output Formats:
+  default: SET: KEY
+  --json:  {"status": "ok", "key": "KEY"}
+  --min:   KEY (just the key name)
+
 Examples:
   context set --dir /tmp MY_VAR "hello world"
-  context set --dir /tmp MESSAGE "It's working"`,
+  context set --dir /tmp MESSAGE "It's working"
+  context set --dir /tmp MY_VAR "value" --json`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dir == "" {
@@ -184,13 +212,30 @@ Examples:
 				return fmt.Errorf("failed to write to context file: %w", err)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "SET: %s\n", key)
+			// Output based on format
+			if jsonOutput {
+				if minOutput {
+					// --json --min: minimal JSON
+					fmt.Fprintf(cmd.OutOrStdout(), "{\"key\":\"%s\",\"status\":\"ok\"}\n", key)
+				} else {
+					// --json: full JSON output
+					fmt.Fprintf(cmd.OutOrStdout(), "{\"status\":\"ok\",\"key\":\"%s\"}\n", key)
+				}
+			} else if minOutput {
+				// --min: just the key
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\n", key)
+			} else {
+				// default: human-readable
+				fmt.Fprintf(cmd.OutOrStdout(), "SET: %s\n", key)
+			}
 
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&dir, "dir", "", "Directory for context file (required)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output (key only)")
 	cmd.MarkFlagRequired("dir")
 
 	return cmd
@@ -317,12 +362,21 @@ Examples:
 
 			// Output based on format
 			if jsonOutput {
-				output := map[string]string{"key": key, "value": value}
-				data, _ := json.Marshal(output)
-				fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				if minOutput {
+					// --json --min: just the value as JSON string
+					data, _ := json.Marshal(value)
+					fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				} else {
+					// --json: full JSON with key and value
+					output := map[string]string{"key": key, "value": value}
+					data, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				}
 			} else if minOutput {
+				// --min: just the value
 				fmt.Fprintln(cmd.OutOrStdout(), value)
 			} else {
+				// default: KEY: value
 				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", key, value)
 			}
 
@@ -384,13 +438,26 @@ Examples:
 			}
 
 			if jsonOutput {
-				data, _ := json.Marshal(values)
-				fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				if minOutput {
+					// --json --min: values as JSON array
+					vals := make([]string, 0, len(values))
+					for _, v := range values {
+						vals = append(vals, v)
+					}
+					data, _ := json.Marshal(vals)
+					fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				} else {
+					// --json: full JSON object
+					data, _ := json.Marshal(values)
+					fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				}
 			} else if minOutput {
+				// --min: values only, one per line
 				for _, value := range values {
 					fmt.Fprintln(cmd.OutOrStdout(), value)
 				}
 			} else {
+				// default: KEY=value format
 				for key, value := range values {
 					fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", key, value)
 				}
@@ -539,6 +606,8 @@ Examples:
 // newContextMultiSetCmd creates the context multiset subcommand
 func newContextMultiSetCmd() *cobra.Command {
 	var dir string
+	var jsonOutput bool
+	var minOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "multiset KEY1 VALUE1 [KEY2 VALUE2 ...]",
@@ -549,9 +618,15 @@ Arguments must be provided in KEY VALUE pairs (even number of arguments).
 All keys are validated before any writes occur (atomic validation).
 Keys are automatically uppercased.
 
+Output Formats:
+  default: SET: KEY1, KEY2, ...
+  --json:  {"status": "ok", "keys": ["KEY1", "KEY2", ...], "count": N}
+  --min:   N (count of keys set)
+
 Examples:
   context multiset --dir /tmp KEY1 value1 KEY2 value2
-  context multiset --dir /tmp START_TIME "$(date +%s)" SPRINT "v1.0"`,
+  context multiset --dir /tmp START_TIME "$(date +%s)" SPRINT "v1.0"
+  context multiset --dir /tmp KEY1 value1 --json`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dir == "" {
@@ -618,13 +693,31 @@ Examples:
 				keys = append(keys, pair.key)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "SET: %s\n", strings.Join(keys, ", "))
+			// Output based on format
+			if jsonOutput {
+				if minOutput {
+					// --json --min: minimal JSON
+					fmt.Fprintf(cmd.OutOrStdout(), "{\"count\":%d,\"status\":\"ok\"}\n", len(keys))
+				} else {
+					// --json: full JSON output
+					keysJSON, _ := json.Marshal(keys)
+					fmt.Fprintf(cmd.OutOrStdout(), "{\"status\":\"ok\",\"keys\":%s,\"count\":%d}\n", keysJSON, len(keys))
+				}
+			} else if minOutput {
+				// --min: just the count
+				fmt.Fprintf(cmd.OutOrStdout(), "%d\n", len(keys))
+			} else {
+				// default: human-readable
+				fmt.Fprintf(cmd.OutOrStdout(), "SET: %s\n", strings.Join(keys, ", "))
+			}
 
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&dir, "dir", "", "Directory for context file (required)")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
+	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output (count only)")
 	cmd.MarkFlagRequired("dir")
 
 	return cmd
@@ -692,15 +785,26 @@ Examples:
 				results[key] = value
 			}
 
-			// Output based on format (--min takes precedence when both set)
-			if minOutput {
-				// Output values in argument order
+			// Output based on format
+			if jsonOutput {
+				if minOutput {
+					// --json --min: values as JSON array (preserves argument order)
+					orderedValues := make([]string, len(keys))
+					for i, key := range keys {
+						orderedValues[i] = results[key]
+					}
+					data, _ := json.Marshal(orderedValues)
+					fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				} else {
+					// --json: full JSON object
+					data, _ := json.Marshal(results)
+					fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				}
+			} else if minOutput {
+				// --min: values only, one per line
 				for _, key := range keys {
 					fmt.Fprintln(cmd.OutOrStdout(), results[key])
 				}
-			} else if jsonOutput {
-				data, _ := json.Marshal(results)
-				fmt.Fprintln(cmd.OutOrStdout(), string(data))
 			} else {
 				// Default: KEY=value format
 				for _, key := range keys {

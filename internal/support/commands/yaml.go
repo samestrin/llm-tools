@@ -95,13 +95,21 @@ Examples:
 					keyCount := countKeys(data)
 
 					if jsonOutput {
-						output := map[string]interface{}{
-							"config_file": file,
-							"status":      status,
-							"keys":        keyCount,
+						if minOutput {
+							// --json --min: minimal JSON
+							output := map[string]interface{}{"f": file, "s": status}
+							jsonBytes, _ := json.Marshal(output)
+							fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+						} else {
+							// --json: full JSON
+							output := map[string]interface{}{
+								"config_file": file,
+								"status":      status,
+								"keys":        keyCount,
+							}
+							jsonBytes, _ := json.Marshal(output)
+							fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
 						}
-						jsonBytes, _ := json.Marshal(output)
-						fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
 					} else if minOutput {
 						fmt.Fprintln(cmd.OutOrStdout(), file)
 					} else {
@@ -137,13 +145,21 @@ Examples:
 			keyCount := countKeys(data)
 
 			if jsonOutput {
-				output := map[string]interface{}{
-					"config_file": file,
-					"status":      status,
-					"keys":        keyCount,
+				if minOutput {
+					// --json --min: minimal JSON
+					output := map[string]interface{}{"f": file, "s": status}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				} else {
+					// --json: full JSON
+					output := map[string]interface{}{
+						"config_file": file,
+						"status":      status,
+						"keys":        keyCount,
+					}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
 				}
-				jsonBytes, _ := json.Marshal(output)
-				fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
 			} else if minOutput {
 				fmt.Fprintln(cmd.OutOrStdout(), file)
 			} else {
@@ -228,9 +244,16 @@ Examples:
 
 			// Format output
 			if jsonOutput {
-				output := map[string]interface{}{"key": key, "value": value}
-				jsonBytes, _ := json.Marshal(output)
-				fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				if minOutput {
+					// --json --min: just the value as JSON
+					jsonBytes, _ := json.Marshal(value)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				} else {
+					// --json: full JSON with key and value
+					output := map[string]interface{}{"key": key, "value": value}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				}
 			} else if minOutput {
 				fmt.Fprintln(cmd.OutOrStdout(), formatValue(value))
 			} else {
@@ -309,9 +332,17 @@ Examples:
 
 			// Output
 			if jsonOutput {
-				output := map[string]interface{}{"key": key, "value": value, "status": "set"}
-				jsonBytes, _ := json.Marshal(output)
-				fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				if minOutput {
+					// --json --min: minimal JSON
+					output := map[string]interface{}{"k": key, "s": "set"}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				} else {
+					// --json: full JSON
+					output := map[string]interface{}{"key": key, "value": value, "status": "set"}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				}
 			} else if minOutput {
 				fmt.Fprintln(cmd.OutOrStdout(), key)
 			} else {
@@ -406,8 +437,19 @@ Examples:
 
 			// Output
 			if jsonOutput {
-				jsonBytes, _ := json.Marshal(results)
-				fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				if minOutput {
+					// --json --min: values as JSON array (preserves order)
+					orderedValues := make([]string, len(orderedKeys))
+					for i, key := range orderedKeys {
+						orderedValues[i] = results[key]
+					}
+					jsonBytes, _ := json.Marshal(orderedValues)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				} else {
+					// --json: full JSON object
+					jsonBytes, _ := json.Marshal(results)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				}
 			} else if minOutput {
 				for _, key := range orderedKeys {
 					fmt.Fprintln(cmd.OutOrStdout(), results[key])
@@ -514,10 +556,19 @@ Examples:
 			}
 
 			// Output
+			// NOTE: Output format intentionally matches context_multiset for consistency
 			if jsonOutput {
-				output := map[string]interface{}{"keys": keys, "status": "set"}
-				jsonBytes, _ := json.Marshal(output)
-				fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				if minOutput {
+					// --json --min: minimal JSON with count and status
+					output := map[string]interface{}{"count": len(keys), "status": "ok"}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				} else {
+					// --json: full JSON with keys, count, and status
+					output := map[string]interface{}{"keys": keys, "count": len(keys), "status": "ok"}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				}
 			} else if minOutput {
 				fmt.Fprintln(cmd.OutOrStdout(), strings.Join(keys, ","))
 			} else {
@@ -605,8 +656,17 @@ Examples:
 
 			// Output
 			if jsonOutput {
-				jsonBytes, _ := json.Marshal(data)
-				fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				if minOutput {
+					// --json --min: flattened keys as JSON array
+					keys := flattenKeys(data, prefix)
+					sort.Strings(keys)
+					jsonBytes, _ := json.Marshal(keys)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				} else {
+					// --json: full JSON object
+					jsonBytes, _ := json.Marshal(data)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				}
 			} else if flat {
 				if values {
 					kvs := flattenKeysWithValues(data, prefix)
@@ -701,9 +761,17 @@ Examples:
 
 			// Output
 			if jsonOutput {
-				output := map[string]interface{}{"key": key, "status": "deleted"}
-				jsonBytes, _ := json.Marshal(output)
-				fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				if minOutput {
+					// --json --min: minimal JSON
+					output := map[string]interface{}{"k": key, "s": "deleted"}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				} else {
+					// --json: full JSON
+					output := map[string]interface{}{"key": key, "status": "deleted"}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				}
 			} else if minOutput {
 				fmt.Fprintln(cmd.OutOrStdout(), key)
 			} else {
@@ -778,13 +846,21 @@ Examples:
 
 			// Output
 			if jsonOutput {
-				output := map[string]interface{}{
-					"valid":    true,
-					"keys":     keyCount,
-					"sections": sections,
+				if minOutput {
+					// --json --min: minimal JSON
+					output := map[string]interface{}{"ok": true, "keys": keyCount}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				} else {
+					// --json: full JSON
+					output := map[string]interface{}{
+						"valid":    true,
+						"keys":     keyCount,
+						"sections": sections,
+					}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
 				}
-				jsonBytes, _ := json.Marshal(output)
-				fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
 			} else if minOutput {
 				fmt.Fprintln(cmd.OutOrStdout(), "TRUE")
 			} else {
@@ -860,9 +936,17 @@ Examples:
 
 			// Output
 			if jsonOutput {
-				output := map[string]interface{}{"key": key, "value": value, "status": "pushed"}
-				jsonBytes, _ := json.Marshal(output)
-				fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				if minOutput {
+					// --json --min: minimal JSON
+					output := map[string]interface{}{"k": key, "s": "pushed"}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				} else {
+					// --json: full JSON
+					output := map[string]interface{}{"key": key, "value": value, "status": "pushed"}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				}
 			} else if minOutput {
 				fmt.Fprintln(cmd.OutOrStdout(), value)
 			} else {
@@ -934,9 +1018,16 @@ Examples:
 
 			// Output
 			if jsonOutput {
-				output := map[string]interface{}{"key": key, "value": value, "status": "popped"}
-				jsonBytes, _ := json.Marshal(output)
-				fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				if minOutput {
+					// --json --min: just the value as JSON
+					jsonBytes, _ := json.Marshal(value)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				} else {
+					// --json: full JSON
+					output := map[string]interface{}{"key": key, "value": value, "status": "popped"}
+					jsonBytes, _ := json.Marshal(output)
+					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
+				}
 			} else if minOutput {
 				fmt.Fprintln(cmd.OutOrStdout(), formatValue(value))
 			} else {
