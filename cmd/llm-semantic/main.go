@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/samestrin/llm-tools/internal/semantic/commands"
+	"github.com/samestrin/llm-tools/pkg/output"
 )
 
 var (
@@ -17,7 +18,7 @@ func main() {
 	rootCmd.Version = fmt.Sprintf("%s (%s)", version, commit)
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		f := output.New(commands.GlobalJSONOutput, commands.GlobalMinOutput, os.Stdout)
+		os.Exit(f.PrintError(err))
 	}
 }

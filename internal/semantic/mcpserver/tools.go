@@ -60,7 +60,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 2. Index status
 		{
-			Name:        ToolPrefix + "status",
+			Name:        ToolPrefix + "index_status",
 			Description: "Show semantic index status including file count, chunk count, and last update time.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
@@ -108,7 +108,7 @@ func GetToolDefinitions() []ToolDefinition {
 
 		// 4. Index update (incremental)
 		{
-			Name:        ToolPrefix + "update",
+			Name:        ToolPrefix + "index_update",
 			Description: "Incrementally update the semantic index with changed files since last indexing.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
