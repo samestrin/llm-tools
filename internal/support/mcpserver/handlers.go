@@ -898,9 +898,9 @@ func buildYamlMultisetArgs(args map[string]interface{}) []string {
 }
 
 func buildArgsParserArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"args"}
+	cmdArgs := []string{"args", "--json", "--min", "--"}
 
-	// Add arguments as positional parameters
+	// Add arguments as positional parameters after "--" separator
 	if arguments, ok := args["arguments"].([]interface{}); ok {
 		for _, arg := range arguments {
 			if s, ok := arg.(string); ok {

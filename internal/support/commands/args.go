@@ -2,10 +2,23 @@ package commands
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
+
+var (
+	argsJSON    bool
+	argsMinimal bool
+)
+
+// ArgsResult holds parsed argument results
+type ArgsResult struct {
+	Positional []string          `json:"positional,omitempty"`
+	Flags      map[string]string `json:"flags,omitempty"`
+}
 
 // newArgsCmd creates the args command
 func newArgsCmd() *cobra.Command {
@@ -19,9 +32,12 @@ Output format:
   POSITIONAL: arg1 arg2 ...
   FLAG_NAME: value
   BOOLEAN_FLAG: true`,
-		DisableFlagParsing: true, // Don't let Cobra parse flags - we handle them
-		RunE:               runArgs,
+		RunE: runArgs,
 	}
+
+	cmd.Flags().BoolVar(&argsJSON, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&argsMinimal, "min", false, "Output in minimal/token-optimized format")
+
 	return cmd
 }
 
@@ -52,23 +68,24 @@ func runArgs(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Output in LLM-friendly format
-	var outputLines []string
-
-	if len(positional) > 0 {
-		outputLines = append(outputLines, fmt.Sprintf("POSITIONAL: %s", strings.Join(positional, " ")))
+	result := ArgsResult{
+		Positional: positional,
+		Flags:      flags,
 	}
 
-	for key, value := range flags {
-		outputLines = append(outputLines, fmt.Sprintf("%s: %s", strings.ToUpper(key), value))
-	}
-
-	if len(outputLines) == 0 {
-		outputLines = append(outputLines, "NO_ARGS")
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout(), strings.Join(outputLines, "\n"))
-	return nil
+	formatter := output.New(argsJSON, argsMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(ArgsResult)
+		if len(r.Positional) > 0 {
+			fmt.Fprintf(w, "POSITIONAL: %s\n", strings.Join(r.Positional, " "))
+		}
+		for key, value := range r.Flags {
+			fmt.Fprintf(w, "%s: %s\n", strings.ToUpper(key), value)
+		}
+		if len(r.Positional) == 0 && len(r.Flags) == 0 {
+			fmt.Fprintln(w, "NO_ARGS")
+		}
+	})
 }
 
 func init() {
