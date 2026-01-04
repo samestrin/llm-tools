@@ -26,8 +26,8 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 		return "", err
 	}
 
-	// Add --json flag for machine-parseable output
-	cmdArgs = append(cmdArgs, "--json")
+	// Add --json and --min flags for machine-parseable, token-optimized output
+	cmdArgs = append(cmdArgs, "--json", "--min")
 
 	// Execute command
 	ctx, cancel := context.WithTimeout(context.Background(), CommandTimeout)
@@ -65,9 +65,9 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildSearchArgs(args), nil
 	case "index":
 		return buildIndexArgs(args), nil
-	case "status":
+	case "index_status":
 		return buildStatusArgs(args), nil
-	case "update":
+	case "index_update":
 		return buildUpdateArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
