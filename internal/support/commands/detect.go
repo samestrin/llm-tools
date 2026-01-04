@@ -18,10 +18,10 @@ var (
 
 // DetectResult represents the project detection result
 type DetectResult struct {
-	Stack          string `json:"stack,omitempty"`
-	Language       string `json:"language,omitempty"`
-	PackageManager string `json:"package_manager,omitempty"`
-	Framework      string `json:"framework,omitempty"`
+	Stack          string `json:"stack"`
+	Language       string `json:"language"`
+	PackageManager string `json:"package_manager"`
+	Framework      string `json:"framework"`
 	HasTests       bool   `json:"has_tests"`
 	PytestAvail    bool   `json:"pytest_available"`
 }

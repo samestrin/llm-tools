@@ -19,13 +19,13 @@ var (
 
 // DiscoverTestsResult represents the test discovery result
 type DiscoverTestsResult struct {
-	Pattern        string `json:"pattern,omitempty"`
-	Framework      string `json:"framework,omitempty"`
-	TestRunner     string `json:"test_runner,omitempty"`
-	ConfigFile     string `json:"config_file,omitempty"`
-	SourceDir      string `json:"source_dir,omitempty"`
-	TestDir        string `json:"test_dir,omitempty"`
-	E2eDir         string `json:"e2e_dir,omitempty"`
+	Pattern        string `json:"pattern"`
+	Framework      string `json:"framework"`
+	TestRunner     string `json:"test_runner"`
+	ConfigFile     string `json:"config_file"`
+	SourceDir      string `json:"source_dir"`
+	TestDir        string `json:"test_dir"`
+	E2eDir         string `json:"e2e_dir"`
 	UnitTestCount  int    `json:"unit_test_count"`
 	E2eTestCount   int    `json:"e2e_test_count"`
 	TotalTestCount int    `json:"total_test_count"`

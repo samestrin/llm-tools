@@ -23,21 +23,21 @@ var (
 
 // PartitionGroup represents a group of items
 type PartitionGroup struct {
-	ID    int      `json:"id,omitempty"`
+	ID    int      `json:"id"`
 	I     *int     `json:"i,omitempty"`
-	Items []string `json:"items,omitempty"`
+	Items []string `json:"items"`
 	It    []string `json:"it,omitempty"`
 }
 
 // PartitionResult represents the partition result
 type PartitionResult struct {
-	Groups        []PartitionGroup `json:"groups,omitempty"`
+	Groups        []PartitionGroup `json:"groups"`
 	G             []PartitionGroup `json:"g,omitempty"`
-	TotalGroups   int              `json:"total_groups,omitempty"`
+	TotalGroups   int              `json:"total_groups"`
 	TG            *int             `json:"tg,omitempty"`
-	ItemsPerGroup []int            `json:"items_per_group,omitempty"`
+	ItemsPerGroup []int            `json:"items_per_group"`
 	IPG           []int            `json:"ipg,omitempty"`
-	Message       string           `json:"message,omitempty"`
+	Message       string           `json:"message"`
 	M             string           `json:"m,omitempty"`
 }
 
