@@ -26,6 +26,9 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 		return "", err
 	}
 
+	// Add --json and --min flags for machine-parseable, token-optimized output
+	cmdArgs = append(cmdArgs, "--json", "--min")
+
 	// Execute command
 	ctx, cancel := context.WithTimeout(context.Background(), CommandTimeout)
 	defer cancel()
@@ -87,8 +90,8 @@ func buildMatchArgs(args map[string]interface{}) []string {
 	if q, ok := args["question"].(string); ok {
 		cmdArgs = append(cmdArgs, "--question", q)
 	}
-	if f, ok := args["entries_file"].(string); ok {
-		cmdArgs = append(cmdArgs, "--entries-file", f)
+	if f, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", f)
 	}
 	if j, ok := args["entries_json"].(string); ok {
 		cmdArgs = append(cmdArgs, "--entries-json", j)
@@ -127,7 +130,7 @@ func buildClusterArgs(args map[string]interface{}) []string {
 
 func buildDetectConflictsArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"detect-conflicts"}
-	if f, ok := args["tracking_file"].(string); ok {
+	if f, ok := args["file"].(string); ok {
 		cmdArgs = append(cmdArgs, f)
 	}
 	if t, ok := getInt(args, "timeout"); ok {
@@ -144,7 +147,7 @@ func buildDetectConflictsArgs(args map[string]interface{}) []string {
 
 func buildValidateArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"validate-clarifications"}
-	if f, ok := args["tracking_file"].(string); ok {
+	if f, ok := args["file"].(string); ok {
 		cmdArgs = append(cmdArgs, f)
 	}
 	if c, ok := args["context"].(string); ok {
@@ -181,8 +184,8 @@ func buildInitArgs(args map[string]interface{}) []string {
 
 func buildAddArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"add-clarification"}
-	if f, ok := args["tracking_file"].(string); ok {
-		cmdArgs = append(cmdArgs, "--tracking-file", f)
+	if f, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", f)
 	}
 	if q, ok := args["question"].(string); ok {
 		cmdArgs = append(cmdArgs, "--question", q)
@@ -193,11 +196,18 @@ func buildAddArgs(args map[string]interface{}) []string {
 	if id, ok := args["id"].(string); ok {
 		cmdArgs = append(cmdArgs, "--id", id)
 	}
+	// NOTE: MCP parameter "sprint_id" maps to CLI flag "--sprint"
 	if s, ok := args["sprint_id"].(string); ok {
-		cmdArgs = append(cmdArgs, "--sprint-id", s)
+		cmdArgs = append(cmdArgs, "--sprint", s)
 	}
-	if t, ok := args["context_tags"].(string); ok {
-		cmdArgs = append(cmdArgs, "--context-tags", t)
+	// NOTE: MCP parameter "context_tags" is comma-separated, maps to multiple --tag flags
+	if t, ok := args["context_tags"].(string); ok && t != "" {
+		for _, tag := range strings.Split(t, ",") {
+			tag = strings.TrimSpace(tag)
+			if tag != "" {
+				cmdArgs = append(cmdArgs, "--tag", tag)
+			}
+		}
 	}
 	if getBool(args, "check_match") {
 		cmdArgs = append(cmdArgs, "--check-match")
@@ -213,8 +223,8 @@ func buildAddArgs(args map[string]interface{}) []string {
 
 func buildPromoteArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"promote-clarification"}
-	if f, ok := args["tracking_file"].(string); ok {
-		cmdArgs = append(cmdArgs, "--tracking-file", f)
+	if f, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", f)
 	}
 	if id, ok := args["id"].(string); ok {
 		cmdArgs = append(cmdArgs, "--id", id)
@@ -236,7 +246,7 @@ func buildPromoteArgs(args map[string]interface{}) []string {
 
 func buildListArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"list-entries"}
-	if f, ok := args["tracking_file"].(string); ok {
+	if f, ok := args["file"].(string); ok {
 		cmdArgs = append(cmdArgs, f)
 	}
 	if s, ok := args["status"].(string); ok {

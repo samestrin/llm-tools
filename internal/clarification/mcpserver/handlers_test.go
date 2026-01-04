@@ -8,13 +8,13 @@ import (
 func TestBuildMatchArgs(t *testing.T) {
 	// Default behavior includes --json --min
 	args := map[string]interface{}{
-		"question":     "What testing framework?",
-		"entries_file": "tracking.yaml",
-		"timeout":      float64(60),
+		"question": "What testing framework?",
+		"file":     "tracking.yaml",
+		"timeout":  float64(60),
 	}
 
 	got := buildMatchArgs(args)
-	want := []string{"match-clarification", "--question", "What testing framework?", "--entries-file", "tracking.yaml", "--timeout", "60", "--json", "--min"}
+	want := []string{"match-clarification", "--question", "What testing framework?", "--file", "tracking.yaml", "--timeout", "60", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildMatchArgs() = %v, want %v", got, want)
@@ -68,17 +68,17 @@ func TestBuildInitArgs(t *testing.T) {
 
 func TestBuildAddArgs(t *testing.T) {
 	args := map[string]interface{}{
-		"tracking_file": "tracking.yaml",
-		"question":      "What is the testing approach?",
-		"answer":        "Use Jest for unit tests",
-		"sprint_id":     "sprint-1",
-		"context_tags":  "testing,frontend",
+		"file":         "tracking.yaml",
+		"question":     "What is the testing approach?",
+		"answer":       "Use Jest for unit tests",
+		"sprint_id":    "sprint-1",
+		"context_tags": "testing,frontend",
 	}
 
 	got := buildAddArgs(args)
 
 	// Check key elements exist
-	expected := []string{"add-clarification", "--tracking-file", "tracking.yaml"}
+	expected := []string{"add-clarification", "--file", "tracking.yaml"}
 	for i, exp := range expected {
 		if got[i] != exp {
 			t.Errorf("buildAddArgs()[%d] = %v, want %v", i, got[i], exp)
@@ -101,14 +101,14 @@ func TestBuildAddArgs(t *testing.T) {
 func TestBuildPromoteArgs(t *testing.T) {
 	// Default behavior includes --json --min
 	args := map[string]interface{}{
-		"tracking_file": "tracking.yaml",
-		"id":            "clarify-001",
-		"target":        "CLAUDE.md",
-		"force":         true,
+		"file":   "tracking.yaml",
+		"id":     "clarify-001",
+		"target": "CLAUDE.md",
+		"force":  true,
 	}
 
 	got := buildPromoteArgs(args)
-	want := []string{"promote-clarification", "--tracking-file", "tracking.yaml", "--id", "clarify-001", "--target", "CLAUDE.md", "--force", "--json", "--min"}
+	want := []string{"promote-clarification", "--file", "tracking.yaml", "--id", "clarify-001", "--target", "CLAUDE.md", "--force", "--json", "--min"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("buildPromoteArgs() = %v, want %v", got, want)
@@ -123,13 +123,13 @@ func TestBuildListArgs(t *testing.T) {
 	}{
 		{
 			name: "basic list (defaults to json+min)",
-			args: map[string]interface{}{"tracking_file": "tracking.yaml"},
+			args: map[string]interface{}{"file": "tracking.yaml"},
 			want: []string{"list-entries", "tracking.yaml", "--json", "--min"},
 		},
 		{
 			name: "with filters (defaults to json+min)",
 			args: map[string]interface{}{
-				"tracking_file":   "tracking.yaml",
+				"file":            "tracking.yaml",
 				"status":          "pending",
 				"min_occurrences": float64(3),
 			},
@@ -137,7 +137,7 @@ func TestBuildListArgs(t *testing.T) {
 		},
 		{
 			name: "with json+min disabled",
-			args: map[string]interface{}{"tracking_file": "tracking.yaml", "json": false, "min": false},
+			args: map[string]interface{}{"file": "tracking.yaml", "json": false, "min": false},
 			want: []string{"list-entries", "tracking.yaml"},
 		},
 	}
@@ -155,8 +155,8 @@ func TestBuildListArgs(t *testing.T) {
 func TestBuildDetectConflictsArgs(t *testing.T) {
 	// Default behavior includes --json --min
 	args := map[string]interface{}{
-		"tracking_file": "tracking.yaml",
-		"timeout":       float64(45),
+		"file":    "tracking.yaml",
+		"timeout": float64(45),
 	}
 
 	got := buildDetectConflictsArgs(args)
@@ -170,8 +170,8 @@ func TestBuildDetectConflictsArgs(t *testing.T) {
 func TestBuildValidateArgs(t *testing.T) {
 	// Default behavior includes --json --min
 	args := map[string]interface{}{
-		"tracking_file": "tracking.yaml",
-		"context":       "React frontend project",
+		"file":    "tracking.yaml",
+		"context": "React frontend project",
 	}
 
 	got := buildValidateArgs(args)
@@ -229,8 +229,8 @@ func TestBuildMatchArgsWithEntriesJSON(t *testing.T) {
 func TestBuildValidateArgsWithTimeout(t *testing.T) {
 	// Default behavior includes --json --min
 	args := map[string]interface{}{
-		"tracking_file": "tracking.yaml",
-		"timeout":       float64(90),
+		"file":    "tracking.yaml",
+		"timeout": float64(90),
 	}
 
 	got := buildValidateArgs(args)
@@ -243,11 +243,11 @@ func TestBuildValidateArgsWithTimeout(t *testing.T) {
 
 func TestBuildAddArgsWithID(t *testing.T) {
 	args := map[string]interface{}{
-		"tracking_file": "tracking.yaml",
-		"question":      "Test?",
-		"answer":        "Yes",
-		"id":            "custom-id-123",
-		"check_match":   true,
+		"file":        "tracking.yaml",
+		"question":    "Test?",
+		"answer":      "Yes",
+		"id":          "custom-id-123",
+		"check_match": true,
 	}
 
 	got := buildAddArgs(args)
@@ -281,12 +281,12 @@ func TestBuildArgsDispatcher(t *testing.T) {
 	}{
 		{"match_clarification", map[string]interface{}{"question": "q"}, 3, "match-clarification", false},
 		{"cluster_clarifications", map[string]interface{}{"questions_file": "f"}, 3, "cluster-clarifications", false},
-		{"detect_conflicts", map[string]interface{}{"tracking_file": "f"}, 2, "detect-conflicts", false},
-		{"validate_clarifications", map[string]interface{}{"tracking_file": "f"}, 2, "validate-clarifications", false},
+		{"detect_conflicts", map[string]interface{}{"file": "f"}, 2, "detect-conflicts", false},
+		{"validate_clarifications", map[string]interface{}{"file": "f"}, 2, "validate-clarifications", false},
 		{"init_tracking", map[string]interface{}{"output": "f"}, 3, "init-tracking", false},
-		{"add_clarification", map[string]interface{}{"tracking_file": "f"}, 3, "add-clarification", false},
-		{"promote_clarification", map[string]interface{}{"tracking_file": "f"}, 3, "promote-clarification", false},
-		{"list_entries", map[string]interface{}{"tracking_file": "f"}, 2, "list-entries", false},
+		{"add_clarification", map[string]interface{}{"file": "f"}, 3, "add-clarification", false},
+		{"promote_clarification", map[string]interface{}{"file": "f"}, 3, "promote-clarification", false},
+		{"list_entries", map[string]interface{}{"file": "f"}, 2, "list-entries", false},
 		{"unknown_command", map[string]interface{}{}, 0, "", true},
 	}
 
