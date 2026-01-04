@@ -49,7 +49,6 @@ var KeyAbbreviations = map[string]string{
 	"message":     "msg",
 	"status":      "s",
 	"count":       "c",
-	"total":       "tot",
 	"value":       "v",
 	"key":         "k",
 	"result":      "r",
@@ -315,4 +314,49 @@ func (f *Formatter) PrintSection(title string) {
 	if !f.Minimal {
 		fmt.Fprintf(f.Writer, "---\n%s\n", title)
 	}
+}
+
+// PrintError outputs an error respecting JSON and Minimal modes.
+// In JSON mode, outputs to stdout for parsing. In text mode, outputs to stderr.
+// Returns the exit code (always 1 for errors).
+func (f *Formatter) PrintError(err error) int {
+	if f.JSON {
+		if f.Minimal {
+			// Minimal JSON: abbreviated keys, single line
+			result := map[string]interface{}{
+				"err": true,
+				"msg": err.Error(),
+			}
+			output, _ := json.Marshal(result)
+			fmt.Fprintln(f.Writer, string(output))
+		} else {
+			// Pretty JSON
+			result := map[string]interface{}{
+				"error":   true,
+				"message": err.Error(),
+			}
+			output, _ := json.MarshalIndent(result, "", "  ")
+			fmt.Fprintln(f.Writer, string(output))
+		}
+	} else {
+		// Text mode - use stderr
+		w := f.Writer
+		if w == os.Stdout {
+			w = os.Stderr
+		}
+		if f.Minimal {
+			// Minimal: just the error message
+			fmt.Fprintln(w, err.Error())
+		} else {
+			// Default: "Error: " prefix
+			fmt.Fprintf(w, "Error: %v\n", err)
+		}
+	}
+	return 1
+}
+
+// ErrorResult is a helper for creating error responses in handlers.
+type ErrorResult struct {
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
 }

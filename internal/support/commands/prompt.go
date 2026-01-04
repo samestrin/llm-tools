@@ -51,9 +51,9 @@ type PromptResult struct {
 	OutputFile   string `json:"output_file,omitempty"`
 	OF           string `json:"of,omitempty"`
 	OutputLength int    `json:"output_length,omitempty"`
-	OL           *int   `json:"ol,omitempty"`
+	OL           *int   `json:"output_len,omitempty"`
 	Response     string `json:"response,omitempty"`
-	R            string `json:"r,omitempty"`
+	R            string `json:"result,omitempty"`
 	LastError    string `json:"last_error,omitempty"`
 	LE           string `json:"le,omitempty"`
 }
