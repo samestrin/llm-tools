@@ -28,7 +28,7 @@ var (
 
 // CountCheckboxResult holds checkbox count results
 type CountCheckboxResult struct {
-	Total     int     `json:"total"`
+	Count     int     `json:"count"`
 	Checked   int     `json:"checked"`
 	Unchecked int     `json:"unchecked"`
 	Percent   float64 `json:"percent"`
@@ -41,7 +41,7 @@ type CountLinesResult struct {
 
 // CountFilesResult holds file count results
 type CountFilesResult struct {
-	Total int `json:"total"`
+	Count int `json:"count"`
 }
 
 // newCountCmd creates the count command
@@ -186,7 +186,7 @@ func runCountCheckboxes(cmd *cobra.Command, target string, info os.FileInfo) err
 	}
 
 	result := CountCheckboxResult{
-		Total:     total,
+		Count:     total,
 		Checked:   checked,
 		Unchecked: unchecked,
 		Percent:   percent,
@@ -195,7 +195,7 @@ func runCountCheckboxes(cmd *cobra.Command, target string, info os.FileInfo) err
 	formatter := output.New(countJSON, countMinimal, cmd.OutOrStdout())
 	return formatter.Print(result, func(w io.Writer, data interface{}) {
 		r := data.(CountCheckboxResult)
-		fmt.Fprintf(w, "TOTAL: %d\n", r.Total)
+		fmt.Fprintf(w, "COUNT: %d\n", r.Count)
 		fmt.Fprintf(w, "CHECKED: %d\n", r.Checked)
 		fmt.Fprintf(w, "UNCHECKED: %d\n", r.Unchecked)
 		fmt.Fprintf(w, "PERCENT: %.0f%%\n", r.Percent)
@@ -252,11 +252,11 @@ func runCountLines(cmd *cobra.Command, target string, info os.FileInfo) error {
 
 func runCountFiles(cmd *cobra.Command, target string, info os.FileInfo) error {
 	if !info.IsDir() {
-		result := CountFilesResult{Total: 1}
+		result := CountFilesResult{Count: 1}
 		formatter := output.New(countJSON, countMinimal, cmd.OutOrStdout())
 		return formatter.Print(result, func(w io.Writer, data interface{}) {
 			r := data.(CountFilesResult)
-			fmt.Fprintf(w, "TOTAL: %d\n", r.Total)
+			fmt.Fprintf(w, "COUNT: %d\n", r.Count)
 		})
 	}
 
@@ -294,11 +294,11 @@ func runCountFiles(cmd *cobra.Command, target string, info os.FileInfo) error {
 		}
 	}
 
-	result := CountFilesResult{Total: count}
+	result := CountFilesResult{Count: count}
 	formatter := output.New(countJSON, countMinimal, cmd.OutOrStdout())
 	return formatter.Print(result, func(w io.Writer, data interface{}) {
 		r := data.(CountFilesResult)
-		fmt.Fprintf(w, "TOTAL: %d\n", r.Total)
+		fmt.Fprintf(w, "COUNT: %d\n", r.Count)
 	})
 }
 
