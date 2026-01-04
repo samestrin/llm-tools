@@ -16,23 +16,38 @@ func addReadCommands(rootCmd *cobra.Command) {
 
 func readFileCmd() *cobra.Command {
 	var path string
-	var startOffset, maxSize, lineStart, lineCount int
+	var startOffset, lineStart, lineCount int
+	var maxSize int64
 
 	cmd := &cobra.Command{
 		Use:   "read-file",
 		Short: "Read a file",
 		Long:  "Reads a file with optional line range or byte offset",
 		Run: func(cmd *cobra.Command, args []string) {
+			// Determine size limit: -1 means use default, 0 means no limit
+			sizeLimit := maxSize
+			if !cmd.Flags().Changed("max-size") {
+				sizeLimit = -1 // Use default
+			}
+
 			result, err := core.ReadFile(core.ReadFileOptions{
-				Path:        path,
-				StartOffset: startOffset,
-				MaxSize:     maxSize,
-				LineStart:   lineStart,
-				LineCount:   lineCount,
-				AllowedDirs: GetAllowedDirs(),
+				Path:             path,
+				StartOffset:      startOffset,
+				LineStart:        lineStart,
+				LineCount:        lineCount,
+				AllowedDirs:      GetAllowedDirs(),
+				SizeCheckMaxSize: sizeLimit,
 			})
 			if err != nil {
+				// Check for size exceeded error and output as JSON
+				if sizeErr, ok := err.(*core.SizeExceededError); ok {
+					if jsonOutput {
+						fmt.Println(sizeErr.ToJSON())
+						return
+					}
+				}
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				return result.Content
@@ -42,7 +57,7 @@ func readFileCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&path, "path", "", "File path to read (required)")
 	cmd.Flags().IntVar(&startOffset, "start-offset", 0, "Starting byte offset")
-	cmd.Flags().IntVar(&maxSize, "max-size", 0, "Maximum bytes to read")
+	cmd.Flags().Int64Var(&maxSize, "max-size", core.DefaultMaxSize, "Maximum file size in bytes (0 = no limit)")
 	cmd.Flags().IntVar(&lineStart, "line-start", 0, "Starting line number")
 	cmd.Flags().IntVar(&lineCount, "line-count", 0, "Number of lines to read")
 	cmd.MarkFlagRequired("path")
@@ -52,18 +67,34 @@ func readFileCmd() *cobra.Command {
 
 func readMultipleFilesCmd() *cobra.Command {
 	var paths []string
+	var maxTotalSize int64
 
 	cmd := &cobra.Command{
 		Use:   "read-multiple-files",
 		Short: "Read multiple files simultaneously",
 		Long:  "Reads multiple files concurrently and returns their contents",
 		Run: func(cmd *cobra.Command, args []string) {
+			// Determine size limit: -1 means use default, 0 means no limit
+			sizeLimit := maxTotalSize
+			if !cmd.Flags().Changed("max-total-size") {
+				sizeLimit = -1 // Use default
+			}
+
 			result, err := core.ReadMultipleFiles(core.ReadMultipleFilesOptions{
-				Paths:       paths,
-				AllowedDirs: GetAllowedDirs(),
+				Paths:                 paths,
+				AllowedDirs:           GetAllowedDirs(),
+				SizeCheckMaxTotalSize: sizeLimit,
 			})
 			if err != nil {
+				// Check for size exceeded error and output as JSON
+				if sizeErr, ok := err.(*core.TotalSizeExceededError); ok {
+					if jsonOutput {
+						fmt.Println(sizeErr.ToJSON())
+						return
+					}
+				}
 				OutputError(err)
+				return
 			}
 			OutputResult(result, func() string {
 				var sb strings.Builder
@@ -83,6 +114,7 @@ func readMultipleFilesCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringSliceVar(&paths, "paths", nil, "File paths to read (comma-separated)")
+	cmd.Flags().Int64Var(&maxTotalSize, "max-total-size", core.DefaultMaxSize, "Maximum combined file size in bytes (0 = no limit)")
 	cmd.MarkFlagRequired("paths")
 
 	return cmd

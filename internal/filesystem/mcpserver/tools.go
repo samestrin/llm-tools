@@ -26,7 +26,7 @@ func GetToolDefinitions() []ToolDefinition {
 				"properties": {
 					"path": {"type": "string", "description": "File path to read"},
 					"start_offset": {"type": "number", "description": "Starting byte offset"},
-					"max_size": {"type": "number", "description": "Maximum size to read"},
+					"max_size": {"type": "integer", "description": "Maximum file size in bytes (default: 70000, 0 = no limit)", "default": 70000},
 					"line_start": {"type": "number", "description": "Starting line number"},
 					"line_count": {"type": "number", "description": "Number of lines to read"},
 					"encoding": {"type": "string", "description": "Text encoding", "default": "utf-8"}
@@ -41,6 +41,7 @@ func GetToolDefinitions() []ToolDefinition {
 				"type": "object",
 				"properties": {
 					"paths": {"type": "array", "items": {"type": "string"}, "description": "File paths to read"},
+					"max_total_size": {"type": "integer", "description": "Maximum combined size in bytes (default: 70000, 0 = no limit)", "default": 70000},
 					"chunk_size": {"type": "number", "description": "Chunk size in bytes", "default": 1048576}
 				},
 				"required": ["paths"]

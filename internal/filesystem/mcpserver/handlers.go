@@ -134,6 +134,7 @@ func buildReadFileArgs(args map[string]interface{}) []string {
 	if offset, ok := getInt(args, "start_offset"); ok {
 		cmdArgs = append(cmdArgs, "--offset", strconv.Itoa(offset))
 	}
+	// max_size is the size limit (default 70000, 0 = no limit)
 	if maxSize, ok := getInt(args, "max_size"); ok {
 		cmdArgs = append(cmdArgs, "--max-size", strconv.Itoa(maxSize))
 	}
@@ -154,6 +155,10 @@ func buildReadMultipleFilesArgs(args map[string]interface{}) []string {
 				cmdArgs = append(cmdArgs, "--paths", s)
 			}
 		}
+	}
+	// max_total_size is the combined size limit (default 70000, 0 = no limit)
+	if maxTotalSize, ok := getInt(args, "max_total_size"); ok {
+		cmdArgs = append(cmdArgs, "--max-total-size", strconv.Itoa(maxTotalSize))
 	}
 	return cmdArgs
 }

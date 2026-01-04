@@ -2,20 +2,81 @@ package core
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 )
 
+// DefaultMaxSize is the default maximum file size in bytes (70KB)
+const DefaultMaxSize = 70000
+
+// SizeExceededError represents an error when file size exceeds the limit
+type SizeExceededError struct {
+	Message string `json:"message"`
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	MaxSize int64  `json:"max_size"`
+}
+
+func (e *SizeExceededError) Error() string {
+	return e.Message
+}
+
+// ToJSON returns the error as a JSON object with error: true
+func (e *SizeExceededError) ToJSON() string {
+	result := map[string]interface{}{
+		"error":    true,
+		"message":  e.Message,
+		"path":     e.Path,
+		"size":     e.Size,
+		"max_size": e.MaxSize,
+	}
+	jsonBytes, _ := json.Marshal(result)
+	return string(jsonBytes)
+}
+
+// TotalSizeExceededError represents an error when combined file size exceeds the limit
+type TotalSizeExceededError struct {
+	Message      string          `json:"message"`
+	TotalSize    int64           `json:"total_size"`
+	MaxTotalSize int64           `json:"max_total_size"`
+	Files        []FileSizeEntry `json:"files"`
+}
+
+// FileSizeEntry represents a file and its size
+type FileSizeEntry struct {
+	Path string `json:"path"`
+	Size int64  `json:"size"`
+}
+
+func (e *TotalSizeExceededError) Error() string {
+	return e.Message
+}
+
+// ToJSON returns the error as a JSON object with error: true
+func (e *TotalSizeExceededError) ToJSON() string {
+	result := map[string]interface{}{
+		"error":          true,
+		"message":        e.Message,
+		"total_size":     e.TotalSize,
+		"max_total_size": e.MaxTotalSize,
+		"files":          e.Files,
+	}
+	jsonBytes, _ := json.Marshal(result)
+	return string(jsonBytes)
+}
+
 // ReadFileOptions contains input parameters for ReadFile
 type ReadFileOptions struct {
-	Path        string
-	StartOffset int
-	MaxSize     int
-	LineStart   int
-	LineCount   int
-	AllowedDirs []string
+	Path             string
+	StartOffset      int
+	MaxSize          int
+	LineStart        int
+	LineCount        int
+	AllowedDirs      []string
+	SizeCheckMaxSize int64 // Maximum allowed file size (0 = no limit, -1 = use default)
 }
 
 // ReadFileResult represents the result of a file read operation
@@ -54,6 +115,20 @@ func ReadFile(opts ReadFileOptions) (*ReadFileResult, error) {
 
 	if info.IsDir() {
 		return nil, fmt.Errorf("path is a directory, not a file")
+	}
+
+	// Check file size limit
+	maxSize := opts.SizeCheckMaxSize
+	if maxSize == -1 {
+		maxSize = DefaultMaxSize
+	}
+	if maxSize > 0 && info.Size() > maxSize {
+		return nil, &SizeExceededError{
+			Message: fmt.Sprintf("File size (%d bytes) exceeds max_size (%d bytes)", info.Size(), maxSize),
+			Path:    path,
+			Size:    info.Size(),
+			MaxSize: maxSize,
+		}
 	}
 
 	var content string
@@ -162,8 +237,9 @@ func readFileByBytes(path string, startOffset, maxSize int) (string, error) {
 
 // ReadMultipleFilesOptions contains input parameters for ReadMultipleFiles
 type ReadMultipleFilesOptions struct {
-	Paths       []string
-	AllowedDirs []string
+	Paths                 []string
+	AllowedDirs           []string
+	SizeCheckMaxTotalSize int64 // Maximum allowed total size (0 = no limit, -1 = use default)
 }
 
 // ReadMultipleFilesResult represents results from reading multiple files
@@ -177,6 +253,50 @@ type ReadMultipleFilesResult struct {
 func ReadMultipleFiles(opts ReadMultipleFilesOptions) (*ReadMultipleFilesResult, error) {
 	if len(opts.Paths) == 0 {
 		return nil, fmt.Errorf("paths is required")
+	}
+
+	// Determine max total size
+	maxTotalSize := opts.SizeCheckMaxTotalSize
+	if maxTotalSize == -1 {
+		maxTotalSize = DefaultMaxSize
+	}
+
+	// If size checking is enabled, stat all files first
+	if maxTotalSize > 0 {
+		var totalSize int64
+		fileSizes := make([]FileSizeEntry, 0, len(opts.Paths))
+
+		for _, path := range opts.Paths {
+			// Resolve symlink
+			resolved, _ := ResolveSymlink(path)
+			if resolved != "" {
+				path = resolved
+			}
+
+			info, err := os.Stat(path)
+			if err != nil {
+				// Skip files that can't be stat'd - they'll error during read
+				fileSizes = append(fileSizes, FileSizeEntry{Path: path, Size: 0})
+				continue
+			}
+
+			if info.IsDir() {
+				fileSizes = append(fileSizes, FileSizeEntry{Path: path, Size: 0})
+				continue
+			}
+
+			totalSize += info.Size()
+			fileSizes = append(fileSizes, FileSizeEntry{Path: path, Size: info.Size()})
+		}
+
+		if totalSize > maxTotalSize {
+			return nil, &TotalSizeExceededError{
+				Message:      fmt.Sprintf("Total size (%d bytes) exceeds max_total_size (%d bytes)", totalSize, maxTotalSize),
+				TotalSize:    totalSize,
+				MaxTotalSize: maxTotalSize,
+				Files:        fileSizes,
+			}
+		}
 	}
 
 	results := make([]ReadFileResult, len(opts.Paths))
