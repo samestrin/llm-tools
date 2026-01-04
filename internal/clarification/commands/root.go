@@ -13,11 +13,28 @@ var Version = "1.2.0"
 // globalDBPath is the path set by the --db flag, overrides per-command --file flags
 var globalDBPath string
 
+// Global output flags accessible to all commands
+var (
+	GlobalJSONOutput bool
+	GlobalMinOutput  bool
+)
+
 var rootCmd = &cobra.Command{
-	Use:     "llm-clarification",
-	Short:   "LLM Clarification Learning System",
-	Long:    `A CLI tool for tracking and managing clarifications gathered during LLM-assisted development.`,
-	Version: Version,
+	Use:           "llm-clarification",
+	Short:         "LLM Clarification Learning System",
+	Long:          `A CLI tool for tracking and managing clarifications gathered during LLM-assisted development.`,
+	Version:       Version,
+	SilenceErrors: true,
+	SilenceUsage:  true,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Sync local command flags to global vars for error handling
+		if f := cmd.Flag("json"); f != nil && f.Changed {
+			GlobalJSONOutput = true
+		}
+		if f := cmd.Flag("min"); f != nil && f.Changed {
+			GlobalMinOutput = true
+		}
+	},
 }
 
 // Execute runs the root command.
@@ -40,4 +57,7 @@ func GetDBPath(cmdFilePath string) string {
 func init() {
 	// Global persistent flag for database path
 	rootCmd.PersistentFlags().StringVar(&globalDBPath, "db", "", "Storage file path (.yaml, .yml, .db, .sqlite) - overrides per-command --file flags")
+	// Global output flags
+	rootCmd.PersistentFlags().BoolVar(&GlobalJSONOutput, "json", false, "Output as JSON")
+	rootCmd.PersistentFlags().BoolVar(&GlobalMinOutput, "min", false, "Minimal/token-optimized output")
 }
