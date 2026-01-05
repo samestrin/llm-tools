@@ -33,7 +33,7 @@ I benchmarked this against equivalent Python and Node.js implementations on a re
 
 #### vs Node.js (llm-filesystem)
 
-We ported the popular `fast-filesystem-mcp` from TypeScript to Go to create `llm-filesystem`.
+I ported the popular [`fast-filesystem-mcp`](https://github.com/efforthye/fast-filesystem-mcp) from TypeScript to Go to create `llm-filesystem`.
 
 | Benchmark | Go (llm-filesystem) | TypeScript (Node) | Speedup |
 |-----------|---------------------|-------------------|---------|
