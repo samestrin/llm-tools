@@ -29,6 +29,8 @@ I benchmarked this against equivalent Python and Node.js implementations on a re
 | Multigrep | Search 5 keywords (150k hits) | 1.47s | 20.7s | **14x** |
 | Hash | SHA256 Verification | 6ms | 65ms | **10.8x** |
 
+> *Benchmarks run on M4 Pro 64gb macOS Darwin (arm64), 2025-12-26.*
+
 #### vs Node.js (llm-filesystem)
 
 We ported the popular `fast-filesystem-mcp` from TypeScript to Go to create `llm-filesystem`.
@@ -40,11 +42,11 @@ We ported the popular `fast-filesystem-mcp` from TypeScript to Go to create `llm
 | File Read | 49.5ms | 108.2ms | **2.2x** |
 | Directory Tree | 50.9ms | 113.7ms | **2.2x** |
 
-> *Benchmarks run on M4 Pro 64gb macOS Darwin (arm64), 2025-12-26.*
+> *Benchmarks run on M4 Pro 64gb macOS Darwin (arm64), 2025-12-31.*
 
 ### 🚫 Zero Dependency Hell
 Deploying agent tools in Python or Node is painful. You have to manage virtual environments, `node_modules`, `pip install` dependencies, and worry about version conflicts. 
-**llm-tools** is a single static binary. It works instantly on any machine—no setup required.
+**llm-tools** is a single static binary. It works _instantly_ on any machine—no setup required.
 
 ## 🤖 Standardized LLM Orchestration
 
