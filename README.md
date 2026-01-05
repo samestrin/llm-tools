@@ -10,27 +10,40 @@
 
 ## ⚡ Why this exists
 
-LLM Agents need to be fast. Waiting 400ms for a Python script to spin up just to read a file kills the flow of an autonomous loop.
+LLM Agents need to be fast. Waiting 400ms for a Python script or 100ms for Node.js to spin up just to read a file kills the flow of an autonomous loop.
 
 **llm-tools** is a suite of high-performance, statically compiled tools designed to be the "hands" of your AI agent. It includes a native **MCP Server** for instant integration with Claude Desktop and Gemini.
 
 ### The "Rewrite it in Go" Effect
 
+I benchmarked this against equivalent Python and Node.js implementations on a real-world codebase. The difference is _massive_.
+
+#### vs Python (llm-support)
+
 ![Python vs. Go Speed Comparison](https://vhs.charm.sh/vhs-5iqaqS4p92ubeVCeH5oQm1.gif)
 
-I benchmarked this against my original Python implementation on a real-world codebase (21k files). The difference was _massive_.
-
-| Operation | Action | Go (Native) | Python | Speedup |
+| Operation | Action | Go (llm-support) | Python | Speedup |
 |-----------|-------------|-----|--------|---------|
 | **MCP Handshake** | **Server Initialization** | **4ms** | **408ms** | **🚀 102x** |
 | Startup | CLI Help | 6ms | 113ms | **19x** |
 | Multigrep | Search 5 keywords (150k hits) | 1.47s | 20.7s | **14x** |
 | Hash | SHA256 Verification | 6ms | 65ms | **10.8x** |
 
+#### vs Node.js (llm-filesystem)
+
+We ported the popular `fast-filesystem-mcp` from TypeScript to Go to create `llm-filesystem`.
+
+| Benchmark | Go (llm-filesystem) | TypeScript (Node) | Speedup |
+|-----------|---------------------|-------------------|---------|
+| **Cold Start** | **5.2ms** | **85.1ms** | **🚀 16.5x** |
+| MCP Handshake | 40.8ms | 110.4ms | **2.7x** |
+| File Read | 49.5ms | 108.2ms | **2.2x** |
+| Directory Tree | 50.9ms | 113.7ms | **2.2x** |
+
 > *Benchmarks run on M4 Pro 64gb macOS Darwin (arm64), 2025-12-26.*
 
-### 🚫 No Python Venv Hell
-Deploying Python-based agent tools is painful. You have to manage virtual environments, `pip install` dependencies, and worry about version conflicts. 
+### 🚫 Zero Dependency Hell
+Deploying agent tools in Python or Node is painful. You have to manage virtual environments, `node_modules`, `pip install` dependencies, and worry about version conflicts. 
 **llm-tools** is a single static binary. It works instantly on any machine—no setup required.
 
 ## 🤖 Standardized LLM Orchestration
@@ -137,7 +150,7 @@ Detailed references for all 40+ commands:
 
 *   **[llm-support Commands](docs/llm-support-commands.md)** - File ops, search, analysis, and data processing.
 *   **[llm-clarification Commands](docs/llm-clarification-commands.md)** - Long-term memory and decision tracking system.
-*   **[llm-filesystem Commands](docs/llm-filesystem-commands.md)** - High-performance filesystem operations (27 commands).
+*   **[llm-filesystem Commands](docs/llm-filesystem-commands.md)** - High-performance filesystem operations (drop-in replacement for fast-filesystem-mcp).
 *   **[llm-semantic Commands](docs/llm-semantic-commands.md)** - Semantic code search with local embeddings.
 *   **[MCP Setup Guide](docs/MCP_SETUP.md)** - Integration with Claude Desktop & Gemini.
 *   **[Quick Reference](docs/quick-reference.md)** - Cheat sheet.
