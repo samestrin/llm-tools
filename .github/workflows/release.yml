@@ -117,12 +117,4 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: false
           files: |
-            dist/llm-support-*
-            dist/llm-support-mcp-*
-            dist/llm-clarification-*
-            dist/llm-clarification-mcp-*
-            dist/llm-filesystem-*
-            dist/llm-filesystem-mcp-*
-            dist/llm-semantic-*
-            dist/llm-semantic-mcp-*
-            dist/SHA256SUMS.txt
+            dist/*
