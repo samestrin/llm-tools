@@ -35,6 +35,7 @@ Complete documentation for all 40+ llm-support commands.
   - [prompt](#prompt)
   - [foreach](#foreach)
   - [extract-relevant](#extract-relevant)
+  - [extract-links](#extract-links)
   - [summarize-dir](#summarize-dir)
 - [Development](#development)
   - [validate](#validate)
@@ -979,7 +980,7 @@ llm-support foreach --files file1.txt,file2.txt --template t.md --var LANG=Go --
 
 ### extract-relevant
 
-Extract relevant content from files or directories using an LLM API.
+Extract relevant content from files, directories, or URLs using an LLM API.
 
 ```bash
 llm-support extract-relevant [flags]
@@ -988,7 +989,7 @@ llm-support extract-relevant [flags]
 **Flags:**
 | Flag | Description |
 |------|-------------|
-| `--path` | File or directory path (default: ".") |
+| `--path` | File path, directory path, or URL (http/https). HTML is auto-converted to text. Default: "." |
 | `--context` | Context describing what content to extract (required) |
 | `--concurrency N` | Number of concurrent API calls (default: 2) |
 | `-o, --output` | Output file (default: stdout) |
@@ -1002,9 +1003,88 @@ llm-support extract-relevant [flags]
 
 **Examples:**
 ```bash
+# Local files and directories
 llm-support extract-relevant --path ./src --context "API endpoint definitions"
 llm-support extract-relevant --path ./docs --context "Configuration options" --concurrency 4
 llm-support extract-relevant --path ./file.md --context "Code examples" -o output.md
+
+# URLs (HTML automatically converted to clean text)
+llm-support extract-relevant --path https://docs.example.com/api --context "Authentication methods"
+llm-support extract-relevant --path https://example.com/pricing --context "Enterprise features"
+```
+
+---
+
+### extract-links
+
+Extract and rank links from a URL with intelligent scoring based on HTML context.
+
+```bash
+llm-support extract-links [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--url` | URL to extract links from (required) |
+| `--timeout N` | HTTP timeout in seconds (default: 30) |
+| `--json` | Output as JSON |
+| `--min` | Minimal output - token-optimized format |
+
+**Scoring System:**
+Links are scored by their HTML context:
+- **h1**: 100, **h2**: 85, **h3**: 70, **h4-h6**: 55
+- **main/article**: 50, **p**: 40, **li**: 35
+- **nav**: 30, **aside**: 20, **footer**: 10
+
+Modifiers add bonus points:
+- **bold/strong**: +15, **em/i**: +10
+- **button role or .btn class**: +10
+- **has title attribute**: +5
+
+**Output Fields:**
+| Field | Description |
+|-------|-------------|
+| `href` | Resolved URL (relative URLs are made absolute) |
+| `text` | Link text (or image alt text) |
+| `context` | HTML element context (h1, nav, p, etc.) |
+| `score` | Importance score (higher = more prominent) |
+| `section` | Parent heading (h1-h3) if available |
+
+**Examples:**
+```bash
+# Extract and rank all links from a page
+llm-support extract-links --url https://example.com/docs
+
+# Get JSON output for processing
+llm-support extract-links --url https://example.com --json
+
+# Token-optimized output
+llm-support extract-links --url https://example.com/api --json --min
+```
+
+**Example Output (JSON):**
+```json
+{
+  "url": "https://example.com/docs",
+  "links": [
+    {
+      "href": "https://example.com/docs/getting-started",
+      "text": "Getting Started",
+      "context": "h2",
+      "score": 85,
+      "section": "Documentation"
+    },
+    {
+      "href": "https://example.com/about",
+      "text": "About Us",
+      "context": "nav",
+      "score": 30,
+      "section": ""
+    }
+  ],
+  "total": 2
+}
 ```
 
 ---

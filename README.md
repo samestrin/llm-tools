@@ -136,8 +136,12 @@ llm-support count --mode checkboxes --path sprint/plan.md -r
 # Detect project stack
 llm-support detect --path .
 
-# Extract only relevant context (AI-filtered)
+# Extract only relevant context (AI-filtered) - works with files, dirs, and URLs
 llm-support extract-relevant --path docs/ --context "Authentication Config"
+llm-support extract-relevant --path https://docs.example.com --context "API keys"
+
+# Extract and rank links from any webpage
+llm-support extract-links --url https://example.com/docs --json
 
 # Summarize directory content for context window (Token optimized)
 llm-support summarize-dir src/ --format outline --max-tokens 2000

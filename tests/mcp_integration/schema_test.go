@@ -12,7 +12,7 @@ import (
 // TestLLMSupportToolCount verifies the correct number of tools
 func TestLLMSupportToolCount(t *testing.T) {
 	tools := supportserver.GetToolDefinitions()
-	expected := 52 // llm-support has 52 tools
+	expected := 53 // llm-support has 53 tools
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-support tools, got %d", expected, len(tools))
 	}

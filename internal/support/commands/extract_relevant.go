@@ -5,11 +5,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/spf13/cobra"
 
 	"github.com/samestrin/llm-tools/pkg/llmapi"
@@ -30,6 +32,8 @@ var (
 type ExtractRelevantResult struct {
 	Path            string   `json:"path,omitempty"`
 	P               string   `json:"p,omitempty"`
+	URL             string   `json:"url,omitempty"`
+	U               string   `json:"u,omitempty"`
 	Context         string   `json:"context,omitempty"`
 	Ctx             string   `json:"ctx,omitempty"`
 	ExtractedParts  []string `json:"extracted_parts,omitempty"`
@@ -49,16 +53,24 @@ func newExtractRelevantCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "extract-relevant",
 		Short: "Extract relevant content using LLM API",
-		Long: `Extract relevant content from files or directories using an LLM API.
+		Long: `Extract relevant content from files, directories, or URLs using an LLM API.
 
-The command sends file content to the LLM with a context describing what
+The command sends content to the LLM with a context describing what
 to extract, and returns only the relevant portions.
 
+Supports:
+  - Local files and directories
+  - URLs (HTTP/HTTPS) - HTML is automatically converted to clean text
+
 Examples:
+  # Local files and directories
   llm-support extract-relevant --path ./src --context "API endpoint definitions"
   llm-support extract-relevant --path ./docs --context "Configuration options" --concurrency 4
   llm-support extract-relevant --path ./file.md --context "Code examples" -o output.md
-  llm-support extract-relevant --path ./src --context "Error handling patterns" --json
+
+  # URLs (HTML automatically stripped)
+  llm-support extract-relevant --path https://example.com/docs --context "Installation steps"
+  llm-support extract-relevant --path https://api.example.com/openapi.json --context "Authentication endpoints"
 
 API Configuration:
   Set OPENAI_API_KEY environment variable or create .planning/.config/openai_api_key file.
@@ -95,29 +107,38 @@ func runExtractRelevant(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Check if target exists
-	info, err := os.Stat(targetPath)
-	if os.IsNotExist(err) {
-		return fmt.Errorf("path not found: %s", targetPath)
-	}
-	if err != nil {
-		return fmt.Errorf("cannot access path: %w", err)
-	}
-
 	// Create LLM client
 	client := llmapi.NewLLMClientFromConfig(config)
 
 	result := ExtractRelevantResult{
-		Path:    targetPath,
 		Context: extractRelevantContext,
 	}
 
-	if info.IsDir() {
-		// Process directory
-		err = processDirectory(cmd, client, targetPath, &result)
+	var err error
+
+	// Check if target is a URL
+	if isURL(targetPath) {
+		result.URL = targetPath
+		err = processURL(cmd, client, targetPath, &result)
 	} else {
-		// Process single file
-		err = processSingleFile(cmd, client, targetPath, &result)
+		result.Path = targetPath
+
+		// Check if target exists
+		info, statErr := os.Stat(targetPath)
+		if os.IsNotExist(statErr) {
+			return fmt.Errorf("path not found: %s", targetPath)
+		}
+		if statErr != nil {
+			return fmt.Errorf("cannot access path: %w", statErr)
+		}
+
+		if info.IsDir() {
+			// Process directory
+			err = processDirectory(cmd, client, targetPath, &result)
+		} else {
+			// Process single file
+			err = processSingleFile(cmd, client, targetPath, &result)
+		}
 	}
 
 	if err != nil {
@@ -146,6 +167,157 @@ func processSingleFile(cmd *cobra.Command, client *llmapi.LLMClient, filePath st
 	result.ProcessedFiles = 1
 
 	return nil
+}
+
+// isURL checks if the given path is an HTTP/HTTPS URL
+func isURL(path string) bool {
+	return strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://")
+}
+
+// processURL fetches and processes content from a URL
+func processURL(cmd *cobra.Command, client *llmapi.LLMClient, url string, result *ExtractRelevantResult) error {
+	content, err := fetchURL(url, extractRelevantTimeout)
+	if err != nil {
+		return fmt.Errorf("failed to fetch URL: %w", err)
+	}
+
+	extracted, err := extractRelevantContent(client, content, extractRelevantContext, extractRelevantTimeout)
+	if err != nil {
+		return err
+	}
+
+	result.ExtractedParts = append(result.ExtractedParts, extracted)
+	result.TotalFiles = 1
+	result.ProcessedFiles = 1
+
+	return nil
+}
+
+// fetchURL fetches content from a URL and converts HTML to plain text
+func fetchURL(url string, timeout int) (string, error) {
+	client := &http.Client{
+		Timeout: time.Duration(timeout) * time.Second,
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set a reasonable User-Agent
+	req.Header.Set("User-Agent", "llm-support/1.0 (extract-relevant)")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch URL: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP error: %s", resp.Status)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+
+	// Check if it's HTML content
+	if strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/xhtml") {
+		return htmlToText(resp.Body)
+	}
+
+	// For non-HTML content, read as-is
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	return string(body), nil
+}
+
+// htmlToText converts HTML content to clean plain text
+func htmlToText(r io.Reader) (string, error) {
+	doc, err := goquery.NewDocumentFromReader(r)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse HTML: %w", err)
+	}
+
+	// Remove script, style, and other non-content elements
+	doc.Find("script, style, noscript, iframe, svg, nav, footer, header").Remove()
+
+	// Extract text content with structure preservation
+	var buf strings.Builder
+
+	// Try to get the page title
+	if title := doc.Find("title").First().Text(); title != "" {
+		buf.WriteString("# ")
+		buf.WriteString(strings.TrimSpace(title))
+		buf.WriteString("\n\n")
+	}
+
+	// Process main content (prefer article/main, fall back to body)
+	var mainContent *goquery.Selection
+	if article := doc.Find("article, main, [role='main']").First(); article.Length() > 0 {
+		mainContent = article
+	} else {
+		mainContent = doc.Find("body")
+	}
+
+	// Extract text with basic structure
+	mainContent.Find("h1, h2, h3, h4, h5, h6, p, li, pre, code, blockquote, td, th").Each(func(i int, s *goquery.Selection) {
+		text := strings.TrimSpace(s.Text())
+		if text == "" {
+			return
+		}
+
+		tagName := goquery.NodeName(s)
+
+		switch tagName {
+		case "h1":
+			buf.WriteString("\n# ")
+			buf.WriteString(text)
+			buf.WriteString("\n\n")
+		case "h2":
+			buf.WriteString("\n## ")
+			buf.WriteString(text)
+			buf.WriteString("\n\n")
+		case "h3":
+			buf.WriteString("\n### ")
+			buf.WriteString(text)
+			buf.WriteString("\n\n")
+		case "h4", "h5", "h6":
+			buf.WriteString("\n#### ")
+			buf.WriteString(text)
+			buf.WriteString("\n\n")
+		case "li":
+			buf.WriteString("- ")
+			buf.WriteString(text)
+			buf.WriteString("\n")
+		case "pre", "code":
+			buf.WriteString("\n```\n")
+			buf.WriteString(text)
+			buf.WriteString("\n```\n\n")
+		case "blockquote":
+			buf.WriteString("> ")
+			buf.WriteString(text)
+			buf.WriteString("\n\n")
+		default:
+			buf.WriteString(text)
+			buf.WriteString("\n\n")
+		}
+	})
+
+	result := buf.String()
+
+	// Clean up excessive whitespace
+	result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+	result = strings.TrimSpace(result)
+
+	if result == "" {
+		// Fallback: just get all text from body
+		result = strings.TrimSpace(doc.Find("body").Text())
+	}
+
+	return result, nil
 }
 
 func processDirectory(cmd *cobra.Command, client *llmapi.LLMClient, dirPath string, result *ExtractRelevantResult) error {
@@ -313,6 +485,7 @@ func outputExtractResult(cmd *cobra.Command, result ExtractRelevantResult) error
 		pts := result.ProcessingTimeS
 		finalResult = ExtractRelevantResult{
 			P:   result.Path,
+			U:   result.URL,
 			Ctx: result.Context,
 			EP:  result.ExtractedParts,
 			TF:  &tf,

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-01-06
+
+### Added
+
+#### llm-support
+
+- **`extract-links` command** - Extract and rank links from URLs with intelligent scoring:
+  - Links scored by HTML context (h1=100, h2=85, nav=30, footer=10, etc.)
+  - Modifier bonuses for bold (+15), emphasis (+10), button roles (+10), title attributes (+5)
+  - Tracks parent section headings for context
+  - Deduplicates links and resolves relative URLs
+  - Returns href, text, context, score, and section for each link
+
+- **URL support for `extract-relevant`** - Now accepts HTTP/HTTPS URLs in addition to file paths:
+  - HTML content automatically converted to clean markdown-style text
+  - Strips scripts, styles, nav, footer elements
+  - Preserves document structure (headings, lists, code blocks)
+
+- **`highest` command documentation** - Updated to show `active/pending/completed` subdirectory structure for plans (matching sprints pattern)
+
+#### llm-support-mcp
+
+- **`file_path` parameter alias** - MCP tools now accept `file_path` as an alias for `path`, improving compatibility with LLMs that assume this parameter name
+
 ## [1.3.0] - 2026-01-04
 
 ### Added
@@ -297,7 +321,8 @@ Binary size: 14-15MB per platform.
 - OpenAI-compatible LLM API with retry and caching
 - Race-condition free (verified with `go test -race`)
 
-[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/samestrin/llm-tools/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/samestrin/llm-tools/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/samestrin/llm-tools/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/samestrin/llm-tools/compare/v1.0.1...v1.1.0

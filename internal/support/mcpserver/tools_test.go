@@ -8,9 +8,9 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Verify we have exactly 52 tools
-	if len(tools) != 52 {
-		t.Errorf("Expected 52 tools, got %d", len(tools))
+	// Verify we have exactly 53 tools
+	if len(tools) != 53 {
+		t.Errorf("Expected 53 tools, got %d", len(tools))
 	}
 
 	// Verify all tools have the correct prefix
@@ -53,6 +53,7 @@ func TestGetToolDefinitions(t *testing.T) {
 		"llm_support_partition_work",
 		"llm_support_repo_root",
 		"llm_support_extract_relevant",
+		"llm_support_extract_links",
 		"llm_support_highest",
 		"llm_support_plan_type",
 		"llm_support_git_changes",

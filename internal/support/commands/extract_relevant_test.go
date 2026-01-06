@@ -219,3 +219,137 @@ func TestExtractRelevantDefaultTimeout(t *testing.T) {
 		t.Errorf("expected default timeout 60, got %s", timeoutFlag.DefValue)
 	}
 }
+
+func TestIsURL(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		{"https://example.com", true},
+		{"http://example.com", true},
+		{"https://example.com/path/to/page", true},
+		{"http://localhost:8080/api", true},
+		{"./local/path", false},
+		{"/absolute/path", false},
+		{"relative/path", false},
+		{"file.txt", false},
+		{"ftp://example.com", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := isURL(tt.input)
+			if result != tt.expected {
+				t.Errorf("isURL(%q) = %v, want %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHtmlToText(t *testing.T) {
+	tests := []struct {
+		name     string
+		html     string
+		contains []string
+		excludes []string
+	}{
+		{
+			name: "basic HTML",
+			html: `<!DOCTYPE html>
+<html>
+<head><title>Test Page</title></head>
+<body>
+<h1>Main Heading</h1>
+<p>This is a paragraph.</p>
+</body>
+</html>`,
+			contains: []string{"# Test Page", "# Main Heading", "This is a paragraph"},
+			excludes: []string{"<html>", "<body>", "<h1>", "<p>"},
+		},
+		{
+			name: "strips script and style",
+			html: `<html>
+<head>
+<style>body { color: red; }</style>
+<script>alert('hello');</script>
+</head>
+<body>
+<p>Visible content</p>
+<script>console.log('hidden');</script>
+</body>
+</html>`,
+			contains: []string{"Visible content"},
+			excludes: []string{"alert", "console.log", "color: red"},
+		},
+		{
+			name: "preserves list items",
+			html: `<ul>
+<li>First item</li>
+<li>Second item</li>
+<li>Third item</li>
+</ul>`,
+			contains: []string{"- First item", "- Second item", "- Third item"},
+		},
+		{
+			name: "preserves code blocks",
+			html: `<pre><code>func main() {
+    fmt.Println("Hello")
+}</code></pre>`,
+			contains: []string{"```", "func main()"},
+		},
+		{
+			name:     "handles headings hierarchy",
+			html:     `<h1>H1</h1><h2>H2</h2><h3>H3</h3><h4>H4</h4>`,
+			contains: []string{"# H1", "## H2", "### H3", "#### H4"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := htmlToText(strings.NewReader(tt.html))
+			if err != nil {
+				t.Fatalf("htmlToText failed: %v", err)
+			}
+
+			for _, want := range tt.contains {
+				if !strings.Contains(result, want) {
+					t.Errorf("result should contain %q, got:\n%s", want, result)
+				}
+			}
+
+			for _, notWant := range tt.excludes {
+				if strings.Contains(result, notWant) {
+					t.Errorf("result should not contain %q, got:\n%s", notWant, result)
+				}
+			}
+		})
+	}
+}
+
+func TestExtractRelevantResultWithURL(t *testing.T) {
+	result := ExtractRelevantResult{
+		URL:            "https://example.com/docs",
+		Context:        "Installation steps",
+		ExtractedParts: []string{"## Installation\n\n1. Run npm install"},
+		TotalFiles:     1,
+		ProcessedFiles: 1,
+	}
+
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	var parsed ExtractRelevantResult
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if parsed.URL != result.URL {
+		t.Errorf("URL mismatch: got %s, want %s", parsed.URL, result.URL)
+	}
+	if parsed.Path != "" {
+		t.Errorf("Path should be empty for URL input, got %s", parsed.Path)
+	}
+}

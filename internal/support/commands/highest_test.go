@@ -270,6 +270,90 @@ func TestHighestCommand_Sprints(t *testing.T) {
 	}
 }
 
+func TestHighestCommand_PlansWithSubdirectories(t *testing.T) {
+	// Create temp directory with plans structure (active/pending/completed like sprints)
+	tmpDir := t.TempDir()
+
+	// Create all three subdirectories
+	activeDir := filepath.Join(tmpDir, "plans", "active")
+	pendingDir := filepath.Join(tmpDir, "plans", "pending")
+	completedDir := filepath.Join(tmpDir, "plans", "completed")
+	os.MkdirAll(activeDir, 0755)
+	os.MkdirAll(pendingDir, 0755)
+	os.MkdirAll(completedDir, 0755)
+
+	// Create plan directories in active
+	os.MkdirAll(filepath.Join(activeDir, "115.0_current-feature"), 0755)
+	os.MkdirAll(filepath.Join(activeDir, "116.0_another-feature"), 0755)
+
+	// Create plan directories in pending
+	os.MkdirAll(filepath.Join(pendingDir, "117.0_upcoming-feature"), 0755)
+
+	// Create plan directories in completed
+	os.MkdirAll(filepath.Join(completedDir, "110.0_old-feature"), 0755)
+	os.MkdirAll(filepath.Join(completedDir, "114.0_recent-feature"), 0755)
+
+	// Test active directory
+	t.Run("active", func(t *testing.T) {
+		cmd := newHighestCmd()
+		buf := new(bytes.Buffer)
+		cmd.SetOut(buf)
+		cmd.SetArgs([]string{"--path", activeDir, "--type", "dir"})
+
+		err := cmd.Execute()
+		if err != nil {
+			t.Fatalf("command failed: %v", err)
+		}
+
+		output := buf.String()
+		if !strings.Contains(output, "HIGHEST: 116.0") {
+			t.Errorf("expected HIGHEST: 116.0, got: %s", output)
+		}
+		if !strings.Contains(output, "COUNT: 2") {
+			t.Errorf("expected COUNT: 2, got: %s", output)
+		}
+	})
+
+	// Test pending directory
+	t.Run("pending", func(t *testing.T) {
+		cmd := newHighestCmd()
+		buf := new(bytes.Buffer)
+		cmd.SetOut(buf)
+		cmd.SetArgs([]string{"--path", pendingDir, "--type", "dir"})
+
+		err := cmd.Execute()
+		if err != nil {
+			t.Fatalf("command failed: %v", err)
+		}
+
+		output := buf.String()
+		if !strings.Contains(output, "HIGHEST: 117.0") {
+			t.Errorf("expected HIGHEST: 117.0, got: %s", output)
+		}
+	})
+
+	// Test completed directory
+	t.Run("completed", func(t *testing.T) {
+		cmd := newHighestCmd()
+		buf := new(bytes.Buffer)
+		cmd.SetOut(buf)
+		cmd.SetArgs([]string{"--path", completedDir, "--type", "dir"})
+
+		err := cmd.Execute()
+		if err != nil {
+			t.Fatalf("command failed: %v", err)
+		}
+
+		output := buf.String()
+		if !strings.Contains(output, "HIGHEST: 114.0") {
+			t.Errorf("expected HIGHEST: 114.0, got: %s", output)
+		}
+		if !strings.Contains(output, "COUNT: 2") {
+			t.Errorf("expected COUNT: 2, got: %s", output)
+		}
+	})
+}
+
 func TestBuildVersionInfo(t *testing.T) {
 	tests := []struct {
 		name        string

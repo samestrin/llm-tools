@@ -560,13 +560,13 @@ func GetToolDefinitions() []ToolDefinition {
 		// 18. Extract relevant content using LLM
 		{
 			Name:        ToolPrefix + "extract_relevant",
-			Description: "Extract only relevant content from files using LLM API. Filters large files/directories to just the parts relevant to your query context. Great for context window relief.",
+			Description: "Extract only relevant content from files or URLs using LLM API. Filters large files/directories/web pages to just the parts relevant to your query context. HTML is automatically converted to clean text. Great for context window relief.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"path": {
 						"type": "string",
-						"description": "File or directory path (default: current directory)"
+						"description": "File path, directory path, or URL (http/https). HTML content is auto-converted to text. Default: current directory"
 					},
 					"context": {
 						"type": "string",
@@ -597,7 +597,35 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 
-		// 19. Find highest numbered directory/file
+		// 19. Extract links from URL
+		{
+			Name:        ToolPrefix + "extract_links",
+			Description: "Extract and rank links from a URL. Returns links with href, text, context (HTML element), score (importance ranking), and section (parent heading). Links are scored by HTML context: h1=100, h2=85, h3=70, nav=30, footer=10, with bonuses for bold/emphasis.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"url": {
+						"type": "string",
+						"description": "URL to extract links from (http/https)"
+					},
+					"timeout": {
+						"type": "integer",
+						"description": "HTTP timeout in seconds (default: 30)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["url"]
+			}`),
+		},
+
+		// 20. Find highest numbered directory/file
 		{
 			Name:        ToolPrefix + "highest",
 			Description: "Find highest numbered directory or file in a path. Returns HIGHEST (version), NAME, FULL_PATH, NEXT (incremented), COUNT. Auto-detects pattern based on directory context (plans, sprints, user-stories, acceptance-criteria, tasks, technical-debt).",
