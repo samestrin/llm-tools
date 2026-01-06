@@ -1017,7 +1017,10 @@ llm-support extract-relevant --path https://example.com/pricing --context "Enter
 
 ### extract-links
 
-Extract and rank links from a URL with intelligent scoring based on HTML context.
+Extract and rank links from a URL with intelligent scoring. Supports two ranking modes:
+
+1. **Heuristic Mode** (default): Scores links based on HTML position/context
+2. **LLM Mode** (with `--context`): Uses AI to rank links by semantic relevance
 
 ```bash
 llm-support extract-links [flags]
@@ -1027,11 +1030,12 @@ llm-support extract-links [flags]
 | Flag | Description |
 |------|-------------|
 | `--url` | URL to extract links from (required) |
+| `--context` | Context for LLM-based ranking (enables LLM mode) |
 | `--timeout N` | HTTP timeout in seconds (default: 30) |
 | `--json` | Output as JSON |
 | `--min` | Minimal output - token-optimized format |
 
-**Scoring System:**
+**Heuristic Scoring (default):**
 Links are scored by their HTML context:
 - **h1**: 100, **h2**: 85, **h3**: 70, **h4-h6**: 55
 - **main/article**: 50, **p**: 40, **li**: 35
@@ -1042,18 +1046,28 @@ Modifiers add bonus points:
 - **button role or .btn class**: +10
 - **has title attribute**: +5
 
+**LLM Scoring (with --context):**
+When `--context` is provided, an LLM analyzes each link's relevance to the specified context:
+- **90-100**: Directly related, primary resource
+- **70-89**: Closely related, useful secondary resource
+- **50-69**: Somewhat related, tangentially useful
+- **30-49**: Loosely related, might be useful
+- **0-29**: Not relevant to the context
+
+Requires OpenAI-compatible API configuration (same as `extract-relevant`).
+
 **Output Fields:**
 | Field | Description |
 |-------|-------------|
 | `href` | Resolved URL (relative URLs are made absolute) |
 | `text` | Link text (or image alt text) |
 | `context` | HTML element context (h1, nav, p, etc.) |
-| `score` | Importance score (higher = more prominent) |
+| `score` | Importance score (higher = more prominent/relevant) |
 | `section` | Parent heading (h1-h3) if available |
 
 **Examples:**
 ```bash
-# Extract and rank all links from a page
+# Heuristic ranking (default) - score by HTML position
 llm-support extract-links --url https://example.com/docs
 
 # Get JSON output for processing
@@ -1061,6 +1075,10 @@ llm-support extract-links --url https://example.com --json
 
 # Token-optimized output
 llm-support extract-links --url https://example.com/api --json --min
+
+# LLM-based ranking - score by semantic relevance
+llm-support extract-links --url https://example.com/docs --context "authentication"
+llm-support extract-links --url https://api.example.com --context "rate limiting" --json
 ```
 
 **Example Output (JSON):**

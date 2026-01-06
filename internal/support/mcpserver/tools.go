@@ -600,13 +600,17 @@ func GetToolDefinitions() []ToolDefinition {
 		// 19. Extract links from URL
 		{
 			Name:        ToolPrefix + "extract_links",
-			Description: "Extract and rank links from a URL. Returns links with href, text, context (HTML element), score (importance ranking), and section (parent heading). Links are scored by HTML context: h1=100, h2=85, h3=70, nav=30, footer=10, with bonuses for bold/emphasis.",
+			Description: "Extract and rank links from a URL. Two modes: (1) Heuristic (default): scores by HTML context (h1=100, h2=85, nav=30, footer=10). (2) LLM mode (when --context provided): uses AI to rank by semantic relevance to context. Returns links with href, text, context, score, section.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"url": {
 						"type": "string",
 						"description": "URL to extract links from (http/https)"
+					},
+					"context": {
+						"type": "string",
+						"description": "Context for LLM-based ranking (enables LLM mode). When provided, links are scored by semantic relevance instead of HTML position."
 					},
 					"timeout": {
 						"type": "integer",

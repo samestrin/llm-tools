@@ -688,3 +688,230 @@ func TestExtractLinksCommand_TextOutputError(t *testing.T) {
 		t.Error("expected 'ERROR:' in text output for failed request")
 	}
 }
+
+// LLM Ranking Tests
+
+func TestParseLLMRankings_ValidJSON(t *testing.T) {
+	response := `{"rankings":[{"index":0,"score":95},{"index":1,"score":45},{"index":2,"score":10}]}`
+
+	rankings, err := parseLLMRankings(response, 3)
+	if err != nil {
+		t.Fatalf("parseLLMRankings failed: %v", err)
+	}
+
+	if len(rankings) != 3 {
+		t.Fatalf("expected 3 rankings, got %d", len(rankings))
+	}
+
+	expected := []LLMRanking{
+		{Index: 0, Score: 95},
+		{Index: 1, Score: 45},
+		{Index: 2, Score: 10},
+	}
+
+	for i, r := range rankings {
+		if r.Index != expected[i].Index || r.Score != expected[i].Score {
+			t.Errorf("ranking %d: expected %+v, got %+v", i, expected[i], r)
+		}
+	}
+}
+
+func TestParseLLMRankings_WithExtraText(t *testing.T) {
+	// LLM sometimes adds text before/after JSON
+	response := `Here are the rankings:
+{"rankings":[{"index":0,"score":80},{"index":1,"score":20}]}
+
+I've ranked these based on relevance.`
+
+	rankings, err := parseLLMRankings(response, 2)
+	if err != nil {
+		t.Fatalf("parseLLMRankings failed: %v", err)
+	}
+
+	if len(rankings) != 2 {
+		t.Fatalf("expected 2 rankings, got %d", len(rankings))
+	}
+
+	if rankings[0].Score != 80 {
+		t.Errorf("expected first score 80, got %d", rankings[0].Score)
+	}
+}
+
+func TestParseLLMRankings_ScoreClamping(t *testing.T) {
+	// Scores outside 0-100 should be clamped
+	response := `{"rankings":[{"index":0,"score":150},{"index":1,"score":-10}]}`
+
+	rankings, err := parseLLMRankings(response, 2)
+	if err != nil {
+		t.Fatalf("parseLLMRankings failed: %v", err)
+	}
+
+	if rankings[0].Score != 100 {
+		t.Errorf("expected score clamped to 100, got %d", rankings[0].Score)
+	}
+	if rankings[1].Score != 0 {
+		t.Errorf("expected score clamped to 0, got %d", rankings[1].Score)
+	}
+}
+
+func TestParseLLMRankings_InvalidJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+	}{
+		{"no json", "This is just text without any JSON"},
+		{"malformed json", `{"rankings": [{"index": 0, "score": `},
+		{"empty response", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseLLMRankings(tt.response, 1)
+			if err == nil {
+				t.Error("expected error for invalid JSON")
+			}
+		})
+	}
+}
+
+func TestRankLinksWithLLM_EmptyLinks(t *testing.T) {
+	links := []LinkInfo{}
+
+	result, err := rankLinksWithLLM(links, "test context", 30)
+	if err != nil {
+		t.Fatalf("rankLinksWithLLM failed: %v", err)
+	}
+
+	if len(result) != 0 {
+		t.Errorf("expected empty result, got %d links", len(result))
+	}
+}
+
+func TestLLMRankRequest_JSON(t *testing.T) {
+	req := LLMRankRequest{
+		Context: "authentication",
+		Links: []LLMLinkInput{
+			{Index: 0, Href: "https://example.com/auth", Text: "Auth Docs", Section: "Security"},
+			{Index: 1, Href: "https://example.com/api", Text: "API Reference", Section: ""},
+		},
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	var parsed LLMRankRequest
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if parsed.Context != "authentication" {
+		t.Errorf("context mismatch: got %s", parsed.Context)
+	}
+	if len(parsed.Links) != 2 {
+		t.Errorf("expected 2 links, got %d", len(parsed.Links))
+	}
+	if parsed.Links[0].Section != "Security" {
+		t.Errorf("section mismatch: got %s", parsed.Links[0].Section)
+	}
+}
+
+func TestLLMRankResponse_JSON(t *testing.T) {
+	jsonStr := `{"rankings":[{"index":0,"score":95},{"index":1,"score":30}]}`
+
+	var resp LLMRankResponse
+	if err := json.Unmarshal([]byte(jsonStr), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if len(resp.Rankings) != 2 {
+		t.Fatalf("expected 2 rankings, got %d", len(resp.Rankings))
+	}
+	if resp.Rankings[0].Index != 0 || resp.Rankings[0].Score != 95 {
+		t.Errorf("first ranking mismatch: %+v", resp.Rankings[0])
+	}
+}
+
+func TestExtractLinksCommand_ContextFlag(t *testing.T) {
+	cmd := newExtractLinksCmd()
+
+	if cmd.Flag("context") == nil {
+		t.Error("expected --context flag")
+	}
+
+	contextFlag := cmd.Flag("context")
+	if contextFlag.DefValue != "" {
+		t.Errorf("expected default context to be empty, got %s", contextFlag.DefValue)
+	}
+}
+
+func TestApplyLLMScoresToLinks(t *testing.T) {
+	// Test that scores are properly applied and sorted
+	links := []LinkInfo{
+		{Href: "/first", Text: "First", Score: 50},
+		{Href: "/second", Text: "Second", Score: 30},
+		{Href: "/third", Text: "Third", Score: 70},
+	}
+
+	rankings := []LLMRanking{
+		{Index: 0, Score: 10}, // First becomes lowest
+		{Index: 1, Score: 90}, // Second becomes highest
+		{Index: 2, Score: 50}, // Third stays middle
+	}
+
+	// Apply scores
+	for _, ranking := range rankings {
+		if ranking.Index >= 0 && ranking.Index < len(links) {
+			links[ranking.Index].Score = ranking.Score
+		}
+	}
+
+	// Sort by new scores
+	sortLinksByScore(links)
+
+	// Verify order: second (90) > third (50) > first (10)
+	if links[0].Href != "/second" {
+		t.Errorf("expected /second first, got %s", links[0].Href)
+	}
+	if links[1].Href != "/third" {
+		t.Errorf("expected /third second, got %s", links[1].Href)
+	}
+	if links[2].Href != "/first" {
+		t.Errorf("expected /first last, got %s", links[2].Href)
+	}
+}
+
+func TestParseLLMRankings_OutOfBoundsIndex(t *testing.T) {
+	// Rankings with out-of-bounds indices should still parse
+	response := `{"rankings":[{"index":0,"score":80},{"index":99,"score":50}]}`
+
+	rankings, err := parseLLMRankings(response, 2)
+	if err != nil {
+		t.Fatalf("parseLLMRankings failed: %v", err)
+	}
+
+	// Should parse both, even though index 99 is out of bounds
+	if len(rankings) != 2 {
+		t.Errorf("expected 2 rankings, got %d", len(rankings))
+	}
+}
+
+func TestLLMLinkInput_OmitsEmptySection(t *testing.T) {
+	link := LLMLinkInput{
+		Index:   0,
+		Href:    "https://example.com/test",
+		Text:    "Test Link",
+		Section: "",
+	}
+
+	data, err := json.Marshal(link)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	// Empty section should be omitted
+	if strings.Contains(string(data), "section") {
+		t.Error("expected empty section to be omitted from JSON")
+	}
+}

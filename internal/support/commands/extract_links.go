@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,11 +12,13 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/spf13/cobra"
 
+	"github.com/samestrin/llm-tools/pkg/llmapi"
 	"github.com/samestrin/llm-tools/pkg/output"
 )
 
 var (
 	extractLinksURL     string
+	extractLinksContext string
 	extractLinksTimeout int
 	extractLinksJSON    bool
 	extractLinksMinimal bool
@@ -52,29 +55,42 @@ func newExtractLinksCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "extract-links",
 		Short: "Extract and rank links from a URL",
-		Long: `Extract links from a URL with intelligent ranking based on HTML context.
+		Long: `Extract links from a URL with intelligent ranking.
 
-Links are scored based on their position in the document hierarchy:
-  - h1: 100, h2: 85, h3: 70, h4-h6: 55
-  - main/article: 50, p: 40, li: 35
-  - nav: 30, aside: 20, footer: 10
+RANKING MODES:
 
-Modifiers add bonus points:
-  - bold/strong: +15, em/i: +10
-  - button role or .btn class: +10
-  - has title attribute: +5
+1. Heuristic Mode (default - no --context flag):
+   Links are scored based on their position in the document hierarchy:
+     - h1: 100, h2: 85, h3: 70, h4-h6: 55
+     - main/article: 50, p: 40, li: 35
+     - nav: 30, aside: 20, footer: 10
+   
+   Modifiers add bonus points:
+     - bold/strong: +15, em/i: +10
+     - button role or .btn class: +10
+     - has title attribute: +5
+
+2. LLM Mode (when --context is provided):
+   Uses an LLM to rank links by relevance to the specified context.
+   Scores range from 0-100 based on semantic relevance.
+   Requires OpenAI-compatible API configuration.
 
 Each link includes its parent section heading when available.
 
 Examples:
+  # Heuristic ranking (default)
   llm-support extract-links --url https://example.com/docs
   llm-support extract-links --url https://example.com --json
-  llm-support extract-links --url https://example.com/api --timeout 30`,
+
+  # LLM-based ranking
+  llm-support extract-links --url https://example.com/docs --context "authentication"
+  llm-support extract-links --url https://api.example.com --context "rate limiting" --json`,
 		Args: cobra.NoArgs,
 		RunE: runExtractLinks,
 	}
 
 	cmd.Flags().StringVar(&extractLinksURL, "url", "", "URL to extract links from (required)")
+	cmd.Flags().StringVar(&extractLinksContext, "context", "", "Context for LLM-based ranking (enables LLM mode)")
 	cmd.Flags().IntVar(&extractLinksTimeout, "timeout", 30, "HTTP timeout in seconds")
 	cmd.Flags().BoolVar(&extractLinksJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&extractLinksMinimal, "min", false, "Output in minimal/token-optimized format")
@@ -102,6 +118,16 @@ func runExtractLinks(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		result.Error = err.Error()
 	} else {
+		// If context is provided, use LLM ranking instead of heuristic
+		if extractLinksContext != "" {
+			links, err = rankLinksWithLLM(links, extractLinksContext, extractLinksTimeout)
+			if err != nil {
+				result.Error = fmt.Sprintf("LLM ranking failed: %v", err)
+				result.Links = links // Still include links even if LLM fails
+				result.Total = len(links)
+				return outputExtractLinksResult(cmd, result)
+			}
+		}
 		result.Links = links
 		result.Total = len(links)
 	}
@@ -325,6 +351,144 @@ func sortLinksByScore(links []LinkInfo) {
 			}
 		}
 	}
+}
+
+// LLMRankRequest represents the input for LLM ranking
+type LLMRankRequest struct {
+	Context string         `json:"context"`
+	Links   []LLMLinkInput `json:"links"`
+}
+
+// LLMLinkInput represents a link for LLM input
+type LLMLinkInput struct {
+	Index   int    `json:"index"`
+	Href    string `json:"href"`
+	Text    string `json:"text"`
+	Section string `json:"section,omitempty"`
+}
+
+// LLMRankResponse represents the LLM's ranking response
+type LLMRankResponse struct {
+	Rankings []LLMRanking `json:"rankings"`
+}
+
+// LLMRanking represents a single link's relevance score
+type LLMRanking struct {
+	Index int `json:"index"`
+	Score int `json:"score"`
+}
+
+// rankLinksWithLLM uses an LLM to rank links by relevance to the given context
+func rankLinksWithLLM(links []LinkInfo, context string, timeout int) ([]LinkInfo, error) {
+	if len(links) == 0 {
+		return links, nil
+	}
+
+	// Load API configuration
+	config := llmapi.GetAPIConfig()
+	if err := config.Validate(); err != nil {
+		return links, fmt.Errorf("API configuration error: %w", err)
+	}
+
+	// Create LLM client
+	client := llmapi.NewLLMClientFromConfig(config)
+
+	// Prepare links for LLM input (limit to avoid token limits)
+	maxLinks := 100
+	if len(links) > maxLinks {
+		links = links[:maxLinks]
+	}
+
+	llmLinks := make([]LLMLinkInput, len(links))
+	for i, link := range links {
+		llmLinks[i] = LLMLinkInput{
+			Index:   i,
+			Href:    link.Href,
+			Text:    link.Text,
+			Section: link.Section,
+		}
+	}
+
+	// Build the prompt
+	systemPrompt := `You are a link relevance analyzer. Given a context and a list of links, score each link's relevance to the context on a scale of 0-100.
+
+Rules:
+1. Score 90-100: Directly related, primary resource for the context
+2. Score 70-89: Closely related, useful secondary resource
+3. Score 50-69: Somewhat related, tangentially useful
+4. Score 30-49: Loosely related, might be useful
+5. Score 0-29: Not relevant to the context
+
+Respond ONLY with valid JSON in this exact format:
+{"rankings":[{"index":0,"score":85},{"index":1,"score":45},...]}
+
+Do not include any explanation or text outside the JSON.`
+
+	linksJSON, err := json.Marshal(llmLinks)
+	if err != nil {
+		return links, fmt.Errorf("failed to marshal links: %w", err)
+	}
+
+	userPrompt := fmt.Sprintf("Context: %s\n\nLinks to rank:\n%s", context, string(linksJSON))
+
+	// Truncate if too long
+	if len(userPrompt) > 25000 {
+		userPrompt = userPrompt[:25000] + "\n...(truncated)"
+	}
+
+	// Call the LLM
+	response, err := client.CompleteWithSystem(systemPrompt, userPrompt, time.Duration(timeout)*time.Second)
+	if err != nil {
+		return links, fmt.Errorf("LLM request failed: %w", err)
+	}
+
+	// Parse the response
+	rankings, err := parseLLMRankings(response, len(links))
+	if err != nil {
+		return links, fmt.Errorf("failed to parse LLM response: %w", err)
+	}
+
+	// Apply scores to links
+	for _, ranking := range rankings {
+		if ranking.Index >= 0 && ranking.Index < len(links) {
+			links[ranking.Index].Score = ranking.Score
+		}
+	}
+
+	// Re-sort by new scores
+	sortLinksByScore(links)
+
+	return links, nil
+}
+
+// parseLLMRankings parses the LLM response into rankings
+func parseLLMRankings(response string, linkCount int) ([]LLMRanking, error) {
+	// Clean up response - find JSON object
+	response = strings.TrimSpace(response)
+
+	// Find the JSON object boundaries
+	start := strings.Index(response, "{")
+	end := strings.LastIndex(response, "}")
+	if start == -1 || end == -1 || end <= start {
+		return nil, fmt.Errorf("no valid JSON found in response")
+	}
+	response = response[start : end+1]
+
+	var result LLMRankResponse
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+
+	// Validate rankings
+	for i, r := range result.Rankings {
+		if r.Score < 0 {
+			result.Rankings[i].Score = 0
+		} else if r.Score > 100 {
+			result.Rankings[i].Score = 100
+		}
+	}
+
+	return result.Rankings, nil
 }
 
 func outputExtractLinksResult(cmd *cobra.Command, result ExtractLinksResult) error {
