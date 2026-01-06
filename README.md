@@ -140,8 +140,11 @@ llm-support detect --path .
 llm-support extract-relevant --path docs/ --context "Authentication Config"
 llm-support extract-relevant --path https://docs.example.com --context "API keys"
 
-# Extract and rank links from any webpage
+# Extract and rank links from any webpage (heuristic scoring)
 llm-support extract-links --url https://example.com/docs --json
+
+# Extract links with LLM-based relevance scoring
+llm-support extract-links --url https://example.com/docs --context "authentication" --json
 
 # Summarize directory content for context window (Token optimized)
 llm-support summarize-dir src/ --format outline --max-tokens 2000

@@ -557,6 +557,9 @@ func buildExtractLinksArgs(args map[string]interface{}) []string {
 	if url, ok := args["url"].(string); ok {
 		cmdArgs = append(cmdArgs, "--url", url)
 	}
+	if context, ok := args["context"].(string); ok && context != "" {
+		cmdArgs = append(cmdArgs, "--context", context)
+	}
 	if timeout, ok := getInt(args, "timeout"); ok {
 		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(timeout))
 	}
