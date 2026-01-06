@@ -13,7 +13,7 @@ import (
 // paramAliases maps canonical parameter names to their accepted aliases.
 // This makes the MCP tools more forgiving when LLMs use alternative parameter names.
 var paramAliases = map[string][]string{
-	"path":     {"target", "file", "input", "dir", "directory"},
+	"path":     {"target", "file", "input", "dir", "directory", "file_path"},
 	"file":     {"path", "input", "template"},
 	"manifest": {"path", "file", "package"},
 	"pattern":  {"regex", "search"},
@@ -145,6 +145,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildRepoRootArgs(args), nil
 	case "extract_relevant":
 		return buildExtractRelevantArgs(args), nil
+	case "extract_links":
+		return buildExtractLinksArgs(args), nil
 	case "highest":
 		return buildHighestArgs(args), nil
 	case "plan_type":
@@ -537,6 +539,23 @@ func buildExtractRelevantArgs(args map[string]interface{}) []string {
 	}
 	if output, ok := args["output"].(string); ok {
 		cmdArgs = append(cmdArgs, "--output", output)
+	}
+	if timeout, ok := getInt(args, "timeout"); ok {
+		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(timeout))
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+	return cmdArgs
+}
+
+func buildExtractLinksArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"extract-links"}
+	if url, ok := args["url"].(string); ok {
+		cmdArgs = append(cmdArgs, "--url", url)
 	}
 	if timeout, ok := getInt(args, "timeout"); ok {
 		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(timeout))

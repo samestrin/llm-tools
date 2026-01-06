@@ -58,10 +58,20 @@ Default patterns by directory context:
   tasks:                ^(?:task[-_])?(\d+)[-_] → extracts "01"
   technical-debt:       (?i)^td[-_](\d+)[-_]    → extracts "22"
 
+Both plans and sprints support active/pending/completed subdirectories:
+  .planning/plans/active/      - plans currently being worked on
+  .planning/plans/pending/     - plans awaiting implementation
+  .planning/plans/completed/   - finished plans
+  .planning/sprints/active/    - sprints currently being executed
+  .planning/sprints/pending/   - sprints awaiting execution
+  .planning/sprints/completed/ - finished sprints
+
 Examples:
-  llm-support highest --path .planning/plans
-  llm-support highest --path .planning/plans/X/acceptance-criteria --prefix "01-"
-  llm-support highest --path .planning/sprints/active --type dir`,
+  llm-support highest --path .planning/plans/active
+  llm-support highest --path .planning/plans/pending --type dir
+  llm-support highest --path .planning/sprints/active --type dir
+  llm-support highest --path .planning/plans/active/115.0-feature/user-stories
+  llm-support highest --path .planning/plans/active/115.0-feature/acceptance-criteria --prefix "01-"`,
 		RunE: runHighest,
 	}
 	cmd.Flags().StringVar(&highestPath, "path", ".", "Directory to search in")
