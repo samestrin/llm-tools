@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -14,13 +15,30 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// defaultExcludes contains directory names that are excluded by default
+// These are common build/dependency directories that bloat tree output
+var defaultExcludes = []string{
+	"node_modules",
+	".git",
+	"vendor",
+	"__pycache__",
+	".venv",
+	"venv",
+	".next",
+	".nuxt",
+	"target", // Rust/Java
+}
+
 var (
-	treeDepth       int
-	treeSizes       bool
-	treeNoGitignore bool
-	treePath        string
-	treeJSON        bool
-	treeMinimal     bool
+	treeDepth             int
+	treeSizes             bool
+	treeNoGitignore       bool
+	treeNoDefaultExcludes bool
+	treePath              string
+	treeJSON              bool
+	treeMinimal           bool
+	treeMaxEntries        int
+	treeExcludePatterns   []string
 )
 
 // TreeEntry represents a single entry in the tree
@@ -34,9 +52,12 @@ type TreeEntry struct {
 
 // TreeResult represents the complete tree output
 type TreeResult struct {
-	Root    string       `json:"root,omitempty"`
-	Depth   int          `json:"depth,omitempty"`
-	Entries []*TreeEntry `json:"entries,omitempty"`
+	Root      string       `json:"root,omitempty"`
+	Depth     int          `json:"depth,omitempty"`
+	Entries   []*TreeEntry `json:"entries,omitempty"`
+	Total     int          `json:"total,omitempty"`
+	Truncated bool         `json:"truncated,omitempty"`
+	Message   string       `json:"message,omitempty"`
 }
 
 // newTreeCmd creates the tree command
@@ -45,17 +66,42 @@ func newTreeCmd() *cobra.Command {
 		Use:   "tree",
 		Short: "Display directory tree structure",
 		Long: `Display directory tree structure with optional file sizes.
-Respects .gitignore patterns by default.`,
+
+Filtering (all enabled by default):
+  - Respects .gitignore patterns
+  - Excludes common build/dependency directories:
+    node_modules, .git, vendor, __pycache__, .venv, venv, .next, .nuxt, target
+
+Use --no-gitignore and --no-default-excludes to disable filtering.
+Use --exclude to add custom patterns.
+
+Examples:
+  llm-support tree --path ./src
+  llm-support tree --max-entries 1000
+  llm-support tree --exclude "\.test\." --exclude "fixtures"
+  llm-support tree --no-default-excludes  # include node_modules etc`,
 		Args: cobra.NoArgs,
 		RunE: runTree,
 	}
 	cmd.Flags().StringVar(&treePath, "path", ".", "Directory path to display")
 	cmd.Flags().IntVar(&treeDepth, "depth", 999, "Maximum depth to display")
+	cmd.Flags().IntVar(&treeMaxEntries, "max-entries", 500, "Maximum entries to display (0 = unlimited)")
 	cmd.Flags().BoolVar(&treeSizes, "sizes", false, "Show file sizes")
 	cmd.Flags().BoolVar(&treeNoGitignore, "no-gitignore", false, "Disable .gitignore filtering")
+	cmd.Flags().BoolVar(&treeNoDefaultExcludes, "no-default-excludes", false, "Disable default directory excludes")
+	cmd.Flags().StringArrayVar(&treeExcludePatterns, "exclude", nil, "Regex patterns to exclude (can be repeated)")
 	cmd.Flags().BoolVar(&treeJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&treeMinimal, "min", false, "Output in minimal/token-optimized format")
 	return cmd
+}
+
+// treeBuilder holds state for building the tree
+type treeBuilder struct {
+	ignorer         *gitignore.Parser
+	excludePatterns []*regexp.Regexp
+	maxEntries      int
+	entryCount      int
+	truncated       bool
 }
 
 func runTree(cmd *cobra.Command, args []string) error {
@@ -73,29 +119,59 @@ func runTree(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("path is not a directory: %s", path)
 	}
 
-	var ignorer *gitignore.Parser
+	// Initialize builder
+	builder := &treeBuilder{
+		maxEntries: treeMaxEntries,
+	}
+
+	// Set up gitignore parser
 	if !treeNoGitignore {
-		ignorer, _ = gitignore.NewParser(path)
+		builder.ignorer, _ = gitignore.NewParser(path)
+	}
+
+	// Compile exclude patterns
+	for _, pattern := range treeExcludePatterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return fmt.Errorf("invalid exclude pattern %q: %w", pattern, err)
+		}
+		builder.excludePatterns = append(builder.excludePatterns, re)
 	}
 
 	// Build tree structure
-	entries := buildTreeEntries(path, 0, treeDepth, ignorer)
+	entries := builder.buildTreeEntries(path, 0, treeDepth)
+
 	result := TreeResult{
-		Root:    path,
-		Depth:   treeDepth,
-		Entries: entries,
+		Root:      path,
+		Depth:     treeDepth,
+		Entries:   entries,
+		Total:     builder.entryCount,
+		Truncated: builder.truncated,
+	}
+
+	if builder.truncated {
+		result.Message = fmt.Sprintf("Output truncated at %d entries (use --max-entries to adjust)", treeMaxEntries)
 	}
 
 	formatter := output.New(treeJSON, treeMinimal, cmd.OutOrStdout())
 	return formatter.Print(result, func(w io.Writer, data interface{}) {
 		r := data.(TreeResult)
 		printTreeText(w, r.Root, r.Entries, "", r.Root)
+		if r.Truncated {
+			fmt.Fprintf(w, "\n... truncated at %d entries (use --max-entries to adjust)\n", r.Total)
+		}
 	})
 }
 
 // buildTreeEntries builds a structured tree of entries
-func buildTreeEntries(currentPath string, depth, maxDepth int, ignorer *gitignore.Parser) []*TreeEntry {
+func (b *treeBuilder) buildTreeEntries(currentPath string, depth, maxDepth int) []*TreeEntry {
 	if depth > maxDepth {
+		return nil
+	}
+
+	// Check if we've hit the entry limit
+	if b.maxEntries > 0 && b.entryCount >= b.maxEntries {
+		b.truncated = true
 		return nil
 	}
 
@@ -114,9 +190,21 @@ func buildTreeEntries(currentPath string, depth, maxDepth int, ignorer *gitignor
 			continue
 		}
 
+		// Check default excludes (directory names only)
+		if !treeNoDefaultExcludes && entry.IsDir() {
+			if b.isDefaultExcluded(name) {
+				continue
+			}
+		}
+
 		// Check gitignore
 		fullPath := filepath.Join(currentPath, name)
-		if ignorer != nil && ignorer.IsIgnored(fullPath) {
+		if b.ignorer != nil && b.ignorer.IsIgnored(fullPath) {
+			continue
+		}
+
+		// Check custom exclude patterns
+		if b.matchesExcludePattern(name) {
 			continue
 		}
 
@@ -135,15 +223,22 @@ func buildTreeEntries(currentPath string, depth, maxDepth int, ignorer *gitignor
 
 	var result []*TreeEntry
 	for _, entry := range items {
+		// Check entry limit before adding each entry
+		if b.maxEntries > 0 && b.entryCount >= b.maxEntries {
+			b.truncated = true
+			break
+		}
+
 		fullPath := filepath.Join(currentPath, entry.Name())
 		treeEntry := &TreeEntry{
 			Name: entry.Name(),
 			Path: fullPath,
 		}
+		b.entryCount++
 
 		if entry.IsDir() {
 			treeEntry.Type = "dir"
-			treeEntry.Items = buildTreeEntries(fullPath, depth+1, maxDepth, ignorer)
+			treeEntry.Items = b.buildTreeEntries(fullPath, depth+1, maxDepth)
 		} else {
 			treeEntry.Type = "file"
 			if treeSizes {
@@ -157,6 +252,26 @@ func buildTreeEntries(currentPath string, depth, maxDepth int, ignorer *gitignor
 	}
 
 	return result
+}
+
+// isDefaultExcluded checks if a directory name is in the default excludes list
+func (b *treeBuilder) isDefaultExcluded(name string) bool {
+	for _, excluded := range defaultExcludes {
+		if name == excluded {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesExcludePattern checks if a name matches any custom exclude pattern
+func (b *treeBuilder) matchesExcludePattern(name string) bool {
+	for _, re := range b.excludePatterns {
+		if re.MatchString(name) {
+			return true
+		}
+	}
+	return false
 }
 
 // printTreeText prints the tree in traditional text format

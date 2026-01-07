@@ -20,7 +20,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 1. Directory tree structure
 		{
 			Name:        ToolPrefix + "tree",
-			Description: "Display directory structure as a tree. Respects .gitignore by default.",
+			Description: "Display directory structure as a tree. Respects .gitignore and excludes common build directories (node_modules, vendor, target, __pycache__, etc.) by default. Use max_entries to limit output size.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -32,13 +32,26 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "integer",
 						"description": "Maximum depth to display"
 					},
+					"max_entries": {
+						"type": "integer",
+						"description": "Maximum entries to display (default: 500, 0 = unlimited)"
+					},
 					"sizes": {
 						"type": "boolean",
 						"description": "Show file sizes"
 					},
+					"exclude": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Regex patterns to exclude (e.g., [\"test\", \"fixtures\"])"
+					},
 					"no_gitignore": {
 						"type": "boolean",
-						"description": "Include gitignored files"
+						"description": "Disable .gitignore filtering"
+					},
+					"no_default_excludes": {
+						"type": "boolean",
+						"description": "Disable default excludes (node_modules, vendor, target, etc.)"
 					},
 					"json": {
 						"type": "boolean",
