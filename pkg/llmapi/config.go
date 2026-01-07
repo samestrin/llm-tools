@@ -3,8 +3,6 @@ package llmapi
 import (
 	"errors"
 	"os"
-	"path/filepath"
-	"strings"
 )
 
 // DefaultBaseURL is the default OpenAI API endpoint.
@@ -13,9 +11,6 @@ const DefaultBaseURL = "https://api.openai.com/v1"
 // DefaultModel is the default model to use.
 const DefaultModel = "gpt-4o-mini"
 
-// DefaultAPIKeyFile is the default location for file-based API key.
-const DefaultAPIKeyFile = ".planning/.config/openai_api_key"
-
 // APIConfig holds API configuration settings.
 type APIConfig struct {
 	APIKey  string
@@ -23,15 +18,14 @@ type APIConfig struct {
 	Model   string
 }
 
-// GetAPIConfig loads API configuration from environment variables and files with defaults.
-// Priority order for API key:
-//  1. OPENAI_API_KEY environment variable
-//  2. ANTHROPIC_API_KEY environment variable
-//  3. File at .planning/.config/openai_api_key (relative to working directory)
-//  4. File at ~/.config/llm-tools/api_key (user home directory)
+// GetAPIConfig loads API configuration from environment variables with defaults.
+// Supported environment variables:
+//   - OPENAI_API_KEY or ANTHROPIC_API_KEY for API key (required)
+//   - OPENAI_BASE_URL for custom endpoint (default: https://api.openai.com/v1)
+//   - OPENAI_MODEL for model selection (default: gpt-4o-mini)
 func GetAPIConfig() *APIConfig {
 	config := &APIConfig{
-		APIKey:  loadAPIKey(),
+		APIKey:  getEnvWithFallbacks("OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
 		BaseURL: getEnvOrDefault("OPENAI_BASE_URL", DefaultBaseURL),
 		Model:   getEnvOrDefault("OPENAI_MODEL", DefaultModel),
 	}
@@ -41,41 +35,9 @@ func GetAPIConfig() *APIConfig {
 // Validate checks that required configuration values are present.
 func (c *APIConfig) Validate() error {
 	if c.APIKey == "" {
-		return errors.New("API key is required: set OPENAI_API_KEY environment variable or create .planning/.config/openai_api_key file")
+		return errors.New("API key is required: set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variable")
 	}
 	return nil
-}
-
-// loadAPIKey attempts to load API key from environment or file.
-func loadAPIKey() string {
-	// Try environment variables first
-	if key := getEnvWithFallbacks("OPENAI_API_KEY", "ANTHROPIC_API_KEY"); key != "" {
-		return key
-	}
-
-	// Try file-based key (relative to current directory)
-	if key := loadAPIKeyFromFile(DefaultAPIKeyFile); key != "" {
-		return key
-	}
-
-	// Try file in user home directory
-	if home, err := os.UserHomeDir(); err == nil {
-		homeKeyFile := filepath.Join(home, ".config", "llm-tools", "api_key")
-		if key := loadAPIKeyFromFile(homeKeyFile); key != "" {
-			return key
-		}
-	}
-
-	return ""
-}
-
-// loadAPIKeyFromFile reads an API key from a file, trimming whitespace.
-func loadAPIKeyFromFile(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
 }
 
 // getEnvOrDefault returns the environment variable value or a default.
