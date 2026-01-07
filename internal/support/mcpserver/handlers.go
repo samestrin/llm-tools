@@ -228,11 +228,24 @@ func buildTreeArgs(args map[string]interface{}) []string {
 	if depth, ok := getInt(args, "depth"); ok {
 		cmdArgs = append(cmdArgs, "--depth", strconv.Itoa(depth))
 	}
+	if maxEntries, ok := getInt(args, "max_entries"); ok {
+		cmdArgs = append(cmdArgs, "--max-entries", strconv.Itoa(maxEntries))
+	}
 	if getBool(args, "sizes") {
 		cmdArgs = append(cmdArgs, "--sizes")
 	}
+	if excludes, ok := args["exclude"].([]interface{}); ok {
+		for _, e := range excludes {
+			if s, ok := e.(string); ok {
+				cmdArgs = append(cmdArgs, "--exclude", s)
+			}
+		}
+	}
 	if getBool(args, "no_gitignore") {
 		cmdArgs = append(cmdArgs, "--no-gitignore")
+	}
+	if getBool(args, "no_default_excludes") {
+		cmdArgs = append(cmdArgs, "--no-default-excludes")
 	}
 	return cmdArgs
 }
