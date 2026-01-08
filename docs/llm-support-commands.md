@@ -33,6 +33,7 @@ Complete documentation for all 40+ llm-support commands.
   - [template](#template)
 - [LLM Integration](#llm-integration)
   - [prompt](#prompt)
+  - [complete](#complete)
   - [foreach](#foreach)
   - [extract-relevant](#extract-relevant)
   - [extract-links](#extract-links)
@@ -932,6 +933,79 @@ llm-support prompt --template prompt.md --var CODE=@file.go
 llm-support prompt --prompt "Generate JSON" --retries 3 --min-length 100
 llm-support prompt --prompt "Analyze" --cache --instruction "You are a code reviewer"
 ```
+
+---
+
+### complete
+
+Send a prompt directly to an OpenAI-compatible API endpoint. Unlike `prompt` which wraps external CLI tools, `complete` makes direct API calls.
+
+```bash
+llm-support complete [flags]
+```
+
+**API Configuration:**
+| Environment Variable | Description |
+|---------------------|-------------|
+| `OPENAI_API_KEY` | API key (required) |
+| `OPENAI_BASE_URL` | API endpoint (default: https://api.openai.com/v1) |
+| `OPENAI_MODEL` | Model to use (default: gpt-4o-mini) |
+
+**Input Sources (mutually exclusive):**
+| Flag | Description |
+|------|-------------|
+| `--prompt` | Direct prompt text |
+| `--file` | Read prompt from file |
+| `--template` | Template file with [[var]] placeholders |
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--system` | System instruction |
+| `--model` | Model to use (overrides OPENAI_MODEL) |
+| `--temperature` | Temperature 0.0-2.0 (default: 0.7) |
+| `--max-tokens` | Maximum tokens in response (0 = no limit) |
+| `--timeout` | Request timeout in seconds (default: 120) |
+| `--retries` | Number of retries on failure (default: 3) |
+| `--retry-delay` | Initial retry delay in seconds (default: 2) |
+| `--var KEY=VALUE` | Template variable |
+| `--var KEY=@file` | Template variable from file |
+| `--strip` | Strip whitespace from file variable values |
+| `--output` | Output file (default: stdout) |
+| `--json` | Output as JSON |
+| `--min` | Minimal output |
+
+**Examples:**
+```bash
+# Simple prompt
+llm-support complete --prompt "Explain recursion in one sentence"
+
+# With system instruction
+llm-support complete --prompt "Hello" --system "You are a pirate"
+
+# Using a template
+llm-support complete --template prompt.txt --var code=@myfile.go --var task="review"
+
+# Custom model and parameters
+llm-support complete --prompt "Hello" --model gpt-4o --temperature 0.9
+
+# Output to file
+llm-support complete --prompt "Write a poem" --output poem.txt
+
+# Use with different providers (OpenAI-compatible)
+OPENAI_BASE_URL=https://api.anthropic.com/v1 \
+OPENAI_MODEL=claude-3-sonnet \
+llm-support complete --prompt "Hello"
+```
+
+**Comparison with `prompt`:**
+| Feature | `prompt` | `complete` |
+|---------|----------|------------|
+| Method | Wraps external CLI tools | Direct API calls |
+| Configuration | LLM binary path | Environment variables |
+| Supported LLMs | gemini, claude, openai CLIs, etc. | Any OpenAI-compatible API |
+| Caching | Built-in | Not yet |
+| Use case | Local CLI tools | Direct API access |
 
 ---
 

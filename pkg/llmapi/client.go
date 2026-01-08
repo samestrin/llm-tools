@@ -21,6 +21,9 @@ type LLMClient struct {
 	Model      string
 	HTTPClient *http.Client
 
+	// Generation parameters
+	Temperature float64 // Temperature for generation (default: 0.7)
+
 	// Retry configuration
 	MaxRetries   int
 	RetryDelay   time.Duration
@@ -36,6 +39,7 @@ func NewLLMClient(apiKey, baseURL, model string) *LLMClient {
 		HTTPClient: &http.Client{
 			Timeout: 120 * time.Second,
 		},
+		Temperature:  0.7,
 		MaxRetries:   3,
 		RetryDelay:   2 * time.Second,
 		RetryBackoff: 2.0,
@@ -117,7 +121,7 @@ func (c *LLMClient) CompleteMessages(ctx context.Context, messages []Message) (s
 	req := ChatRequest{
 		Model:       c.Model,
 		Messages:    messages,
-		Temperature: 0.7,
+		Temperature: c.Temperature,
 	}
 
 	return c.doRequestWithRetry(ctx, req)

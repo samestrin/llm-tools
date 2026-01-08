@@ -12,7 +12,7 @@ import (
 
 const (
 	serverName         = "llm-clarification-mcp"
-	serverVersion      = "1.0.1"
+	serverVersion      = "1.5.0"
 	serverInstructions = "LLM Clarification MCP provides tools for clarification tracking, helping LLMs identify and resolve ambiguities in user requests through structured clarification workflows."
 )
 

@@ -16,6 +16,7 @@ import (
 
 var (
 	highestPath    string
+	highestPaths   []string
 	highestPattern string
 	highestType    string
 	highestPrefix  string
@@ -66,15 +67,19 @@ Both plans and sprints support active/pending/completed subdirectories:
   .planning/sprints/pending/   - sprints awaiting execution
   .planning/sprints/completed/ - finished sprints
 
+Use --paths to search multiple directories and find the global highest:
+  llm-support highest --paths .planning/plans/active,.planning/plans/completed
+
 Examples:
   llm-support highest --path .planning/plans/active
-  llm-support highest --path .planning/plans/pending --type dir
+  llm-support highest --paths .planning/plans/active,.planning/plans/completed --type dir
   llm-support highest --path .planning/sprints/active --type dir
   llm-support highest --path .planning/plans/active/115.0-feature/user-stories
   llm-support highest --path .planning/plans/active/115.0-feature/acceptance-criteria --prefix "01-"`,
 		RunE: runHighest,
 	}
 	cmd.Flags().StringVar(&highestPath, "path", ".", "Directory to search in")
+	cmd.Flags().StringSliceVar(&highestPaths, "paths", nil, "Multiple directories to search (comma-separated)")
 	cmd.Flags().StringVar(&highestPattern, "pattern", "", "Custom regex pattern (auto-detected if not provided)")
 	cmd.Flags().StringVar(&highestType, "type", "both", "Type to search: dir, file, both")
 	cmd.Flags().StringVar(&highestPrefix, "prefix", "", "Filter to items starting with this prefix")
@@ -84,72 +89,39 @@ Examples:
 }
 
 func runHighest(cmd *cobra.Command, args []string) error {
-	// Resolve path
-	searchPath, err := filepath.Abs(highestPath)
-	if err != nil {
-		return fmt.Errorf("invalid path: %s", highestPath)
-	}
-
-	info, err := os.Stat(searchPath)
-	if err != nil {
-		return fmt.Errorf("path does not exist: %s", searchPath)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("path must be a directory: %s", searchPath)
-	}
-
-	// Read directory entries
-	entries, err := os.ReadDir(searchPath)
-	if err != nil {
-		return fmt.Errorf("failed to read directory: %w", err)
-	}
-
-	// Filter by type
-	var candidates []os.DirEntry
-	for _, e := range entries {
-		switch highestType {
-		case "dir":
-			if e.IsDir() {
-				candidates = append(candidates, e)
+	// Collect search paths
+	var searchPaths []string
+	if len(highestPaths) > 0 {
+		for _, p := range highestPaths {
+			absPath, err := filepath.Abs(p)
+			if err != nil {
+				return fmt.Errorf("invalid path: %s", p)
 			}
-		case "file":
-			if !e.IsDir() {
-				candidates = append(candidates, e)
-			}
-		default: // "both"
-			candidates = append(candidates, e)
+			searchPaths = append(searchPaths, absPath)
+		}
+	} else {
+		absPath, err := filepath.Abs(highestPath)
+		if err != nil {
+			return fmt.Errorf("invalid path: %s", highestPath)
+		}
+		searchPaths = []string{absPath}
+	}
+
+	// Validate all paths exist and are directories
+	for _, searchPath := range searchPaths {
+		info, err := os.Stat(searchPath)
+		if err != nil {
+			return fmt.Errorf("path does not exist: %s", searchPath)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("path must be a directory: %s", searchPath)
 		}
 	}
 
-	// Filter by prefix if specified
-	if highestPrefix != "" {
-		var filtered []os.DirEntry
-		for _, e := range candidates {
-			if strings.HasPrefix(e.Name(), highestPrefix) {
-				filtered = append(filtered, e)
-			}
-		}
-		candidates = filtered
-	}
-
-	if len(candidates) == 0 {
-		result := HighestResult{
-			Highest:  "",
-			Name:     "",
-			FullPath: "",
-			Next:     "1",
-			Count:    0,
-		}
-		formatter := output.New(highestJSON, highestMinimal, cmd.OutOrStdout())
-		return formatter.Print(result, func(w io.Writer, data interface{}) {
-			printHighestResult(w, data.(HighestResult))
-		})
-	}
-
-	// Determine pattern
+	// Determine pattern (use first path for context detection)
 	pattern := highestPattern
 	if pattern == "" {
-		pattern = detectPattern(searchPath, highestPrefix)
+		pattern = detectPattern(searchPaths[0], highestPrefix)
 	}
 
 	re, err := regexp.Compile(pattern)
@@ -157,38 +129,78 @@ func runHighest(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid pattern: %s", pattern)
 	}
 
-	// Extract version numbers and sort
+	// Extract version numbers from all paths
 	type versionedEntry struct {
-		entry   os.DirEntry
-		version string
-		sortKey float64
+		name     string
+		fullPath string
+		version  string
+		sortKey  float64
 	}
 
 	var versioned []versionedEntry
-	for _, e := range candidates {
-		name := e.Name()
-		// If prefix is specified, strip it before matching
-		matchName := name
-		if highestPrefix != "" {
-			matchName = strings.TrimPrefix(name, highestPrefix)
+
+	for _, searchPath := range searchPaths {
+		// Read directory entries
+		entries, err := os.ReadDir(searchPath)
+		if err != nil {
+			return fmt.Errorf("failed to read directory %s: %w", searchPath, err)
 		}
 
-		matches := re.FindStringSubmatch(matchName)
-		if matches == nil {
-			// Try matching the full name if prefix stripping didn't help
-			matches = re.FindStringSubmatch(name)
-			if matches == nil {
-				continue
+		// Filter by type
+		var candidates []os.DirEntry
+		for _, e := range entries {
+			switch highestType {
+			case "dir":
+				if e.IsDir() {
+					candidates = append(candidates, e)
+				}
+			case "file":
+				if !e.IsDir() {
+					candidates = append(candidates, e)
+				}
+			default: // "both"
+				candidates = append(candidates, e)
 			}
 		}
 
-		// Build version string and sort key from captured groups
-		version, sortKey := buildVersionInfo(matches)
-		versioned = append(versioned, versionedEntry{
-			entry:   e,
-			version: version,
-			sortKey: sortKey,
-		})
+		// Filter by prefix if specified
+		if highestPrefix != "" {
+			var filtered []os.DirEntry
+			for _, e := range candidates {
+				if strings.HasPrefix(e.Name(), highestPrefix) {
+					filtered = append(filtered, e)
+				}
+			}
+			candidates = filtered
+		}
+
+		// Extract versions from this path's candidates
+		for _, e := range candidates {
+			name := e.Name()
+			// If prefix is specified, strip it before matching
+			matchName := name
+			if highestPrefix != "" {
+				matchName = strings.TrimPrefix(name, highestPrefix)
+			}
+
+			matches := re.FindStringSubmatch(matchName)
+			if matches == nil {
+				// Try matching the full name if prefix stripping didn't help
+				matches = re.FindStringSubmatch(name)
+				if matches == nil {
+					continue
+				}
+			}
+
+			// Build version string and sort key from captured groups
+			version, sortKey := buildVersionInfo(matches)
+			versioned = append(versioned, versionedEntry{
+				name:     name,
+				fullPath: filepath.Join(searchPath, name),
+				version:  version,
+				sortKey:  sortKey,
+			})
+		}
 	}
 
 	if len(versioned) == 0 {
@@ -215,8 +227,8 @@ func runHighest(cmd *cobra.Command, args []string) error {
 
 	result := HighestResult{
 		Highest:  highest.version,
-		Name:     highest.entry.Name(),
-		FullPath: filepath.Join(searchPath, highest.entry.Name()),
+		Name:     highest.name,
+		FullPath: highest.fullPath,
 		Next:     next,
 		Count:    len(versioned),
 	}

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/samestrin/llm-tools/pkg/pathvalidation"
 )
 
 // WriteFileOptions contains input parameters for WriteFile
@@ -259,6 +261,11 @@ type CreateDirectoryResult struct {
 func CreateDirectory(opts CreateDirectoryOptions) (*CreateDirectoryResult, error) {
 	if opts.Path == "" {
 		return nil, fmt.Errorf("path is required")
+	}
+
+	// Check for unresolved template variables before normalizing
+	if err := pathvalidation.ValidatePathForCreation(opts.Path); err != nil {
+		return nil, err
 	}
 
 	normalizedPath, err := NormalizePath(opts.Path)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/samestrin/llm-tools/internal/filesystem/core"
+	"github.com/samestrin/llm-tools/pkg/pathvalidation"
 )
 
 // WriteFileResult represents the result of a write operation
@@ -277,6 +278,11 @@ func (s *Server) handleCreateDirectory(args map[string]interface{}) (string, err
 
 	if path == "" {
 		return "", fmt.Errorf("path is required")
+	}
+
+	// Check for unresolved template variables before normalizing
+	if err := pathvalidation.ValidatePathForCreation(path); err != nil {
+		return "", err
 	}
 
 	normalizedPath, err := NormalizePath(path)

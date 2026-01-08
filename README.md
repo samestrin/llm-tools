@@ -52,19 +52,29 @@ Deploying agent tools in Python or Node is painful. You have to manage virtual e
 
 **llm-tools** isn't just for reading files; it's a reliability layer for your agent's cognitive functions. 
 
-The `prompt` command acts as a **Universal Adapter** for almost any LLM CLI (`gemini`, `claude`, `ollama`, `openai`, `octo`). It wraps them with:
-*   **Retries & Backoff:** Automatically retries failed API calls.
-*   **Caching:** Caches expensive results to disk (`--cache-ttl 3600`).
-*   **Validation:** Ensures output meets criteria (`--min-length`, `--must-contain`) or fails fast.
+Two ways to call LLMs:
+
+### `prompt` - Universal CLI Adapter
+Wraps external LLM CLIs (`gemini`, `claude`, `ollama`, `openai`, `octo`) with retries, caching, and validation:
 
 ```bash
-# Reliable, cached, validated prompt execution
 llm-support prompt \
   --prompt "Analyze this error log" \
   --llm gemini \
   --retries 3 \
   --cache \
   --min-length 50
+```
+
+### `complete` - Direct API Access
+Calls OpenAI-compatible APIs directly without external binaries:
+
+```bash
+# Uses OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL
+llm-support complete \
+  --prompt "Explain this code" \
+  --system "You are a senior engineer" \
+  --temperature 0.3
 ```
 
 ## ⚡ Advanced Workflows

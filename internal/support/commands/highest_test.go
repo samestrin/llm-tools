@@ -354,6 +354,90 @@ func TestHighestCommand_PlansWithSubdirectories(t *testing.T) {
 	})
 }
 
+func TestHighestCommand_MultiplePaths(t *testing.T) {
+	// Create temp directory with plans in active and completed
+	tmpDir := t.TempDir()
+	activeDir := filepath.Join(tmpDir, "plans", "active")
+	completedDir := filepath.Join(tmpDir, "plans", "completed")
+	os.MkdirAll(activeDir, 0755)
+	os.MkdirAll(completedDir, 0755)
+
+	// Create plan directories in active (not the highest)
+	os.MkdirAll(filepath.Join(activeDir, "115.0_current-feature"), 0755)
+	os.MkdirAll(filepath.Join(activeDir, "116.0_another-feature"), 0755)
+
+	// Create plan directories in completed (includes the highest)
+	os.MkdirAll(filepath.Join(completedDir, "110.0_old-feature"), 0755)
+	os.MkdirAll(filepath.Join(completedDir, "118.0_recent-feature"), 0755)
+
+	// Reset global variables
+	highestPaths = nil
+
+	// Run command with --paths
+	cmd := newHighestCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--paths", activeDir + "," + completedDir, "--type", "dir"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+
+	output := buf.String()
+	// Should find 118.0 from completed as the highest across both
+	if !strings.Contains(output, "HIGHEST: 118.0") {
+		t.Errorf("expected HIGHEST: 118.0 (from completed), got: %s", output)
+	}
+	if !strings.Contains(output, "NEXT: 119.0") {
+		t.Errorf("expected NEXT: 119.0, got: %s", output)
+	}
+	// Total count should be 4 (2 from active + 2 from completed)
+	if !strings.Contains(output, "COUNT: 4") {
+		t.Errorf("expected COUNT: 4, got: %s", output)
+	}
+	// Full path should point to completed directory
+	if !strings.Contains(output, "completed") {
+		t.Errorf("expected full path to be in completed directory, got: %s", output)
+	}
+}
+
+func TestHighestCommand_MultiplePathsJSON(t *testing.T) {
+	// Create temp directory with technical debt in different locations
+	tmpDir := t.TempDir()
+	activeDir := filepath.Join(tmpDir, "technical-debt", "active")
+	completedDir := filepath.Join(tmpDir, "technical-debt", "completed")
+	os.MkdirAll(activeDir, 0755)
+	os.MkdirAll(completedDir, 0755)
+
+	// Create TD files
+	os.WriteFile(filepath.Join(activeDir, "td-05-refactor.md"), []byte("test"), 0644)
+	os.WriteFile(filepath.Join(completedDir, "td-01-cleanup.md"), []byte("test"), 0644)
+	os.WriteFile(filepath.Join(completedDir, "td-10-upgrade.md"), []byte("test"), 0644)
+
+	// Reset global variables
+	highestPaths = nil
+
+	// Run command with --paths and --json
+	cmd := newHighestCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--paths", activeDir + "," + completedDir, "--type", "file", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("command failed: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, `"highest": "10"`) {
+		t.Errorf("expected highest: 10 in JSON, got: %s", output)
+	}
+	if !strings.Contains(output, `"count": 3`) {
+		t.Errorf("expected count: 3 in JSON, got: %s", output)
+	}
+}
+
 func TestBuildVersionInfo(t *testing.T) {
 	tests := []struct {
 		name        string

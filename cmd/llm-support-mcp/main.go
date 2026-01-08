@@ -12,7 +12,7 @@ import (
 
 const (
 	serverName         = "llm-support-mcp"
-	serverVersion      = "1.0.1"
+	serverVersion      = "1.5.0"
 	serverInstructions = "LLM Support MCP provides tools for directory analysis, file searching, JSON querying, git context, dependency analysis, and project detection to enhance LLM context gathering."
 )
 
