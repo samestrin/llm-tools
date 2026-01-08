@@ -215,6 +215,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildValidateArgs(args), nil
 	case "runtime":
 		return buildRuntimeArgs(args), nil
+	case "complete":
+		return buildCompleteArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -590,6 +592,18 @@ func buildHighestArgs(args map[string]interface{}) []string {
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
+	// Handle paths array - takes precedence over path if both specified
+	if paths, ok := args["paths"].([]interface{}); ok && len(paths) > 0 {
+		var pathStrs []string
+		for _, p := range paths {
+			if ps, ok := p.(string); ok {
+				pathStrs = append(pathStrs, ps)
+			}
+		}
+		if len(pathStrs) > 0 {
+			cmdArgs = append(cmdArgs, "--paths", strings.Join(pathStrs, ","))
+		}
+	}
 	if pattern, ok := args["pattern"].(string); ok {
 		cmdArgs = append(cmdArgs, "--pattern", pattern)
 	}
@@ -741,6 +755,18 @@ func getInt64(args map[string]interface{}, key string) (int64, bool) {
 	return 0, false
 }
 
+func getFloat(args map[string]interface{}, key string) (float64, bool) {
+	switch v := args[key].(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	}
+	return 0, false
+}
+
 func buildContextMultiSetArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"context", "multiset"}
 
@@ -788,6 +814,57 @@ func buildContextMultiGetArgs(args map[string]interface{}) []string {
 	}
 
 	// Output format flags - both default to true (matching llm-support pattern)
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	return cmdArgs
+}
+
+func buildCompleteArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"complete"}
+
+	if prompt, ok := args["prompt"].(string); ok {
+		cmdArgs = append(cmdArgs, "--prompt", prompt)
+	}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+	if template, ok := args["template"].(string); ok {
+		cmdArgs = append(cmdArgs, "--template", template)
+	}
+	// Handle vars as a map
+	if vars, ok := args["vars"].(map[string]interface{}); ok {
+		for key, val := range vars {
+			if strVal, ok := val.(string); ok {
+				cmdArgs = append(cmdArgs, "--var", key+"="+strVal)
+			}
+		}
+	}
+	if system, ok := args["system"].(string); ok {
+		cmdArgs = append(cmdArgs, "--system", system)
+	}
+	if model, ok := args["model"].(string); ok {
+		cmdArgs = append(cmdArgs, "--model", model)
+	}
+	if temp, ok := getFloat(args, "temperature"); ok {
+		cmdArgs = append(cmdArgs, "--temperature", strconv.FormatFloat(temp, 'f', -1, 64))
+	}
+	if maxTokens, ok := getInt(args, "max_tokens"); ok {
+		cmdArgs = append(cmdArgs, "--max-tokens", strconv.Itoa(maxTokens))
+	}
+	if timeout, ok := getInt(args, "timeout"); ok {
+		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(timeout))
+	}
+	if retries, ok := getInt(args, "retries"); ok {
+		cmdArgs = append(cmdArgs, "--retries", strconv.Itoa(retries))
+	}
+	if output, ok := args["output"].(string); ok {
+		cmdArgs = append(cmdArgs, "--output", output)
+	}
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
 	}

@@ -8,7 +8,7 @@ import (
 )
 
 // Version is set at build time via ldflags
-var Version = "1.2.0"
+var Version = "1.5.0"
 
 // Global output flags accessible to all commands
 var (

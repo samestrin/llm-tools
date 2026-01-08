@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/samestrin/llm-tools/pkg/output"
+	"github.com/samestrin/llm-tools/pkg/pathvalidation"
 	"github.com/spf13/cobra"
 )
 
@@ -98,6 +99,11 @@ Output (with --with-git):
 
 func runInitTemp(cmd *cobra.Command, args []string) error {
 	name := initTempName
+
+	// Check for unresolved template variables in name
+	if err := pathvalidation.ValidatePathForCreation(name); err != nil {
+		return err
+	}
 
 	// Get current working directory for git operations
 	cwd, err := os.Getwd()

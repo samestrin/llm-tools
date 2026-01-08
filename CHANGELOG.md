@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-01-08
+
+### Added
+
+#### llm-support
+
+- **`highest --paths` flag** - Search multiple directories to find the global highest version number:
+  - Useful when items move between `active/`, `completed/`, `pending/` subdirectories
+  - Example: `llm-support highest --paths .planning/plans/active,.planning/plans/completed`
+  - Returns the highest across all specified directories with correct `FULL_PATH`
+
+#### pkg/pathvalidation
+
+- **Unresolved template variable detection** - New validation package catches common template interpolation failures before creating directories:
+  - Detects `{{VAR}}`, `${{VAR}}`, `${VAR}`, `$VAR`, `[[VAR]]`, and `[VAR]` patterns
+  - Single bracket `[VAR]` only triggers for uppercase (avoids false positives on `[0]`, `[optional]`)
+  - Clear error message: `path contains unresolved template variable '{{NEXT}}' - check your variable substitution`
+
+#### llm-filesystem
+
+- **Path validation on directory creation** - `create_directory` and `create_directories` now validate paths for unresolved template variables before creating
+
+#### llm-support
+
+- **Path validation on init-temp** - `init-temp --name` now validates for unresolved template variables
+
 ## [1.4.0] - 2026-01-06
 
 ### Added

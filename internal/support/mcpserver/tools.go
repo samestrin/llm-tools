@@ -645,13 +645,18 @@ func GetToolDefinitions() []ToolDefinition {
 		// 20. Find highest numbered directory/file
 		{
 			Name:        ToolPrefix + "highest",
-			Description: "Find highest numbered directory or file in a path. Returns HIGHEST (version), NAME, FULL_PATH, NEXT (incremented), COUNT. Auto-detects pattern based on directory context (plans, sprints, user-stories, acceptance-criteria, tasks, technical-debt).",
+			Description: "Find highest numbered directory or file in a path. Returns HIGHEST (version), NAME, FULL_PATH, NEXT (incremented), COUNT. Auto-detects pattern based on directory context (plans, sprints, user-stories, acceptance-criteria, tasks, technical-debt). Use 'paths' to search multiple directories (e.g., active + completed) and find the global highest.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"path": {
 						"type": "string",
 						"description": "Directory to search in (default: current directory)"
+					},
+					"paths": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Multiple directories to search for global highest (e.g., ['plans/active', 'plans/completed'])"
 					},
 					"pattern": {
 						"type": "string",
@@ -1754,6 +1759,69 @@ func GetToolDefinitions() []ToolDefinition {
 					}
 				},
 				"required": ["start"]
+			}`),
+		},
+
+		// 52. Complete - Direct OpenAI API completion
+		{
+			Name:        ToolPrefix + "complete",
+			Description: "Send prompt directly to OpenAI-compatible API. Uses OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL environment variables. Great for direct LLM calls without external CLI tools.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"prompt": {
+						"type": "string",
+						"description": "Direct prompt text"
+					},
+					"file": {
+						"type": "string",
+						"description": "Read prompt from file"
+					},
+					"template": {
+						"type": "string",
+						"description": "Template file with [[var]] placeholders"
+					},
+					"vars": {
+						"type": "object",
+						"description": "Template variables as key-value pairs"
+					},
+					"system": {
+						"type": "string",
+						"description": "System instruction"
+					},
+					"model": {
+						"type": "string",
+						"description": "Model to use (overrides OPENAI_MODEL)"
+					},
+					"temperature": {
+						"type": "number",
+						"description": "Temperature 0.0-2.0 (default: 0.7)"
+					},
+					"max_tokens": {
+						"type": "integer",
+						"description": "Maximum tokens in response (0 = no limit)"
+					},
+					"timeout": {
+						"type": "integer",
+						"description": "Request timeout in seconds (default: 120)"
+					},
+					"retries": {
+						"type": "integer",
+						"description": "Number of retries on failure (default: 3)"
+					},
+					"output": {
+						"type": "string",
+						"description": "Output file path"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
 			}`),
 		},
 	}
