@@ -30,6 +30,14 @@ func getDefaultAPIURL() string {
 	return "http://localhost:11434"
 }
 
+// getDefaultModel returns the model from environment or empty (embedder-specific default)
+func getDefaultModel() string {
+	if model := os.Getenv("LLM_SEMANTIC_MODEL"); model != "" {
+		return model
+	}
+	return "" // Let embedder choose default
+}
+
 // RootCmd returns the root command for llm-semantic
 func RootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
@@ -52,7 +60,7 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 
 	// Persistent flags
 	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", getDefaultAPIURL(), "Embedding API URL (OpenAI-compatible)")
-	rootCmd.PersistentFlags().StringVar(&model, "model", "", "Embedding model name (default varies by embedder)")
+	rootCmd.PersistentFlags().StringVar(&model, "model", getDefaultModel(), "Embedding model name (or set LLM_SEMANTIC_MODEL env var)")
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "API key (or set LLM_SEMANTIC_API_KEY env var)")
 	rootCmd.PersistentFlags().StringVar(&indexDir, "index-dir", ".llm-index", "Directory for semantic index")
 	rootCmd.PersistentFlags().StringVar(&storageType, "storage", "sqlite", "Storage backend: sqlite (default) or qdrant")
