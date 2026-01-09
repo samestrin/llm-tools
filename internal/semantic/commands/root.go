@@ -22,6 +22,14 @@ var (
 	GlobalMinOutput  bool
 )
 
+// getDefaultAPIURL returns the API URL from environment or default
+func getDefaultAPIURL() string {
+	if url := os.Getenv("LLM_SEMANTIC_API_URL"); url != "" {
+		return url
+	}
+	return "http://localhost:11434"
+}
+
 // RootCmd returns the root command for llm-semantic
 func RootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
@@ -43,7 +51,7 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 	}
 
 	// Persistent flags
-	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "http://localhost:11434", "Embedding API URL (OpenAI-compatible)")
+	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", getDefaultAPIURL(), "Embedding API URL (OpenAI-compatible)")
 	rootCmd.PersistentFlags().StringVar(&model, "model", "", "Embedding model name (default varies by embedder)")
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "API key (or set LLM_SEMANTIC_API_KEY env var)")
 	rootCmd.PersistentFlags().StringVar(&indexDir, "index-dir", ".llm-index", "Directory for semantic index")
@@ -124,7 +132,7 @@ func createEmbedder() (semantic.EmbedderInterface, error) {
 		}
 		modelName := model
 		if modelName == "" {
-			modelName = "mxbai-embed-large" // Default for Ollama
+			modelName = "nomic-embed-text" // Default for Ollama - 8K context, fast, good for code
 		}
 		cfg := semantic.EmbedderConfig{
 			APIURL: apiURL,

@@ -110,7 +110,7 @@ func ErrEmbeddingFailure(cause error) *SemanticError {
 	if strings.Contains(strings.ToLower(errStr), "connection") {
 		hint = "The embedding server appears to be offline. Start it with: ollama serve"
 	} else if strings.Contains(strings.ToLower(errStr), "model") {
-		hint = "The model may not be available. Try: ollama pull mxbai-embed-large"
+		hint = "The model may not be available. Try: ollama pull nomic-embed-text"
 	}
 
 	return &SemanticError{

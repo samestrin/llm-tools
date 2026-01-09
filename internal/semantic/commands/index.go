@@ -104,6 +104,12 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 		factory.Register(ext, phpChunker)
 	}
 
+	// Register Rust chunker
+	rustChunker := semantic.NewRustChunker()
+	for _, ext := range rustChunker.SupportedExtensions() {
+		factory.Register(ext, rustChunker)
+	}
+
 	// Register generic chunker for other file types
 	generic := semantic.NewGenericChunker(2000)
 	for _, ext := range generic.SupportedExtensions() {

@@ -368,6 +368,19 @@ func (s *SQLiteStorage) Stats(ctx context.Context) (*IndexStats, error) {
 	}, nil
 }
 
+// Clear removes all chunks from storage (for force re-index)
+func (s *SQLiteStorage) Clear(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	_, err := s.db.ExecContext(ctx, "DELETE FROM chunks")
+	return err
+}
+
 func (s *SQLiteStorage) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
