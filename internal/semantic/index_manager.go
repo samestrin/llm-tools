@@ -69,6 +69,13 @@ func (m *IndexManager) Index(ctx context.Context, rootPath string, opts IndexOpt
 		return nil, fmt.Errorf("path is not a directory: %s", rootPath)
 	}
 
+	// Clear existing index if Force is set
+	if opts.Force {
+		if err := m.storage.Clear(ctx); err != nil {
+			return nil, fmt.Errorf("failed to clear existing index: %w", err)
+		}
+	}
+
 	// Walk directory and collect files
 	files, err := m.collectFiles(rootPath, opts.Includes, opts.Excludes)
 	if err != nil {

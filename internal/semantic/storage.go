@@ -56,6 +56,9 @@ type Storage interface {
 	// Stats returns statistics about the stored index
 	Stats(ctx context.Context) (*IndexStats, error)
 
+	// Clear removes all chunks from storage (for force re-index)
+	Clear(ctx context.Context) error
+
 	// Close releases any resources held by the storage
 	Close() error
 }

@@ -463,6 +463,33 @@ func (s *QdrantStorage) Stats(ctx context.Context) (*IndexStats, error) {
 	}, nil
 }
 
+// Clear removes all points from the Qdrant collection (for force re-index)
+func (s *QdrantStorage) Clear(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	// Delete all points by using an empty filter that matches everything
+	_, err := s.client.Delete(ctx, &qdrant.DeletePoints{
+		CollectionName: s.collectionName,
+		Points: &qdrant.PointsSelector{
+			PointsSelectorOneOf: &qdrant.PointsSelector_Filter{
+				Filter: &qdrant.Filter{
+					Must: []*qdrant.Condition{}, // Empty filter matches all
+				},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to clear collection: %w", err)
+	}
+
+	return nil
+}
+
 func (s *QdrantStorage) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
