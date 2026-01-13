@@ -181,6 +181,36 @@ func (s *QdrantStorage) Create(ctx context.Context, chunk Chunk, embedding []flo
 	return nil
 }
 
+func (s *QdrantStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbedding) error {
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	// Convert all chunks to points
+	points := make([]*qdrant.PointStruct, len(chunks))
+	for i, cwe := range chunks {
+		points[i] = s.chunkToPoint(cwe.Chunk, cwe.Embedding)
+	}
+
+	// Batch upsert all points in a single request
+	_, err := s.client.Upsert(ctx, &qdrant.UpsertPoints{
+		CollectionName: s.collectionName,
+		Points:         points,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to batch upsert points: %w", err)
+	}
+
+	return nil
+}
+
 func (s *QdrantStorage) Read(ctx context.Context, id string) (*Chunk, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -500,6 +530,106 @@ func (s *QdrantStorage) Close() error {
 
 	s.closed = true
 	return s.client.Close()
+}
+
+// ===== Memory Entry Methods =====
+// TODO: Full implementation in Task-03
+
+// StoreMemory stores a memory entry with its embedding
+func (s *QdrantStorage) StoreMemory(ctx context.Context, entry MemoryEntry, embedding []float32) error {
+	return fmt.Errorf("StoreMemory not implemented yet")
+}
+
+// StoreMemoryBatch stores multiple memory entries with their embeddings
+func (s *QdrantStorage) StoreMemoryBatch(ctx context.Context, entries []MemoryWithEmbedding) error {
+	return fmt.Errorf("StoreMemoryBatch not implemented yet")
+}
+
+// SearchMemory finds memory entries similar to the query embedding
+func (s *QdrantStorage) SearchMemory(ctx context.Context, queryEmbedding []float32, opts MemorySearchOptions) ([]MemorySearchResult, error) {
+	return nil, fmt.Errorf("SearchMemory not implemented yet")
+}
+
+// GetMemory retrieves a memory entry by ID
+func (s *QdrantStorage) GetMemory(ctx context.Context, id string) (*MemoryEntry, error) {
+	return nil, fmt.Errorf("GetMemory not implemented yet")
+}
+
+// DeleteMemory removes a memory entry by ID
+func (s *QdrantStorage) DeleteMemory(ctx context.Context, id string) error {
+	return fmt.Errorf("DeleteMemory not implemented yet")
+}
+
+// ListMemory retrieves memory entries based on filter options
+func (s *QdrantStorage) ListMemory(ctx context.Context, opts MemoryListOptions) ([]MemoryEntry, error) {
+	return nil, fmt.Errorf("ListMemory not implemented yet")
+}
+
+// fileHashID generates a unique ID for file hash storage
+func fileHashID(filePath string) string {
+	return stringToUUID("file_hash:" + filePath)
+}
+
+// GetFileHash retrieves the stored content hash for a file path
+func (s *QdrantStorage) GetFileHash(ctx context.Context, filePath string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return "", ErrStorageClosed
+	}
+
+	points, err := s.client.Get(ctx, &qdrant.GetPoints{
+		CollectionName: s.collectionName,
+		Ids:            []*qdrant.PointId{qdrant.NewID(fileHashID(filePath))},
+		WithPayload:    qdrant.NewWithPayload(true),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get file hash: %w", err)
+	}
+
+	if len(points) == 0 {
+		return "", nil // Not indexed yet
+	}
+
+	if v, ok := points[0].Payload["content_hash"]; ok {
+		return v.GetStringValue(), nil
+	}
+
+	return "", nil
+}
+
+// SetFileHash stores the content hash for a file path
+func (s *QdrantStorage) SetFileHash(ctx context.Context, filePath string, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	// Create a dummy embedding (zeros) for the file hash point
+	dummyEmbedding := make([]float32, s.embeddingDim)
+
+	point := &qdrant.PointStruct{
+		Id:      qdrant.NewID(fileHashID(filePath)),
+		Vectors: qdrant.NewVectors(dummyEmbedding...),
+		Payload: map[string]*qdrant.Value{
+			"type":         qdrant.NewValueString("file_hash"),
+			"file_path":    qdrant.NewValueString(filePath),
+			"content_hash": qdrant.NewValueString(hash),
+		},
+	}
+
+	_, err := s.client.Upsert(ctx, &qdrant.UpsertPoints{
+		CollectionName: s.collectionName,
+		Points:         []*qdrant.PointStruct{point},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set file hash: %w", err)
+	}
+
+	return nil
 }
 
 // chunkToPoint converts a Chunk to a Qdrant point
