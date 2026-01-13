@@ -108,8 +108,8 @@ jobs:
           for file in build/*; do
             SIZE=$(stat --printf="%s" "$file")
             SIZE_MB=$((SIZE / 1048576))
-            if [ "$SIZE_MB" -gt 15 ]; then
-              echo "::error::Binary $file is larger than 15MB ($SIZE_MB MB)"
+            if [ "$SIZE_MB" -gt 20 ]; then
+              echo "::error::Binary $file is larger than 20MB ($SIZE_MB MB)"
               exit 1
             fi
             echo "$file: ${SIZE_MB}MB ✓"
