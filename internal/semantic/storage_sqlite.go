@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -26,6 +27,14 @@ type SQLiteStorage struct {
 func NewSQLiteStorage(dbPath string, embeddingDim int) (*SQLiteStorage, error) {
 	if dbPath == "" {
 		dbPath = ":memory:"
+	}
+
+	// Ensure parent directory exists for file-based databases
+	if dbPath != ":memory:" {
+		dir := filepath.Dir(dbPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create database directory: %w", err)
+		}
 	}
 
 	db, err := sql.Open("sqlite", dbPath)
