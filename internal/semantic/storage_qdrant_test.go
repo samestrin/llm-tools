@@ -38,6 +38,39 @@ func TestQdrantStorage(t *testing.T) {
 	})
 }
 
+// TestQdrantStorageMemory runs the memory storage test suite against Qdrant
+// Skips if QDRANT_API_KEY and QDRANT_API_URL are not set
+func TestQdrantStorageMemory(t *testing.T) {
+	apiKey := os.Getenv("QDRANT_API_KEY")
+	apiURL := os.Getenv("QDRANT_API_URL")
+
+	if apiKey == "" || apiURL == "" {
+		t.Skip("Skipping Qdrant memory tests: QDRANT_API_KEY and QDRANT_API_URL not set")
+	}
+
+	MemoryStorageTestSuite(t, func() (Storage, func()) {
+		config := QdrantConfig{
+			APIKey:         apiKey,
+			URL:            apiURL,
+			CollectionName: "llm_semantic_memory_test",
+			EmbeddingDim:   4, // Small dimension for tests
+		}
+
+		storage, err := NewQdrantStorage(config)
+		if err != nil {
+			t.Fatalf("Failed to create Qdrant storage: %v", err)
+		}
+
+		// Cleanup function deletes the test collection
+		cleanup := func() {
+			storage.DeleteCollection()
+			storage.Close()
+		}
+
+		return storage, cleanup
+	})
+}
+
 func TestQdrantStorage_ConfigValidation(t *testing.T) {
 	tests := []struct {
 		name    string

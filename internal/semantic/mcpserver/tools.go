@@ -52,6 +52,15 @@ func GetToolDefinitions() []ToolDefinition {
 					"min": {
 						"type": "boolean",
 						"description": "Minimal output - only file, name, line, score"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
 					}
 				},
 				"required": ["query"]
@@ -68,6 +77,15 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
 					}
 				}
 			}`),
@@ -101,6 +119,15 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
 					}
 				}
 			}`),
@@ -130,8 +157,231 @@ func GetToolDefinitions() []ToolDefinition {
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
 					}
 				}
+			}`),
+		},
+
+		// 5. Memory store
+		{
+			Name:        ToolPrefix + "memory_store",
+			Description: "Store a learned decision or clarification in semantic memory for future retrieval.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"question": {
+						"type": "string",
+						"description": "The question or decision being recorded"
+					},
+					"answer": {
+						"type": "string",
+						"description": "The answer or decision made"
+					},
+					"tags": {
+						"type": "string",
+						"description": "Comma-separated context tags (e.g., 'auth,security')"
+					},
+					"source": {
+						"type": "string",
+						"description": "Origin source (default: 'manual')"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output format"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					}
+				},
+				"required": ["question", "answer"]
+			}`),
+		},
+
+		// 6. Memory search
+		{
+			Name:        ToolPrefix + "memory_search",
+			Description: "Search stored memories using natural language. Returns semantically similar entries.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {
+						"type": "string",
+						"description": "Natural language search query"
+					},
+					"top_k": {
+						"type": "integer",
+						"description": "Maximum number of results to return (default: 10)"
+					},
+					"threshold": {
+						"type": "number",
+						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
+					},
+					"tags": {
+						"type": "string",
+						"description": "Filter by tags (comma-separated)"
+					},
+					"status": {
+						"type": "string",
+						"enum": ["pending", "promoted"],
+						"description": "Filter by status"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output format"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					}
+				},
+				"required": ["query"]
+			}`),
+		},
+
+		// 7. Memory promote
+		{
+			Name:        ToolPrefix + "memory_promote",
+			Description: "Promote a memory entry to CLAUDE.md for persistent project knowledge.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Memory entry ID to promote"
+					},
+					"target": {
+						"type": "string",
+						"description": "Target CLAUDE.md file path"
+					},
+					"section": {
+						"type": "string",
+						"description": "Section header to append under (default: 'Learned Clarifications')"
+					},
+					"force": {
+						"type": "boolean",
+						"description": "Re-promote even if already promoted"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output format"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					}
+				},
+				"required": ["id", "target"]
+			}`),
+		},
+
+		// 8. Memory list
+		{
+			Name:        ToolPrefix + "memory_list",
+			Description: "List stored memories with optional filtering by status.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"limit": {
+						"type": "integer",
+						"description": "Maximum number of entries to return (default: 50)"
+					},
+					"status": {
+						"type": "string",
+						"enum": ["pending", "promoted"],
+						"description": "Filter by status"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output format"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					}
+				}
+			}`),
+		},
+
+		// 9. Memory delete
+		{
+			Name:        ToolPrefix + "memory_delete",
+			Description: "Delete a memory entry by ID.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Memory entry ID to delete"
+					},
+					"force": {
+						"type": "boolean",
+						"description": "Skip confirmation"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output format"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					}
+				},
+				"required": ["id"]
 			}`),
 		},
 	}

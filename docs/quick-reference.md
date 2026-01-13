@@ -31,20 +31,24 @@ Fast lookup for all commands with examples.
 | 23 | `validate` | Validate files | `llm-support validate file.json` |
 | 24 | `validate-plan` | Validate sprint plans | `llm-support validate-plan --path ./sprint-01/` |
 | 25 | `diff` | Compare files | `llm-support diff file1 file2` |
-| 26 | `prompt` | Execute LLM prompts | `llm-support prompt --prompt "Explain this"` |
-| 27 | `foreach` | Batch process with LLM | `llm-support foreach --path src/ --template p.txt` |
-| 28 | `extract-relevant` | Extract relevant content | `llm-support extract-relevant --path docs/` |
-| 29 | `summarize-dir` | Summarize directory | `llm-support summarize-dir --path src/` |
-| 30 | `git-context` | Get git context | `llm-support git-context` |
-| 31 | `git-changes` | Count git working tree changes | `llm-support git-changes --path .planning/` |
-| 32 | `repo-root` | Find git repo root | `llm-support repo-root --validate` |
-| 33 | `report` | Generate reports | `llm-support report --template report.md` |
-| 34 | `deps` | Show dependencies | `llm-support deps package.json` |
-| 35 | `highest` | Find highest numbered dir/file | `llm-support highest --path .planning/plans` |
-| 36 | `init-temp` | Initialize temp directory | `llm-support init-temp --name mysession` |
-| 37 | `plan-type` | Extract plan type | `llm-support plan-type --path .planning/plans/1.0/` |
-| 38 | `context` | Manage prompt variables | `llm-support context set --dir /tmp MY_VAR "value"` |
-| 39 | `args` | Parse arguments | `llm-support args @path/to/plan/` |
+| 26 | `prompt` | Execute LLM prompts (CLI wrapper) | `llm-support prompt --prompt "Explain this"` |
+| 27 | `complete` | Direct API completion | `llm-support complete --prompt "Hello"` |
+| 28 | `foreach` | Batch process with LLM | `llm-support foreach --path src/ --template p.txt` |
+| 29 | `extract-relevant` | Extract relevant content | `llm-support extract-relevant --path docs/` |
+| 30 | `extract-links` | Extract and rank links from URL | `llm-support extract-links --url https://example.com` |
+| 31 | `summarize-dir` | Summarize directory | `llm-support summarize-dir --path src/` |
+| 32 | `git-context` | Get git context | `llm-support git-context` |
+| 33 | `git-changes` | Count git working tree changes | `llm-support git-changes --path .planning/` |
+| 34 | `repo-root` | Find git repo root | `llm-support repo-root --validate` |
+| 35 | `report` | Generate reports | `llm-support report --template report.md` |
+| 36 | `deps` | Show dependencies | `llm-support deps package.json` |
+| 37 | `highest` | Find highest numbered dir/file | `llm-support highest --path .planning/plans` |
+| 38 | `init-temp` | Initialize temp directory | `llm-support init-temp --name mysession` |
+| 39 | `clean-temp` | Clean up temp directories | `llm-support clean-temp --older-than 7d` |
+| 40 | `runtime` | Calculate elapsed time | `llm-support runtime --start $EPOCH` |
+| 41 | `plan-type` | Extract plan type | `llm-support plan-type --path .planning/plans/1.0/` |
+| 42 | `context` | Manage prompt variables | `llm-support context set --dir /tmp MY_VAR "value"` |
+| 43 | `args` | Parse arguments | `llm-support args @path/to/plan/` |
 
 ---
 
@@ -749,10 +753,25 @@ llm-support repo-root --validate
 
 # Find highest plan number and next
 llm-support highest --path .planning/plans --json
+
+# Find highest across multiple directories
+llm-support highest --paths ".planning/plans/active,.planning/plans/completed"
+
+# Direct API completion
+llm-support complete --prompt "Explain recursion" --system "Be concise"
+
+# Extract links from a URL
+llm-support extract-links --url https://docs.example.com --json
+
+# Calculate runtime
+START=$(date +%s) && sleep 2 && llm-support runtime --start $START
+
+# Clean up old temp directories
+llm-support clean-temp --older-than 7d --dry-run
 ```
 
 ---
 
-**Version:** 1.2.0 | **Go:** 1.22+ | **License:** MIT
+**Version:** 1.5.0 | **Go:** 1.22+ | **License:** MIT
 
 See [README.md](../README.md) for full documentation.

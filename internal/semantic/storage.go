@@ -9,6 +9,9 @@ var (
 	// ErrNotFound indicates that a chunk was not found in storage
 	ErrNotFound = errors.New("chunk not found")
 
+	// ErrMemoryNotFound indicates that a memory entry was not found in storage
+	ErrMemoryNotFound = errors.New("memory entry not found")
+
 	// ErrStorageClosed indicates that the storage has been closed
 	ErrStorageClosed = errors.New("storage is closed")
 )
@@ -30,10 +33,20 @@ type SearchOptions struct {
 	PathFilter string  // Filter by file path pattern (glob)
 }
 
+// ChunkWithEmbedding pairs a chunk with its embedding for batch operations
+type ChunkWithEmbedding struct {
+	Chunk     Chunk
+	Embedding []float32
+}
+
 // Storage defines the interface for persisting and querying chunks with embeddings
 type Storage interface {
 	// Create stores a new chunk with its embedding
 	Create(ctx context.Context, chunk Chunk, embedding []float32) error
+
+	// CreateBatch stores multiple chunks with their embeddings in a single operation
+	// This is more efficient than multiple Create calls, especially for network-based storage
+	CreateBatch(ctx context.Context, chunks []ChunkWithEmbedding) error
 
 	// Read retrieves a chunk by its ID
 	Read(ctx context.Context, id string) (*Chunk, error)
@@ -59,6 +72,33 @@ type Storage interface {
 	// Clear removes all chunks from storage (for force re-index)
 	Clear(ctx context.Context) error
 
+	// GetFileHash retrieves the stored content hash for a file path
+	// Returns empty string if file is not indexed
+	GetFileHash(ctx context.Context, filePath string) (string, error)
+
+	// SetFileHash stores the content hash for a file path
+	SetFileHash(ctx context.Context, filePath string, hash string) error
+
 	// Close releases any resources held by the storage
 	Close() error
+
+	// ===== Memory Entry Methods =====
+
+	// StoreMemory stores a memory entry with its embedding
+	StoreMemory(ctx context.Context, entry MemoryEntry, embedding []float32) error
+
+	// StoreMemoryBatch stores multiple memory entries with their embeddings in a single operation
+	StoreMemoryBatch(ctx context.Context, entries []MemoryWithEmbedding) error
+
+	// SearchMemory finds memory entries similar to the query embedding
+	SearchMemory(ctx context.Context, queryEmbedding []float32, opts MemorySearchOptions) ([]MemorySearchResult, error)
+
+	// GetMemory retrieves a memory entry by ID
+	GetMemory(ctx context.Context, id string) (*MemoryEntry, error)
+
+	// DeleteMemory removes a memory entry by ID
+	DeleteMemory(ctx context.Context, id string) error
+
+	// ListMemory retrieves memory entries based on filter options
+	ListMemory(ctx context.Context, opts MemoryListOptions) ([]MemoryEntry, error)
 }

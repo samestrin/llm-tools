@@ -48,6 +48,8 @@ Complete documentation for all 40+ llm-support commands.
   - [git-changes](#git-changes)
   - [highest](#highest)
   - [init-temp](#init-temp)
+  - [clean-temp](#clean-temp)
+  - [runtime](#runtime)
   - [plan-type](#plan-type)
   - [repo-root](#repo-root)
 - [Session Management](#session-management)
@@ -102,13 +104,27 @@ llm-support tree [flags]
 | `--path` | Directory path (default: ".") |
 | `--depth N` | Maximum depth to display (default: 999) |
 | `--sizes` | Show file sizes |
+| `--max-entries N` | Maximum entries to display (default: 500, 0 = unlimited) |
+| `--exclude` | Regex patterns to exclude (e.g., `["test", "fixtures"]`) |
+| `--no-default-excludes` | Disable default excludes (node_modules, vendor, target, etc.) |
 | `--no-gitignore` | Include gitignored files |
+| `--json` | Output as JSON |
+| `--min` | Minimal output |
 
 **Examples:**
 ```bash
 llm-support tree --path src/
 llm-support tree --path src/ --depth 3
 llm-support tree --sizes
+
+# Limit output size
+llm-support tree --path . --max-entries 100
+
+# Exclude test directories
+llm-support tree --path . --exclude test --exclude fixtures
+
+# Include everything (including node_modules, vendor, etc.)
+llm-support tree --path . --no-default-excludes --no-gitignore
 ```
 
 ---
@@ -1461,10 +1477,12 @@ llm-support highest [flags]
 | Flag | Description |
 |------|-------------|
 | `--path` | Directory to search in (default: ".") |
+| `--paths` | Comma-separated list of directories to search (finds global highest) |
 | `--pattern` | Custom regex pattern (auto-detected if not provided) |
 | `--type` | Type to search: dir, file, both (default: both) |
 | `--prefix` | Filter to items starting with this prefix |
 | `--json` | Output as JSON |
+| `--min` | Minimal output |
 
 **Auto-detected Patterns by Directory Name:**
 | Directory | Pattern | Example Match |
@@ -1500,13 +1518,19 @@ llm-support highest --path .planning/sprints/active --type dir --json
 
 # Custom pattern
 llm-support highest --path ./releases --pattern "^v(\d+)\.(\d+)"
+
+# Search multiple directories for global highest (active + completed)
+llm-support highest --paths ".planning/plans/active,.planning/plans/completed" --type dir
+
+# Find highest sprint across all subdirectories
+llm-support highest --paths ".planning/sprints/active,.planning/sprints/completed,.planning/sprints/pending"
 ```
 
 ---
 
 ### init-temp
 
-Initialize and manage temp directories with consistent patterns.
+Initialize temp directories with consistent patterns and useful context variables.
 
 ```bash
 llm-support init-temp [flags]
@@ -1518,14 +1542,33 @@ llm-support init-temp [flags]
 | `--name` | Name for temp directory (required) |
 | `--clean` | Remove existing files (default: true) |
 | `--preserve` | Keep existing files if directory exists |
+| `--with-git` | Include BRANCH and COMMIT_SHORT in output |
+| `--skip-context` | Don't create context.env file |
 | `--json` | Output as JSON |
 | `--min` | Minimal output |
+
+**Output Fields:**
+| Field | Description |
+|-------|-------------|
+| `TEMP_DIR` | Path to the created temp directory |
+| `REPO_ROOT` | Git repository root path |
+| `TODAY` | Current date (YYYY-MM-DD) |
+| `TIMESTAMP` | ISO 8601 timestamp |
+| `EPOCH` | Unix epoch timestamp |
+| `STATUS` | CREATED or EXISTS |
+| `CONTEXT_FILE` | Path to context.env file |
+| `BRANCH` | Current git branch (with `--with-git`) |
+| `COMMIT_SHORT` | Short commit hash (with `--with-git`) |
 
 **Output Format:**
 ```
 TEMP_DIR: .planning/.temp/mycontext
+REPO_ROOT: /Users/user/project
+TODAY: 2025-12-29
+TIMESTAMP: 2025-12-29T10:30:00-08:00
+EPOCH: 1735494600
 STATUS: CREATED
-CLEANED: 3 files removed
+CONTEXT_FILE: .planning/.temp/mycontext/context.env
 ```
 
 **Examples:**
@@ -1533,11 +1576,103 @@ CLEANED: 3 files removed
 # Create temp directory (cleans existing)
 llm-support init-temp --name design-sprint
 
+# Include git info
+llm-support init-temp --name feature-work --with-git
+
 # Preserve existing files
 llm-support init-temp --name cache --preserve
 
+# Skip context.env creation
+llm-support init-temp --name scratch --skip-context
+
 # JSON output
 llm-support init-temp --name test --json
+```
+
+**Note:** The `--name` flag validates for unresolved template variables. Paths containing patterns like `{{VAR}}`, `${{VAR}}`, `${VAR}`, `$VAR`, `[[VAR]]`, or `[VAR]` will return an error.
+
+---
+
+### clean-temp
+
+Clean up temp directories created by `init-temp`.
+
+```bash
+llm-support clean-temp [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--name` | Name of specific temp directory to remove |
+| `--all` | Remove all temp directories |
+| `--older-than` | Remove directories older than duration (e.g., `7d`, `24h`, `1h30m`) |
+| `--dry-run` | Show what would be removed without removing |
+| `--json` | Output as JSON |
+| `--min` | Minimal output |
+
+**Examples:**
+```bash
+# Remove a specific temp directory
+llm-support clean-temp --name design-sprint
+
+# Remove all temp directories
+llm-support clean-temp --all
+
+# Remove directories older than 7 days
+llm-support clean-temp --older-than 7d
+
+# Preview what would be removed
+llm-support clean-temp --all --dry-run
+```
+
+---
+
+### runtime
+
+Calculate and format elapsed time between epoch timestamps.
+
+```bash
+llm-support runtime --start <epoch> [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--start` | Start epoch timestamp (required) |
+| `--end` | End epoch timestamp (default: now) |
+| `--format` | Output format: `secs`, `mins`, `mins-secs`, `hms`, `human`, `compact` (default: `human`) |
+| `--precision` | Decimal precision for output (default: 1) |
+| `--label` | Include "Runtime: " prefix |
+| `--raw` | Output raw number without unit suffix |
+| `--json` | Output as JSON |
+| `--min` | Minimal output |
+
+**Format Options:**
+| Format | Example Output |
+|--------|----------------|
+| `secs` | `125.0s` |
+| `mins` | `2.1m` |
+| `mins-secs` | `2m 5s` |
+| `hms` | `0:02:05` |
+| `human` | `2 minutes, 5 seconds` |
+| `compact` | `2m5s` |
+
+**Examples:**
+```bash
+# Calculate runtime from stored start time
+START=$(date +%s)
+# ... do some work ...
+llm-support runtime --start $START
+
+# Specific format
+llm-support runtime --start 1735494600 --format hms
+
+# With label prefix
+llm-support runtime --start $START --label
+
+# Calculate between two timestamps
+llm-support runtime --start 1735494600 --end 1735494725 --format compact
 ```
 
 ---

@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/samestrin/llm-tools/internal/semantic"
 	"github.com/spf13/cobra"
@@ -10,12 +11,13 @@ import (
 
 var (
 	// Global flags
-	apiURL       string
-	model        string
-	apiKey       string
-	indexDir     string
-	storageType  string // "sqlite" (default) or "qdrant"
-	embedderType string // "openai" (default), "cohere", "huggingface", "openrouter"
+	apiURL         string
+	model          string
+	apiKey         string
+	indexDir       string
+	storageType    string // "sqlite" (default) or "qdrant"
+	collectionName string // Qdrant collection name (default: from env or "llm_semantic")
+	embedderType   string // "openai" (default), "cohere", "huggingface", "openrouter"
 
 	// Global output flags accessible to all commands
 	GlobalJSONOutput bool
@@ -64,6 +66,7 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "API key (or set LLM_SEMANTIC_API_KEY env var)")
 	rootCmd.PersistentFlags().StringVar(&indexDir, "index-dir", ".llm-index", "Directory for semantic index")
 	rootCmd.PersistentFlags().StringVar(&storageType, "storage", "sqlite", "Storage backend: sqlite (default) or qdrant")
+	rootCmd.PersistentFlags().StringVar(&collectionName, "collection", "", "Qdrant collection name (default: QDRANT_COLLECTION env or 'llm_semantic')")
 	rootCmd.PersistentFlags().StringVar(&embedderType, "embedder", "openai", "Embedding provider: openai (default), cohere, huggingface, openrouter")
 	rootCmd.PersistentFlags().BoolVar(&GlobalJSONOutput, "json", false, "Output as JSON")
 	rootCmd.PersistentFlags().BoolVar(&GlobalMinOutput, "min", false, "Minimal/token-optimized output")
@@ -73,6 +76,7 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 	rootCmd.AddCommand(indexCmd())
 	rootCmd.AddCommand(indexStatusCmd())
 	rootCmd.AddCommand(indexUpdateCmd())
+	rootCmd.AddCommand(memoryCmd())
 
 	return rootCmd
 }
@@ -84,6 +88,79 @@ func getAPIKey() string {
 	}
 	// Environment variable fallback handled by caller
 	return ""
+}
+
+// resolveCollectionName returns the Qdrant collection name using this priority:
+// 1. --collection flag if specified
+// 2. Derived from --index-dir (e.g., ".llm-index/code" → "code", ".llm-index/docs" → "docs")
+// 3. QDRANT_COLLECTION environment variable
+// 4. Default: "llm_semantic"
+func resolveCollectionName() string {
+	// Priority 1: explicit --collection flag
+	if collectionName != "" {
+		return collectionName
+	}
+
+	// Priority 2: derive from index-dir if non-default
+	if indexDir != "" && indexDir != ".llm-index" {
+		// Extract the last path component as collection name
+		// e.g., ".llm-index/code" → "code", "indexes/docs" → "docs"
+		derived := deriveCollectionFromPath(indexDir)
+		if derived != "" {
+			return derived
+		}
+	}
+
+	// Priority 3: environment variable
+	if envCollection := os.Getenv("QDRANT_COLLECTION"); envCollection != "" {
+		return envCollection
+	}
+
+	// Priority 4: default
+	return "llm_semantic"
+}
+
+// deriveCollectionFromPath extracts a collection name from a path
+// Returns the last non-empty path component, sanitized for use as a collection name
+func deriveCollectionFromPath(path string) string {
+	// Clean the path and get the last component
+	path = strings.TrimSuffix(path, "/")
+	if path == "" {
+		return ""
+	}
+
+	// Get the last path component
+	lastSlash := strings.LastIndex(path, "/")
+	var name string
+	if lastSlash >= 0 {
+		name = path[lastSlash+1:]
+	} else {
+		name = path
+	}
+
+	// Skip if it's just ".llm-index" or similar default
+	if name == ".llm-index" || name == "llm-index" || name == "" {
+		return ""
+	}
+
+	// Sanitize: replace invalid characters with underscores
+	// Qdrant collection names should be alphanumeric with underscores
+	var sanitized strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			sanitized.WriteRune(r)
+		} else if r == '-' || r == '.' {
+			sanitized.WriteRune('_')
+		}
+	}
+
+	result := sanitized.String()
+	// Ensure it doesn't start with a number
+	if len(result) > 0 && result[0] >= '0' && result[0] <= '9' {
+		result = "idx_" + result
+	}
+
+	return result
 }
 
 // createEmbedder creates an embedder based on the --embedder flag

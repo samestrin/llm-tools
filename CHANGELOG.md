@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### llm-semantic
+
+- **Rust language support** - Native chunker for `.rs` files with support for:
+  - Functions (`fn`, `pub fn`, `async fn`, `unsafe fn`)
+  - Structs and enums
+  - Traits and impl blocks
+  - Modules and type aliases
+
+### Changed
+
+- **Default embedding model** changed from `mxbai-embed-large` to `nomic-embed-text` (8K context, faster, better for code)
+
 ## [1.5.0] - 2026-01-08
 
 ### Added
@@ -347,7 +361,8 @@ Binary size: 14-15MB per platform.
 - OpenAI-compatible LLM API with retry and caching
 - Race-condition free (verified with `go test -race`)
 
-[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/samestrin/llm-tools/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/samestrin/llm-tools/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/samestrin/llm-tools/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/samestrin/llm-tools/compare/v1.1.0...v1.2.0

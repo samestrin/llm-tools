@@ -181,6 +181,36 @@ func (s *QdrantStorage) Create(ctx context.Context, chunk Chunk, embedding []flo
 	return nil
 }
 
+func (s *QdrantStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbedding) error {
+	if len(chunks) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	// Convert all chunks to points
+	points := make([]*qdrant.PointStruct, len(chunks))
+	for i, cwe := range chunks {
+		points[i] = s.chunkToPoint(cwe.Chunk, cwe.Embedding)
+	}
+
+	// Batch upsert all points in a single request
+	_, err := s.client.Upsert(ctx, &qdrant.UpsertPoints{
+		CollectionName: s.collectionName,
+		Points:         points,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to batch upsert points: %w", err)
+	}
+
+	return nil
+}
+
 func (s *QdrantStorage) Read(ctx context.Context, id string) (*Chunk, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -500,6 +530,474 @@ func (s *QdrantStorage) Close() error {
 
 	s.closed = true
 	return s.client.Close()
+}
+
+// ===== Memory Entry Methods =====
+
+// memoryPointID generates a unique point ID for memory entries to avoid collision with chunks
+func memoryPointID(entryID string) string {
+	return stringToUUID("memory:" + entryID)
+}
+
+// memoryToPoint converts a MemoryEntry to a Qdrant PointStruct
+func (s *QdrantStorage) memoryToPoint(entry MemoryEntry, embedding []float32) *qdrant.PointStruct {
+	return &qdrant.PointStruct{
+		Id:      qdrant.NewID(memoryPointID(entry.ID)),
+		Vectors: qdrant.NewVectors(embedding...),
+		Payload: map[string]*qdrant.Value{
+			"memory_id":   qdrant.NewValueString(entry.ID),
+			"question":    qdrant.NewValueString(entry.Question),
+			"answer":      qdrant.NewValueString(entry.Answer),
+			"tags":        qdrant.NewValueString(strings.Join(entry.Tags, ",")),
+			"source":      qdrant.NewValueString(entry.Source),
+			"status":      qdrant.NewValueString(string(entry.Status)),
+			"occurrences": qdrant.NewValueInt(int64(entry.Occurrences)),
+			"entry_type":  qdrant.NewValueString("memory"), // Distinguishes from chunks
+			"created_at":  qdrant.NewValueString(entry.CreatedAt),
+			"updated_at":  qdrant.NewValueString(entry.UpdatedAt),
+		},
+	}
+}
+
+// pointToMemory converts a Qdrant RetrievedPoint to a MemoryEntry
+func (s *QdrantStorage) pointToMemory(point *qdrant.RetrievedPoint) *MemoryEntry {
+	if point == nil || point.Payload == nil {
+		return nil
+	}
+
+	payload := point.Payload
+
+	// Verify this is a memory entry
+	if v, ok := payload["entry_type"]; !ok || v.GetStringValue() != "memory" {
+		return nil
+	}
+
+	entry := &MemoryEntry{}
+
+	if v, ok := payload["memory_id"]; ok {
+		entry.ID = v.GetStringValue()
+	}
+	if v, ok := payload["question"]; ok {
+		entry.Question = v.GetStringValue()
+	}
+	if v, ok := payload["answer"]; ok {
+		entry.Answer = v.GetStringValue()
+	}
+	if v, ok := payload["tags"]; ok {
+		tagsStr := v.GetStringValue()
+		if tagsStr != "" {
+			entry.Tags = strings.Split(tagsStr, ",")
+		}
+	}
+	if v, ok := payload["source"]; ok {
+		entry.Source = v.GetStringValue()
+	}
+	if v, ok := payload["status"]; ok {
+		entry.Status = MemoryStatus(v.GetStringValue())
+	}
+	if v, ok := payload["occurrences"]; ok {
+		entry.Occurrences = int(v.GetIntegerValue())
+	}
+	if v, ok := payload["created_at"]; ok {
+		entry.CreatedAt = v.GetStringValue()
+	}
+	if v, ok := payload["updated_at"]; ok {
+		entry.UpdatedAt = v.GetStringValue()
+	}
+
+	return entry
+}
+
+// scoredPointToMemory converts a Qdrant ScoredPoint to a MemoryEntry
+func (s *QdrantStorage) scoredPointToMemory(point *qdrant.ScoredPoint) *MemoryEntry {
+	if point == nil || point.Payload == nil {
+		return nil
+	}
+
+	payload := point.Payload
+
+	// Verify this is a memory entry
+	if v, ok := payload["entry_type"]; !ok || v.GetStringValue() != "memory" {
+		return nil
+	}
+
+	entry := &MemoryEntry{}
+
+	if v, ok := payload["memory_id"]; ok {
+		entry.ID = v.GetStringValue()
+	}
+	if v, ok := payload["question"]; ok {
+		entry.Question = v.GetStringValue()
+	}
+	if v, ok := payload["answer"]; ok {
+		entry.Answer = v.GetStringValue()
+	}
+	if v, ok := payload["tags"]; ok {
+		tagsStr := v.GetStringValue()
+		if tagsStr != "" {
+			entry.Tags = strings.Split(tagsStr, ",")
+		}
+	}
+	if v, ok := payload["source"]; ok {
+		entry.Source = v.GetStringValue()
+	}
+	if v, ok := payload["status"]; ok {
+		entry.Status = MemoryStatus(v.GetStringValue())
+	}
+	if v, ok := payload["occurrences"]; ok {
+		entry.Occurrences = int(v.GetIntegerValue())
+	}
+	if v, ok := payload["created_at"]; ok {
+		entry.CreatedAt = v.GetStringValue()
+	}
+	if v, ok := payload["updated_at"]; ok {
+		entry.UpdatedAt = v.GetStringValue()
+	}
+
+	return entry
+}
+
+// StoreMemory stores a memory entry with its embedding
+func (s *QdrantStorage) StoreMemory(ctx context.Context, entry MemoryEntry, embedding []float32) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	point := s.memoryToPoint(entry, embedding)
+	_, err := s.client.Upsert(ctx, &qdrant.UpsertPoints{
+		CollectionName: s.collectionName,
+		Points:         []*qdrant.PointStruct{point},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to store memory: %w", err)
+	}
+
+	return nil
+}
+
+// StoreMemoryBatch stores multiple memory entries with their embeddings
+func (s *QdrantStorage) StoreMemoryBatch(ctx context.Context, entries []MemoryWithEmbedding) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	points := make([]*qdrant.PointStruct, len(entries))
+	for i, mwe := range entries {
+		points[i] = s.memoryToPoint(mwe.Entry, mwe.Embedding)
+	}
+
+	_, err := s.client.Upsert(ctx, &qdrant.UpsertPoints{
+		CollectionName: s.collectionName,
+		Points:         points,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to batch store memories: %w", err)
+	}
+
+	return nil
+}
+
+// SearchMemory finds memory entries similar to the query embedding
+func (s *QdrantStorage) SearchMemory(ctx context.Context, queryEmbedding []float32, opts MemorySearchOptions) ([]MemorySearchResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	// Build filter conditions - always filter by entry_type:"memory"
+	conditions := []*qdrant.Condition{
+		qdrant.NewMatch("entry_type", "memory"),
+	}
+
+	// Add optional filters
+	if opts.Status != "" {
+		conditions = append(conditions, qdrant.NewMatch("status", string(opts.Status)))
+	}
+	if opts.Source != "" {
+		conditions = append(conditions, qdrant.NewMatch("source", opts.Source))
+	}
+
+	filter := &qdrant.Filter{Must: conditions}
+
+	limit := uint64(10)
+	if opts.TopK > 0 {
+		limit = uint64(opts.TopK)
+	}
+
+	searchResult, err := s.client.Query(ctx, &qdrant.QueryPoints{
+		CollectionName: s.collectionName,
+		Query:          qdrant.NewQuery(queryEmbedding...),
+		Filter:         filter,
+		WithPayload:    qdrant.NewWithPayload(true),
+		Limit:          qdrant.PtrOf(limit),
+		ScoreThreshold: qdrant.PtrOf(opts.Threshold),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to search memory: %w", err)
+	}
+
+	results := make([]MemorySearchResult, 0, len(searchResult))
+	for _, point := range searchResult {
+		entry := s.scoredPointToMemory(point)
+		if entry == nil {
+			continue // Skip non-memory entries
+		}
+
+		// Apply tag filter (post-search since Qdrant doesn't support array contains)
+		if len(opts.Tags) > 0 {
+			hasMatch := false
+			for _, filterTag := range opts.Tags {
+				for _, entryTag := range entry.Tags {
+					if strings.EqualFold(filterTag, entryTag) {
+						hasMatch = true
+						break
+					}
+				}
+				if hasMatch {
+					break
+				}
+			}
+			if !hasMatch {
+				continue
+			}
+		}
+
+		results = append(results, MemorySearchResult{
+			Entry: *entry,
+			Score: point.Score,
+		})
+	}
+
+	return results, nil
+}
+
+// GetMemory retrieves a memory entry by ID
+func (s *QdrantStorage) GetMemory(ctx context.Context, id string) (*MemoryEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	points, err := s.client.Get(ctx, &qdrant.GetPoints{
+		CollectionName: s.collectionName,
+		Ids:            []*qdrant.PointId{qdrant.NewID(memoryPointID(id))},
+		WithPayload:    qdrant.NewWithPayload(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get memory: %w", err)
+	}
+
+	if len(points) == 0 {
+		return nil, ErrMemoryNotFound
+	}
+
+	entry := s.pointToMemory(points[0])
+	if entry == nil {
+		return nil, ErrMemoryNotFound
+	}
+
+	return entry, nil
+}
+
+// DeleteMemory removes a memory entry by ID
+func (s *QdrantStorage) DeleteMemory(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	// First check if the point exists
+	points, err := s.client.Get(ctx, &qdrant.GetPoints{
+		CollectionName: s.collectionName,
+		Ids:            []*qdrant.PointId{qdrant.NewID(memoryPointID(id))},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to check memory: %w", err)
+	}
+	if len(points) == 0 {
+		return ErrMemoryNotFound
+	}
+
+	_, err = s.client.Delete(ctx, &qdrant.DeletePoints{
+		CollectionName: s.collectionName,
+		Points: &qdrant.PointsSelector{
+			PointsSelectorOneOf: &qdrant.PointsSelector_Points{
+				Points: &qdrant.PointsIdsList{
+					Ids: []*qdrant.PointId{qdrant.NewID(memoryPointID(id))},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete memory: %w", err)
+	}
+
+	return nil
+}
+
+// ListMemory retrieves memory entries based on filter options
+func (s *QdrantStorage) ListMemory(ctx context.Context, opts MemoryListOptions) ([]MemoryEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	// Build filter conditions - always filter by entry_type:"memory"
+	conditions := []*qdrant.Condition{
+		qdrant.NewMatch("entry_type", "memory"),
+	}
+
+	if opts.Status != "" {
+		conditions = append(conditions, qdrant.NewMatch("status", string(opts.Status)))
+	}
+	if opts.Source != "" {
+		conditions = append(conditions, qdrant.NewMatch("source", opts.Source))
+	}
+
+	filter := &qdrant.Filter{Must: conditions}
+
+	limit := uint32(10000)
+	if opts.Limit > 0 {
+		limit = uint32(opts.Limit + opts.Offset)
+	}
+
+	scrollResult, err := s.client.Scroll(ctx, &qdrant.ScrollPoints{
+		CollectionName: s.collectionName,
+		Filter:         filter,
+		WithPayload:    qdrant.NewWithPayload(true),
+		Limit:          qdrant.PtrOf(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list memory: %w", err)
+	}
+
+	// Apply offset
+	start := opts.Offset
+	if start > len(scrollResult) {
+		start = len(scrollResult)
+	}
+
+	// Apply limit
+	end := len(scrollResult)
+	if opts.Limit > 0 && start+opts.Limit < end {
+		end = start + opts.Limit
+	}
+
+	entries := make([]MemoryEntry, 0, end-start)
+	for _, point := range scrollResult[start:end] {
+		entry := s.pointToMemory(point)
+		if entry == nil {
+			continue
+		}
+
+		// Apply tag filter
+		if len(opts.Tags) > 0 {
+			hasMatch := false
+			for _, filterTag := range opts.Tags {
+				for _, entryTag := range entry.Tags {
+					if strings.EqualFold(filterTag, entryTag) {
+						hasMatch = true
+						break
+					}
+				}
+				if hasMatch {
+					break
+				}
+			}
+			if !hasMatch {
+				continue
+			}
+		}
+
+		entries = append(entries, *entry)
+	}
+
+	return entries, nil
+}
+
+// fileHashID generates a unique ID for file hash storage
+func fileHashID(filePath string) string {
+	return stringToUUID("file_hash:" + filePath)
+}
+
+// GetFileHash retrieves the stored content hash for a file path
+func (s *QdrantStorage) GetFileHash(ctx context.Context, filePath string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return "", ErrStorageClosed
+	}
+
+	points, err := s.client.Get(ctx, &qdrant.GetPoints{
+		CollectionName: s.collectionName,
+		Ids:            []*qdrant.PointId{qdrant.NewID(fileHashID(filePath))},
+		WithPayload:    qdrant.NewWithPayload(true),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to get file hash: %w", err)
+	}
+
+	if len(points) == 0 {
+		return "", nil // Not indexed yet
+	}
+
+	if v, ok := points[0].Payload["content_hash"]; ok {
+		return v.GetStringValue(), nil
+	}
+
+	return "", nil
+}
+
+// SetFileHash stores the content hash for a file path
+func (s *QdrantStorage) SetFileHash(ctx context.Context, filePath string, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	// Create a dummy embedding (zeros) for the file hash point
+	dummyEmbedding := make([]float32, s.embeddingDim)
+
+	point := &qdrant.PointStruct{
+		Id:      qdrant.NewID(fileHashID(filePath)),
+		Vectors: qdrant.NewVectors(dummyEmbedding...),
+		Payload: map[string]*qdrant.Value{
+			"type":         qdrant.NewValueString("file_hash"),
+			"file_path":    qdrant.NewValueString(filePath),
+			"content_hash": qdrant.NewValueString(hash),
+		},
+	}
+
+	_, err := s.client.Upsert(ctx, &qdrant.UpsertPoints{
+		CollectionName: s.collectionName,
+		Points:         []*qdrant.PointStruct{point},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set file hash: %w", err)
+	}
+
+	return nil
 }
 
 // chunkToPoint converts a Chunk to a Qdrant point

@@ -17,7 +17,7 @@ var paramAliases = map[string][]string{
 	"file":     {"path", "input", "template"},
 	"manifest": {"path", "file", "package"},
 	"pattern":  {"regex", "search"},
-	"context":  {"prompt", "description"},
+	"context":  {"description"},
 }
 
 // normalizeArgs converts aliased parameter names to their canonical forms.

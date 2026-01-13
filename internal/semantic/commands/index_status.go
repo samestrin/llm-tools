@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/samestrin/llm-tools/internal/semantic"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +28,7 @@ func indexStatusCmd() *cobra.Command {
 
 func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 	indexPath := findIndexPath()
-	if indexPath == "" {
+	if indexPath == "" && storageType != "qdrant" {
 		if jsonOutput {
 			return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
 				"error":   "index not found",
@@ -41,8 +40,22 @@ func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 		return nil
 	}
 
+	// For Qdrant, we need to probe the embedder to get dimensions
+	embeddingDim := 0
+	if storageType == "qdrant" {
+		embedder, err := createEmbedder()
+		if err != nil {
+			return fmt.Errorf("failed to create embedder: %w", err)
+		}
+		testEmbed, err := embedder.Embed(ctx, "test")
+		if err != nil {
+			return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		}
+		embeddingDim = len(testEmbed)
+	}
+
 	// Open storage
-	storage, err := semantic.NewSQLiteStorage(indexPath, 0)
+	storage, err := createStorage(indexPath, embeddingDim)
 	if err != nil {
 		return fmt.Errorf("failed to open index: %w", err)
 	}
@@ -57,18 +70,29 @@ func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(map[string]interface{}{
+		result := map[string]interface{}{
 			"indexed":       true,
-			"path":          indexPath,
+			"storage":       storageType,
 			"files_indexed": stats.FilesIndexed,
 			"chunks_total":  stats.ChunksTotal,
 			"last_updated":  stats.LastUpdated,
-		})
+		}
+		if storageType == "qdrant" {
+			result["collection"] = resolveCollectionName()
+		} else {
+			result["path"] = indexPath
+		}
+		return enc.Encode(result)
 	}
 
 	fmt.Printf("Semantic Index Status\n")
 	fmt.Printf("=====================\n")
-	fmt.Printf("Index path:    %s\n", indexPath)
+	if storageType == "qdrant" {
+		fmt.Printf("Storage:       qdrant\n")
+		fmt.Printf("Collection:    %s\n", resolveCollectionName())
+	} else {
+		fmt.Printf("Index path:    %s\n", indexPath)
+	}
 	fmt.Printf("Files indexed: %d\n", stats.FilesIndexed)
 	fmt.Printf("Total chunks:  %d\n", stats.ChunksTotal)
 	fmt.Printf("Last updated:  %s\n", stats.LastUpdated)

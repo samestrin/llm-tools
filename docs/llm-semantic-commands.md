@@ -18,6 +18,7 @@ go install github.com/samestrin/llm-tools/cmd/llm-semantic@latest
 | `--embedder` | Embedding provider: `openai`, `cohere`, `huggingface`, `openrouter` | `openai` |
 | `--storage` | Storage backend: `sqlite` or `qdrant` | `sqlite` |
 | `--index-dir` | Directory for semantic index | `.llm-index` |
+| `--collection` | Qdrant collection name (see resolution below) | derived |
 | `--json` | Output as JSON (machine-parseable) | `false` |
 | `--min` | Minimal output (reduced verbosity) | `false` |
 
@@ -26,10 +27,40 @@ go install github.com/samestrin/llm-tools/cmd/llm-semantic@latest
 |----------|-------------|
 | `LLM_SEMANTIC_API_URL` | Embedding API URL (overrides --api-url default) |
 | `LLM_SEMANTIC_API_KEY` | API key for embedding service |
+| `LLM_SEMANTIC_MODEL` | Embedding model name |
 | `OPENAI_API_KEY` | Fallback API key |
 | `COHERE_API_KEY` | API key for Cohere embedder |
 | `HUGGINGFACE_API_KEY` | API key for HuggingFace embedder |
 | `OPENROUTER_API_KEY` | API key for OpenRouter embedder |
+| `QDRANT_API_URL` | Qdrant server URL (e.g., `http://db.lan:6334`) |
+| `QDRANT_API_KEY` | Qdrant API key |
+| `QDRANT_COLLECTION` | Default Qdrant collection name |
+
+### Collection Name Resolution (Qdrant)
+
+When using `--storage qdrant`, the collection name is resolved in this priority order:
+
+1. **`--collection` flag** - Explicit collection name
+2. **Derived from `--index-dir`** - If index-dir is non-default (e.g., `.llm-index/code` → `code`)
+3. **`QDRANT_COLLECTION` env var** - Environment variable fallback
+4. **Default** - `llm_semantic`
+
+**Examples:**
+```bash
+# Uses collection "code" (derived from index-dir)
+llm-semantic index . --storage qdrant --index-dir .llm-index/code
+
+# Uses collection "docs" (derived from index-dir)  
+llm-semantic index ./documentation --storage qdrant --index-dir .llm-index/docs
+
+# Uses explicit collection "my_project"
+llm-semantic index . --storage qdrant --collection my_project
+
+# Uses QDRANT_COLLECTION env var or default "llm_semantic"
+llm-semantic index . --storage qdrant
+```
+
+This allows maintaining separate indexes for code vs documentation in the same Qdrant instance.
 
 ## Commands
 
@@ -141,14 +172,137 @@ llm-semantic index-update . --include "*.go"
 }
 ```
 
+## Memory Commands
+
+Store, search, and manage learned decisions and clarifications using semantic search.
+
+### memory store
+
+Store a question/answer pair in the semantic memory database.
+
+```bash
+llm-semantic memory store \
+  --question "How should auth tokens be handled?" \
+  --answer "Use JWT with 24h expiry" \
+  --tags "auth,security"
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-q, --question` | Question or decision (required) | |
+| `-a, --answer` | Answer or decision made (required) | |
+| `-t, --tags` | Comma-separated context tags | |
+| `-s, --source` | Origin source | `manual` |
+
+**Example Output:**
+```json
+{
+  "status": "stored",
+  "id": "mem-e38b9cbb3044a9eb",
+  "question": "How should auth tokens be handled?",
+  "answer": "Use JWT with 24h expiry"
+}
+```
+
+### memory search
+
+Search stored memories using natural language queries.
+
+```bash
+llm-semantic memory search "token handling" --top 5 --threshold 0.7
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--top` | Number of results to return | 10 |
+| `--threshold` | Minimum similarity threshold (0.0-1.0) | 0.0 |
+| `--tags` | Filter by tags (comma-separated) | |
+| `--status` | Filter by status (pending, promoted) | |
+
+**Example Output:**
+```json
+[
+  {
+    "entry": {
+      "id": "mem-e38b9cbb3044a9eb",
+      "question": "How should auth tokens be handled?",
+      "answer": "Use JWT with 24h expiry",
+      "tags": ["auth", "security"],
+      "status": "pending"
+    },
+    "score": 0.85
+  }
+]
+```
+
+### memory promote
+
+Promote a memory entry to CLAUDE.md for persistent project knowledge.
+
+```bash
+llm-semantic memory promote mem-e38b9cbb3044a9eb --target ./CLAUDE.md
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--target` | Target CLAUDE.md file path (required) | |
+| `--section` | Section header to append under | `Learned Clarifications` |
+| `--force` | Re-promote even if already promoted | false |
+
+### memory list
+
+List stored memories with optional filtering.
+
+```bash
+llm-semantic memory list --status pending --limit 20
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--limit` | Maximum entries to return | 50 |
+| `--status` | Filter by status (pending, promoted) | |
+
+### memory delete
+
+Delete a memory entry by ID.
+
+```bash
+llm-semantic memory delete mem-e38b9cbb3044a9eb --force
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--force` | Skip confirmation prompt | false |
+
+### memory import
+
+Import memories from a clarification-tracking.yaml file.
+
+```bash
+llm-semantic memory import --source ./clarification-tracking.yaml --dry-run
+```
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--source` | Source YAML file path (required) | |
+| `--dry-run` | Preview without importing | false |
+
 ## MCP Integration
 
-The MCP wrapper (`llm-semantic-mcp`) exposes all 4 commands as MCP tools with the `llm_semantic_` prefix:
+The MCP wrapper (`llm-semantic-mcp`) exposes commands as MCP tools with the `llm_semantic_` prefix:
 
+**Index Commands:**
 - `llm_semantic_search` - Search the semantic index
 - `llm_semantic_index` - Build/rebuild the semantic index
 - `llm_semantic_index_status` - Check index status
 - `llm_semantic_index_update` - Incrementally update the index
+
+**Memory Commands:**
+- `llm_semantic_memory_store` - Store a learned decision in semantic memory
+- `llm_semantic_memory_search` - Search memories using natural language
+- `llm_semantic_memory_promote` - Promote memory to CLAUDE.md
+- `llm_semantic_memory_list` - List stored memories
+- `llm_semantic_memory_delete` - Delete a memory entry
 
 See [MCP Setup Guide](MCP_SETUP.md) for integration instructions.
 
