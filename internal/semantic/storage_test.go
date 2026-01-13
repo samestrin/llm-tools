@@ -580,6 +580,7 @@ func MemoryStorageTestSuite(t *testing.T, newStorage func() (Storage, func())) {
 		}
 		if len(results) != 1 {
 			t.Errorf("ListMemory() by status returned %d entries, want 1", len(results))
+			return // Avoid panic on empty results
 		}
 		if results[0].Status != MemoryStatusPromoted {
 			t.Errorf("ListMemory() status = %q, want %q", results[0].Status, MemoryStatusPromoted)
