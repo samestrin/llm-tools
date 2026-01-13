@@ -1,71 +1,183 @@
-# LLM Support & Clarification MCP Servers - Setup Guide
+# LLM Tools MCP Servers - Setup Guide
 
 ## Overview
 
-This repository includes two MCP (Model Context Protocol) servers that make llm-tools commands available as native tools in Claude Desktop:
+This repository includes four MCP (Model Context Protocol) servers that make llm-tools commands available as native tools in Claude Desktop and other MCP-compatible clients:
 
-1. **llm-support-mcp** - 18 tools for file operations, search, and project analysis
-2. **llm-clarification-mcp** - 8 tools for the Clarification Learning System
+1. **llm-support-mcp** - 50+ tools for file operations, search, LLM integration, and project analysis
+2. **llm-clarification-mcp** - 12 tools for the Clarification Learning System
+3. **llm-filesystem-mcp** - 27 tools for high-performance filesystem operations
+4. **llm-semantic-mcp** - 4 tools for semantic code search with embeddings
 
-Both servers are native Go binaries with no runtime dependencies.
+All servers are native Go binaries with no runtime dependencies.
 
 ## What You Get
 
-### llm-support-mcp (18 tools)
+### llm-support-mcp (50+ tools)
 
-**Base Tools:**
+**File & Directory Tools:**
 | Tool | Description |
 |------|-------------|
 | `llm_support_tree` | Directory structure visualization |
 | `llm_support_grep` | Pattern search in files |
+| `llm_support_multigrep` | Search multiple keywords in parallel |
 | `llm_support_multiexists` | Check multiple file/directory existence |
+| `llm_support_catfiles` | Concatenate files with headers |
+| `llm_support_stats` | Directory statistics by file type |
+| `llm_support_diff` | Compare two files |
+
+**Data & Transform Tools:**
+| Tool | Description |
+|------|-------------|
 | `llm_support_json_query` | Query JSON files with dot notation |
+| `llm_support_yaml_get` | Query YAML files with dot notation |
+| `llm_support_yaml_set` | Set values in YAML files |
+| `llm_support_toml_parse` | Parse TOML files |
 | `llm_support_markdown_headers` | Extract markdown headers |
 | `llm_support_template` | Variable substitution in templates |
+| `llm_support_transform_case` | Transform text case (camelCase, snake_case, etc.) |
+| `llm_support_encode` / `llm_support_decode` | Base64, hex, URL encoding |
 
-**Advanced Tools:**
+**Project Analysis Tools:**
 | Tool | Description |
 |------|-------------|
-| `llm_support_discover_tests` | Discover test infrastructure and patterns |
-| `llm_support_multigrep` | Search multiple keywords in parallel |
-| `llm_support_analyze_deps` | Analyze file dependencies from markdown |
 | `llm_support_detect` | Detect project type and technology stack |
+| `llm_support_discover_tests` | Discover test infrastructure and patterns |
+| `llm_support_deps` | Extract dependencies from package manifests |
+| `llm_support_analyze_deps` | Analyze file dependencies from markdown |
+| `llm_support_validate_plan` | Validate plan directory structure |
+| `llm_support_plan_type` | Extract plan type from metadata |
+
+**Git & Context Tools:**
+| Tool | Description |
+|------|-------------|
+| `llm_support_git_context` | Gather git information for LLM context |
+| `llm_support_git_changes` | Count and list working tree changes |
+| `llm_support_repo_root` | Find git repository root path |
+
+**LLM Integration Tools:**
+| Tool | Description |
+|------|-------------|
+| `llm_support_complete` | Send prompts to OpenAI-compatible API |
+| `llm_support_prompt` | Execute prompts with templates and retry |
+| `llm_support_foreach` | Process multiple files through LLM |
+| `llm_support_extract_relevant` | Extract relevant content using LLM API |
+| `llm_support_extract_links` | Extract and rank links from URLs |
+
+**Utility Tools:**
+| Tool | Description |
+|------|-------------|
 | `llm_support_count` | Count checkboxes, lines, or files |
 | `llm_support_summarize_dir` | Summarize directory contents for LLM context |
-
-**Context & Analysis Tools:**
-| Tool | Description |
-|------|-------------|
-| `llm_support_deps` | Extract dependencies from package manifests |
-| `llm_support_git_context` | Gather git information for LLM context |
-| `llm_support_repo_root` | Find git repository root path |
-| `llm_support_validate_plan` | Validate plan directory structure |
+| `llm_support_highest` | Find highest numbered directory/file |
 | `llm_support_partition_work` | Partition work items for parallel execution |
-| `llm_support_extract_relevant` | Extract relevant content using LLM API |
+| `llm_support_init_temp` | Initialize temp directory with variables |
+| `llm_support_clean_temp` | Clean up temp directories |
+| `llm_support_runtime` | Calculate elapsed time between timestamps |
+| `llm_support_context` | Persistent key-value storage |
+| `llm_support_hash` | Generate file checksums |
+| `llm_support_math` | Evaluate mathematical expressions |
+| `llm_support_extract` | Extract patterns (URLs, emails, TODOs) |
+| `llm_support_validate` | Validate JSON, YAML, TOML, CSV files |
+| `llm_support_report` | Generate formatted status reports |
 
-### llm-clarification-mcp (8 tools)
+### llm-clarification-mcp (12 tools)
 
 **Analysis Tools (require API):**
 | Tool | Description |
 |------|-------------|
-| `llm_clarify_match` | Match question against existing entries |
-| `llm_clarify_cluster` | Group similar questions into clusters |
-| `llm_clarify_detect_conflicts` | Find conflicting answers |
-| `llm_clarify_validate` | Check for stale entries |
+| `llm_clarification_match_clarification` | Match question against existing entries |
+| `llm_clarification_cluster_clarifications` | Group similar questions into clusters |
+| `llm_clarification_detect_conflicts` | Find conflicting answers |
+| `llm_clarification_validate_clarifications` | Check for stale entries |
 
 **Management Tools (no API needed):**
 | Tool | Description |
 |------|-------------|
-| `llm_clarify_init` | Initialize tracking file |
-| `llm_clarify_add` | Add or update a clarification entry |
-| `llm_clarify_promote` | Promote entry to CLAUDE.md |
-| `llm_clarify_list` | List entries with filtering |
+| `llm_clarification_init_tracking` | Initialize tracking file |
+| `llm_clarification_add_clarification` | Add or update a clarification entry |
+| `llm_clarification_delete_clarification` | Delete a clarification entry |
+| `llm_clarification_promote_clarification` | Promote entry to CLAUDE.md |
+| `llm_clarification_list_entries` | List entries with filtering |
+| `llm_clarification_import_memory` | Import clarifications from YAML |
+| `llm_clarification_export_memory` | Export clarifications to YAML |
+| `llm_clarification_optimize_memory` | Optimize storage (vacuum, prune) |
+| `llm_clarification_reconcile_memory` | Find stale file references |
+
+### llm-filesystem-mcp (27 tools)
+
+**Read Operations:**
+| Tool | Description |
+|------|-------------|
+| `llm_filesystem_read_file` | Read file with auto-chunking |
+| `llm_filesystem_read_multiple_files` | Read multiple files simultaneously |
+| `llm_filesystem_extract_lines` | Extract specific line ranges |
+| `llm_filesystem_get_file_info` | Get detailed file information |
+| `llm_filesystem_get_disk_usage` | Get disk usage for a path |
+
+**Write Operations:**
+| Tool | Description |
+|------|-------------|
+| `llm_filesystem_write_file` | Write content to a file |
+| `llm_filesystem_large_write_file` | Write large files with verification |
+
+**Edit Operations:**
+| Tool | Description |
+|------|-------------|
+| `llm_filesystem_edit_block` | Replace a block of text |
+| `llm_filesystem_edit_blocks` | Apply multiple edits to a file |
+| `llm_filesystem_edit_file` | Line-based editing (insert, replace, delete) |
+| `llm_filesystem_edit_multiple_blocks` | Multi-block editing with backup |
+| `llm_filesystem_safe_edit` | Edit with backup and dry-run support |
+| `llm_filesystem_search_and_replace` | Regex replacement across files |
+
+**Directory Operations:**
+| Tool | Description |
+|------|-------------|
+| `llm_filesystem_list_directory` | List directory with filtering/pagination |
+| `llm_filesystem_get_directory_tree` | Get directory tree structure |
+| `llm_filesystem_create_directory` | Create a directory |
+| `llm_filesystem_create_directories` | Create multiple directories |
+
+**File Management:**
+| Tool | Description |
+|------|-------------|
+| `llm_filesystem_copy_file` | Copy file or directory |
+| `llm_filesystem_move_file` | Move or rename file/directory |
+| `llm_filesystem_delete_file` | Delete file or directory |
+| `llm_filesystem_batch_file_operations` | Batch copy/move/delete operations |
+| `llm_filesystem_sync_directories` | Synchronize two directories |
+
+**Search Operations:**
+| Tool | Description |
+|------|-------------|
+| `llm_filesystem_search_files` | Search files by name pattern |
+| `llm_filesystem_search_code` | Search patterns in file contents |
+| `llm_filesystem_find_large_files` | Find files larger than specified size |
+
+**Archive Operations:**
+| Tool | Description |
+|------|-------------|
+| `llm_filesystem_compress_files` | Compress files into archive |
+| `llm_filesystem_extract_archive` | Extract an archive |
+
+### llm-semantic-mcp (4 tools)
+
+| Tool | Description |
+|------|-------------|
+| `llm_semantic_search` | Search code using natural language queries |
+| `llm_semantic_index` | Build/rebuild the semantic index |
+| `llm_semantic_index_status` | Check index status (files, chunks, last update) |
+| `llm_semantic_index_update` | Incrementally update index with changed files |
+
+**Note:** Requires an OpenAI-compatible embedding API (Ollama, vLLM, OpenAI). Default model: `nomic-embed-text`.
 
 ## Prerequisites
 
-1. **Go CLI binaries installed** - `llm-support` and `llm-clarification` in your PATH
-2. **Claude Desktop** installed
+1. **Go CLI binaries installed** - `llm-support`, `llm-clarification`, `llm-filesystem`, `llm-semantic` in your PATH
+2. **Claude Desktop** or Claude Code installed
 3. **Go 1.21+** (only needed if building from source)
+4. **Ollama** (optional, for llm-semantic embeddings)
 
 ## Installation
 
@@ -76,17 +188,21 @@ Both servers are native Go binaries with no runtime dependencies.
 git clone https://github.com/samestrin/llm-tools.git
 cd llm-tools
 make build
-sudo cp build/llm-support build/llm-clarification /usr/local/bin/
+sudo cp build/llm-support build/llm-clarification build/llm-filesystem build/llm-semantic /usr/local/bin/
 
 # Option B: Using go install
 go install github.com/samestrin/llm-tools/cmd/llm-support@latest
 go install github.com/samestrin/llm-tools/cmd/llm-clarification@latest
+go install github.com/samestrin/llm-tools/cmd/llm-filesystem@latest
+go install github.com/samestrin/llm-tools/cmd/llm-semantic@latest
 ```
 
 Verify installation:
 ```bash
 llm-support --version
 llm-clarification --version
+llm-filesystem --version
+llm-semantic --version
 ```
 
 ### Step 2: Build MCP Servers
@@ -96,12 +212,14 @@ Build the native Go MCP server binaries:
 ```bash
 cd llm-tools
 
-# Build MCP server binaries
+# Build all MCP server binaries
 go build -o llm-support-mcp ./cmd/llm-support-mcp/
 go build -o llm-clarification-mcp ./cmd/llm-clarification-mcp/
+go build -o llm-filesystem-mcp ./cmd/llm-filesystem-mcp/
+go build -o llm-semantic-mcp ./cmd/llm-semantic-mcp/
 
 # Install to a location in PATH
-sudo cp llm-support-mcp llm-clarification-mcp /usr/local/bin/
+sudo cp llm-support-mcp llm-clarification-mcp llm-filesystem-mcp llm-semantic-mcp /usr/local/bin/
 ```
 
 Verify installation:
@@ -128,6 +246,12 @@ Add the MCP server configurations:
     },
     "llm-clarification": {
       "command": "/usr/local/bin/llm-clarification-mcp"
+    },
+    "llm-filesystem": {
+      "command": "/usr/local/bin/llm-filesystem-mcp"
+    },
+    "llm-semantic": {
+      "command": "/usr/local/bin/llm-semantic-mcp"
     }
   }
 }
@@ -135,24 +259,33 @@ Add the MCP server configurations:
 
 ### Step 4: Configure API for Clarification Tools (Optional)
 
-The `llm_clarify_match`, `llm_clarify_cluster`, `llm_clarify_detect_conflicts`, and `llm_clarify_validate` tools require an OpenAI-compatible API.
+The `llm_clarification_match_clarification`, `llm_clarification_cluster_clarifications`, `llm_clarification_detect_conflicts`, and `llm_clarification_validate_clarifications` tools require an OpenAI-compatible API.
 
-**Option A: Environment Variables**
+**Environment Variables:**
 ```bash
 export OPENAI_API_KEY=your-api-key
 export OPENAI_BASE_URL=https://openrouter.ai/api/v1  # optional
 export OPENAI_MODEL=gpt-4o-mini                       # optional
 ```
 
-**Option B: Config Files**
+### Step 5: Configure Embeddings for Semantic Tools (Optional)
+
+The `llm_semantic_*` tools require an OpenAI-compatible embedding API. By default, they use local Ollama.
+
+**Option A: Local Ollama (recommended)**
 ```bash
-mkdir -p .planning/.config
-echo 'your-api-key' > .planning/.config/openai_api_key
-echo 'https://openrouter.ai/api/v1' > .planning/.config/openai_base_url
-echo 'gpt-4o-mini' > .planning/.config/openai_model
+# Install Ollama and pull the embedding model
+ollama pull nomic-embed-text
 ```
 
-### Step 5: Restart Claude Desktop
+**Option B: Remote embedding server**
+```bash
+export LLM_SEMANTIC_API_KEY=your-api-key           # if required
+export LLM_SEMANTIC_API_URL=http://localhost:11434 # embedding server URL
+export LLM_SEMANTIC_MODEL=nomic-embed-text         # model name
+```
+
+### Step 6: Restart Claude Desktop
 
 Completely quit and restart Claude Desktop for the changes to take effect.
 
@@ -161,8 +294,10 @@ Completely quit and restart Claude Desktop for the changes to take effect.
 1. Start a new conversation in Claude Desktop
 2. Type: "What tools do you have available?"
 3. Claude should list:
-   - 18 `llm_support_*` tools
-   - 8 `llm_clarify_*` tools
+   - 50+ `llm_support_*` tools
+   - 12 `llm_clarification_*` tools
+   - 27 `llm_filesystem_*` tools
+   - 4 `llm_semantic_*` tools
 
 ## Usage Examples
 
@@ -204,25 +339,71 @@ Claude will use `llm_support_tree`.
 ```
 Initialize a clarification tracking file for this project
 ```
-Claude will use `llm_clarify_init`.
+Claude will use `llm_clarification_init_tracking`.
 
 **Record a clarification:**
 ```
 Record this clarification: Q: "Should we use Tailwind or CSS modules?" A: "Use Tailwind for this project"
 ```
-Claude will use `llm_clarify_add`.
+Claude will use `llm_clarification_add_clarification`.
 
 **List clarifications:**
 ```
 Show me all clarifications that have been asked more than once
 ```
-Claude will use `llm_clarify_list` with `min_occurrences: 2`.
+Claude will use `llm_clarification_list_entries` with `min_occurrences: 2`.
 
 **Find duplicate questions:**
 ```
 Are there any clarifications in the tracking file that might be asking the same thing?
 ```
-Claude will use `llm_clarify_cluster`.
+Claude will use `llm_clarification_cluster_clarifications`.
+
+### llm-filesystem Tools
+
+**Read multiple files:**
+```
+Read the package.json and tsconfig.json files
+```
+Claude will use `llm_filesystem_read_multiple_files`.
+
+**Edit a file:**
+```
+Replace "console.log" with "logger.info" in src/utils.ts
+```
+Claude will use `llm_filesystem_edit_block`.
+
+**Search for code patterns:**
+```
+Find all files that use the deprecated API
+```
+Claude will use `llm_filesystem_search_code`.
+
+**Get directory tree:**
+```
+Show me the structure of the src/components directory
+```
+Claude will use `llm_filesystem_get_directory_tree`.
+
+### llm-semantic Tools
+
+**Index the codebase:**
+```
+Build a semantic index for this Go project
+```
+Claude will use `llm_semantic_index`.
+
+**Search code semantically:**
+```
+Find code that handles user authentication
+```
+Claude will use `llm_semantic_search`.
+
+**Check index status:**
+```
+What's the status of the semantic index?
+```
+Claude will use `llm_semantic_index_status`.
 
 ## Tool Reference
 
@@ -323,10 +504,12 @@ List entries with optional filtering.
    - Verify the path to the MCP binary in claude_desktop_config.json
    - Use `which llm-support-mcp` to get the full path
 
-2. **Check binary exists:**
+2. **Check binaries exist:**
    ```bash
    ls -la /usr/local/bin/llm-support-mcp
    ls -la /usr/local/bin/llm-clarification-mcp
+   ls -la /usr/local/bin/llm-filesystem-mcp
+   ls -la /usr/local/bin/llm-semantic-mcp
    ```
 
 3. **Check logs:**
@@ -337,15 +520,15 @@ List entries with optional filtering.
 
 1. **Check Go binaries are installed:**
    ```bash
-   which llm-support
-   which llm-clarification
+   which llm-support llm-clarification llm-filesystem llm-semantic
    llm-support --version
    ```
 
 2. **Test binaries directly:**
    ```bash
    llm-support tree --path .
-   llm-clarification --help
+   llm-filesystem read-file --path README.md
+   llm-semantic index-status
    ```
 
 3. **Test MCP server directly:**
@@ -357,16 +540,29 @@ List entries with optional filtering.
 
 1. **Check API configuration:**
    ```bash
-   # Either set environment variables
    echo $OPENAI_API_KEY
-
-   # Or use config files
-   cat .planning/.config/openai_api_key
    ```
 
 2. **Test API connectivity:**
    ```bash
    llm-clarification match-clarification -q "test" --entries-json "[]"
+   ```
+
+### Semantic search not working
+
+1. **Check Ollama is running:**
+   ```bash
+   ollama list
+   ```
+
+2. **Pull the embedding model:**
+   ```bash
+   ollama pull nomic-embed-text
+   ```
+
+3. **Test indexing:**
+   ```bash
+   llm-semantic index . --include "*.go"
    ```
 
 ## Performance
@@ -389,11 +585,14 @@ List entries with optional filtering.
 2. Restart Claude Desktop
 3. Optionally remove binaries:
    ```bash
-   sudo rm /usr/local/bin/llm-support-mcp /usr/local/bin/llm-clarification-mcp
+   sudo rm /usr/local/bin/llm-support-mcp /usr/local/bin/llm-clarification-mcp \
+           /usr/local/bin/llm-filesystem-mcp /usr/local/bin/llm-semantic-mcp
    ```
 
 ## See Also
 
 - [README.md](../README.md) - Main documentation
 - [quick-reference.md](quick-reference.md) - Command cheat sheet
-- [llm-support-commands.md](llm-support-commands.md) - Detailed command reference
+- [llm-support-commands.md](llm-support-commands.md) - llm-support command reference
+- [llm-filesystem-commands.md](llm-filesystem-commands.md) - llm-filesystem command reference
+- [llm-semantic-commands.md](llm-semantic-commands.md) - llm-semantic command reference

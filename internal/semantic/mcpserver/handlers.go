@@ -69,6 +69,16 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildStatusArgs(args), nil
 	case "index_update":
 		return buildUpdateArgs(args), nil
+	case "memory_store":
+		return buildMemoryStoreArgs(args), nil
+	case "memory_search":
+		return buildMemorySearchArgs(args), nil
+	case "memory_promote":
+		return buildMemoryPromoteArgs(args), nil
+	case "memory_list":
+		return buildMemoryListArgs(args), nil
+	case "memory_delete":
+		return buildMemoryDeleteArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -94,6 +104,12 @@ func buildSearchArgs(args map[string]interface{}) []string {
 	}
 	if getBool(args, "min") {
 		cmdArgs = append(cmdArgs, "--min")
+	}
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
 	}
 
 	return cmdArgs
@@ -122,12 +138,27 @@ func buildIndexArgs(args map[string]interface{}) []string {
 	if getBool(args, "force") {
 		cmdArgs = append(cmdArgs, "--force")
 	}
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
 
 	return cmdArgs
 }
 
 func buildStatusArgs(args map[string]interface{}) []string {
-	return []string{"index-status"}
+	cmdArgs := []string{"index-status"}
+
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
+
+	return cmdArgs
 }
 
 func buildUpdateArgs(args map[string]interface{}) []string {
@@ -149,6 +180,12 @@ func buildUpdateArgs(args map[string]interface{}) []string {
 				cmdArgs = append(cmdArgs, "--exclude", s)
 			}
 		}
+	}
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
 	}
 
 	return cmdArgs
@@ -185,4 +222,122 @@ func getFloat(args map[string]interface{}, key string) (float64, bool) {
 		return float64(v), true
 	}
 	return 0, false
+}
+
+// Memory command builders
+
+func buildMemoryStoreArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"memory", "store"}
+
+	if question, ok := args["question"].(string); ok && question != "" {
+		cmdArgs = append(cmdArgs, "--question", question)
+	}
+	if answer, ok := args["answer"].(string); ok && answer != "" {
+		cmdArgs = append(cmdArgs, "--answer", answer)
+	}
+	if tags, ok := args["tags"].(string); ok && tags != "" {
+		cmdArgs = append(cmdArgs, "--tags", tags)
+	}
+	if source, ok := args["source"].(string); ok && source != "" {
+		cmdArgs = append(cmdArgs, "--source", source)
+	}
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
+
+	return cmdArgs
+}
+
+func buildMemorySearchArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"memory", "search"}
+
+	if query, ok := args["query"].(string); ok && query != "" {
+		cmdArgs = append(cmdArgs, query)
+	}
+	if topK, ok := getInt(args, "top_k"); ok {
+		cmdArgs = append(cmdArgs, "--top", strconv.Itoa(topK))
+	}
+	if threshold, ok := getFloat(args, "threshold"); ok {
+		cmdArgs = append(cmdArgs, "--threshold", fmt.Sprintf("%.4f", threshold))
+	}
+	if tags, ok := args["tags"].(string); ok && tags != "" {
+		cmdArgs = append(cmdArgs, "--tags", tags)
+	}
+	if status, ok := args["status"].(string); ok && status != "" {
+		cmdArgs = append(cmdArgs, "--status", status)
+	}
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
+
+	return cmdArgs
+}
+
+func buildMemoryPromoteArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"memory", "promote"}
+
+	if id, ok := args["id"].(string); ok && id != "" {
+		cmdArgs = append(cmdArgs, id)
+	}
+	if target, ok := args["target"].(string); ok && target != "" {
+		cmdArgs = append(cmdArgs, "--target", target)
+	}
+	if section, ok := args["section"].(string); ok && section != "" {
+		cmdArgs = append(cmdArgs, "--section", section)
+	}
+	if getBool(args, "force") {
+		cmdArgs = append(cmdArgs, "--force")
+	}
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
+
+	return cmdArgs
+}
+
+func buildMemoryListArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"memory", "list"}
+
+	if limit, ok := getInt(args, "limit"); ok {
+		cmdArgs = append(cmdArgs, "--limit", strconv.Itoa(limit))
+	}
+	if status, ok := args["status"].(string); ok && status != "" {
+		cmdArgs = append(cmdArgs, "--status", status)
+	}
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
+
+	return cmdArgs
+}
+
+func buildMemoryDeleteArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"memory", "delete"}
+
+	if id, ok := args["id"].(string); ok && id != "" {
+		cmdArgs = append(cmdArgs, id)
+	}
+	if getBool(args, "force") {
+		cmdArgs = append(cmdArgs, "--force")
+	}
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
+
+	return cmdArgs
 }

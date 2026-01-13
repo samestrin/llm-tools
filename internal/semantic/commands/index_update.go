@@ -57,23 +57,37 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 		return fmt.Errorf("failed to resolve path: %w", err)
 	}
 
-	indexPath := findIndexPath()
-	if indexPath == "" {
-		return fmt.Errorf("semantic index not found. Run 'llm-semantic index' first")
+	// Find index path (only needed for SQLite)
+	indexPath := ""
+	if storageType != "qdrant" {
+		indexPath = findIndexPath()
+		if indexPath == "" {
+			return fmt.Errorf("semantic index not found. Run 'llm-semantic index' first")
+		}
 	}
-
-	// Open storage based on --storage flag
-	storage, err := createStorage(indexPath, 0)
-	if err != nil {
-		return fmt.Errorf("failed to open index: %w", err)
-	}
-	defer storage.Close()
 
 	// Create embedder based on --embedder flag
 	embedder, err := createEmbedder()
 	if err != nil {
 		return fmt.Errorf("failed to create embedder: %w", err)
 	}
+
+	// For Qdrant, we need to probe the embedder to get dimensions
+	embeddingDim := 0
+	if storageType == "qdrant" {
+		testEmbed, err := embedder.Embed(ctx, "test")
+		if err != nil {
+			return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		}
+		embeddingDim = len(testEmbed)
+	}
+
+	// Open storage based on --storage flag
+	storage, err := createStorage(indexPath, embeddingDim)
+	if err != nil {
+		return fmt.Errorf("failed to open index: %w", err)
+	}
+	defer storage.Close()
 
 	// Create chunker factory with language support
 	factory := semantic.NewChunkerFactory()

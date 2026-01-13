@@ -14,6 +14,16 @@ func TestSQLiteStorage(t *testing.T) {
 	})
 }
 
+func TestSQLiteStorageMemory(t *testing.T) {
+	MemoryStorageTestSuite(t, func() (Storage, func()) {
+		storage, err := NewSQLiteStorage(":memory:", 4)
+		if err != nil {
+			t.Fatalf("Failed to create SQLite storage: %v", err)
+		}
+		return storage, func() { storage.Close() }
+	})
+}
+
 func TestSQLiteStorage_Close(t *testing.T) {
 	storage, err := NewSQLiteStorage(":memory:", 4)
 	if err != nil {
