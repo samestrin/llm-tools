@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -63,6 +64,34 @@ type FileContent struct {
 	C       string `json:"c,omitempty"`
 }
 
+// FileHeaders represents headers extracted from a markdown file
+type FileHeaders struct {
+	Path    string        `json:"path,omitempty"`
+	P       string        `json:"p,omitempty"`
+	Headers []HeaderEntry `json:"headers,omitempty"`
+	H       []HeaderEntry `json:"h,omitempty"`
+}
+
+// HeaderEntry represents a single markdown header
+type HeaderEntry struct {
+	Level int    `json:"level,omitempty"`
+	L     *int   `json:"l,omitempty"`
+	Text  string `json:"text,omitempty"`
+	T     string `json:"t,omitempty"`
+}
+
+// SummarizeDirHeadersResult represents the headers format result
+type SummarizeDirHeadersResult struct {
+	Directory string        `json:"directory,omitempty"`
+	Dir       string        `json:"dir,omitempty"`
+	Format    string        `json:"format,omitempty"`
+	Fmt       string        `json:"fmt,omitempty"`
+	Files     []FileHeaders `json:"files,omitempty"`
+	F         []FileHeaders `json:"f,omitempty"`
+	FileCount int           `json:"file_count,omitempty"`
+	FC        *int          `json:"fc,omitempty"`
+}
+
 // newSummarizeDirCmd creates the summarize-dir command
 func newSummarizeDirCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -73,13 +102,14 @@ Useful for providing context to LLMs about a codebase.
 
 Formats:
   tree    - Directory tree with file types
-  outline - Brief outline of each file
+  outline - Brief outline of each file (first N lines)
+  headers - Extract markdown headers only (for .md files)
   full    - Full content (truncated)`,
 		Args: cobra.NoArgs,
 		RunE: runSummarizeDir,
 	}
 	cmd.Flags().StringVar(&summarizeDirPath, "path", ".", "Directory path to summarize")
-	cmd.Flags().StringVar(&summarizeDirFormat, "format", "tree", "Output format: tree, outline, full")
+	cmd.Flags().StringVar(&summarizeDirFormat, "format", "tree", "Output format: tree, outline, headers, full")
 	cmd.Flags().BoolVarP(&summarizeDirRecursive, "recursive", "r", true, "Recursive scan")
 	cmd.Flags().StringVar(&summarizeDirGlob, "glob", "", "File glob pattern")
 	cmd.Flags().IntVar(&summarizeDirMaxTokens, "max-tokens", 4000, "Approximate max tokens")
@@ -115,10 +145,12 @@ func runSummarizeDir(cmd *cobra.Command, args []string) error {
 		return summarizeTree(cmd, path, ignorer)
 	case "outline":
 		return summarizeOutline(cmd, path, ignorer)
+	case "headers":
+		return summarizeHeaders(cmd, path, ignorer)
 	case "full":
 		return summarizeFull(cmd, path, ignorer)
 	default:
-		return fmt.Errorf("unknown format: %s (supported: tree, outline, full)", summarizeDirFormat)
+		return fmt.Errorf("unknown format: %s (supported: tree, outline, headers, full)", summarizeDirFormat)
 	}
 }
 
@@ -326,6 +358,127 @@ func summarizeOutline(cmd *cobra.Command, path string, ignorer *gitignore.Parser
 			fmt.Fprintln(w, c.Content)
 			fmt.Fprintln(w)
 		}
+	})
+}
+
+func summarizeHeaders(cmd *cobra.Command, path string, ignorer *gitignore.Parser) error {
+	var totalChars int
+	maxChars := summarizeDirMaxTokens * 4
+	var files []FileHeaders
+
+	headerPattern := regexp.MustCompile(`(?m)^(#{1,6})\s+(.+)$`)
+
+	walkFn := func(filePath string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+
+		if totalChars >= maxChars {
+			return filepath.SkipAll
+		}
+
+		// Skip hidden files
+		if !summarizeDirNoGitignore && strings.HasPrefix(info.Name(), ".") {
+			return nil
+		}
+
+		// Check gitignore
+		if ignorer != nil && ignorer.IsIgnored(filePath) {
+			return nil
+		}
+
+		// Only process markdown files
+		ext := strings.ToLower(filepath.Ext(info.Name()))
+		if ext != ".md" && ext != ".markdown" {
+			return nil
+		}
+
+		// Apply glob filter if specified
+		if summarizeDirGlob != "" {
+			matched, _ := filepath.Match(summarizeDirGlob, info.Name())
+			if !matched {
+				return nil
+			}
+		}
+
+		relPath, _ := filepath.Rel(path, filePath)
+
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil
+		}
+
+		matches := headerPattern.FindAllStringSubmatch(string(content), -1)
+		if len(matches) == 0 {
+			return nil
+		}
+
+		var headers []HeaderEntry
+		for _, match := range matches {
+			level := len(match[1])
+			text := match[2]
+			headers = append(headers, HeaderEntry{
+				Level: level,
+				Text:  text,
+			})
+			totalChars += len(text) + level + 2 // account for # and space
+		}
+
+		files = append(files, FileHeaders{
+			Path:    relPath,
+			Headers: headers,
+		})
+
+		return nil
+	}
+
+	filepath.Walk(path, walkFn)
+
+	// Build result
+	fileCount := len(files)
+	var result SummarizeDirHeadersResult
+	if summarizeDirMinimal {
+		minFiles := make([]FileHeaders, len(files))
+		for i, f := range files {
+			minHeaders := make([]HeaderEntry, len(f.Headers))
+			for j, h := range f.Headers {
+				lvl := h.Level
+				minHeaders[j] = HeaderEntry{L: &lvl, T: h.Text}
+			}
+			minFiles[i] = FileHeaders{P: f.Path, H: minHeaders}
+		}
+		result = SummarizeDirHeadersResult{
+			Dir: path,
+			Fmt: "headers",
+			F:   minFiles,
+			FC:  &fileCount,
+		}
+	} else {
+		result = SummarizeDirHeadersResult{
+			Directory: path,
+			Format:    "headers",
+			Files:     files,
+			FileCount: fileCount,
+		}
+	}
+
+	formatter := output.New(summarizeDirJSON, summarizeDirMinimal, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		fmt.Fprintf(w, "DIRECTORY: %s\n", path)
+		fmt.Fprintln(w, "FORMAT: headers (markdown headers only)")
+		fmt.Fprintln(w)
+
+		for _, f := range files {
+			fmt.Fprintf(w, "%s\n", f.Path)
+			for _, h := range f.Headers {
+				indent := strings.Repeat("  ", h.Level-1)
+				hashes := strings.Repeat("#", h.Level)
+				fmt.Fprintf(w, "%s%s %s\n", indent, hashes, h.Text)
+			}
+			fmt.Fprintln(w)
+		}
+
+		fmt.Fprintf(w, "SUMMARY: %d files with headers\n", fileCount)
 	})
 }
 
