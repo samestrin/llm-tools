@@ -333,8 +333,18 @@ func buildTemplateArgs(args map[string]interface{}) []string {
 			cmdArgs = append(cmdArgs, "--var", fmt.Sprintf("%s=%v", k, v))
 		}
 	}
-	if syntax, ok := args["syntax"].(string); ok {
-		cmdArgs = append(cmdArgs, "--syntax", syntax)
+	// Default to brackets syntax ([[var]]) to avoid conflicts with LLM template syntaxes
+	// (Claude uses $var, Qwen/others use {{var}})
+	syntax := "brackets"
+	if s, ok := args["syntax"].(string); ok {
+		syntax = s
+	}
+	cmdArgs = append(cmdArgs, "--syntax", syntax)
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
 	}
 	return cmdArgs
 }
