@@ -17,8 +17,8 @@ on:
       - '.github/workflows/test.yml'
 
 jobs:
-  test:
-    name: Test
+  lint:
+    name: Lint
     runs-on: [self-hosted, llm-tools]
     steps:
       - name: Checkout code
@@ -44,17 +44,79 @@ jobs:
             exit 1
           fi
 
+  test:
+    name: Test (shard ${{ matrix.shard }})
+    runs-on: [self-hosted, llm-tools]
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: 1
+            packages: "./internal/clarification/... ./internal/filesystem/..."
+          - shard: 2
+            packages: "./internal/semantic/... ./internal/support/..."
+          - shard: 3
+            packages: "./pkg/... ./tests/..."
+          - shard: 4
+            packages: "./cmd/..."
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
       - name: Run tests with race detector
-        run: go test -race -v ./...
+        run: go test -race -v ${{ matrix.packages }}
 
       - name: Run tests with coverage
-        run: go test -coverprofile=coverage.out ./...
-
-      - name: Check coverage thresholds
         run: |
+          go test -coverprofile=coverage-${{ matrix.shard }}.out ${{ matrix.packages }}
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-shard-${{ matrix.shard }}
+          path: coverage-${{ matrix.shard }}.out
+          retention-days: 1
+
+  coverage:
+    name: Coverage Report
+    runs-on: [self-hosted, llm-tools]
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-shard-*
+          merge-multiple: true
+
+      - name: Merge coverage reports
+        run: |
+          # Combine coverage files
+          echo "mode: set" > coverage.out
+          for f in coverage-*.out; do
+            tail -n +2 "$f" >> coverage.out
+          done
+
           COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
           echo "Total coverage: $COVERAGE%"
-          # Warning if coverage drops below 80%
           if (( $(echo "$COVERAGE < 80" | bc -l) )); then
             echo "::warning::Coverage is below 80%"
           fi
