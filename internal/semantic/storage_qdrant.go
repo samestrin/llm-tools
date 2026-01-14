@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/url"
 	"os"
 	"strconv"
@@ -67,12 +69,27 @@ func NewQdrantStorage(config QdrantConfig) (*QdrantStorage, error) {
 		return nil, fmt.Errorf("invalid Qdrant URL: %w", err)
 	}
 
+	// If QDRANT_INSECURE=true and not using TLS, suppress the API key warning
+	// from the Qdrant client. This is useful for local/trusted networks.
+	suppressWarning := os.Getenv("QDRANT_INSECURE") == "true" && !useTLS && config.APIKey != ""
+	var oldHandler slog.Handler
+	if suppressWarning {
+		oldHandler = slog.Default().Handler()
+		slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}
+
 	client, err := qdrant.NewClient(&qdrant.Config{
 		Host:   host,
 		Port:   port,
 		APIKey: config.APIKey,
 		UseTLS: useTLS,
 	})
+
+	// Restore the original logger
+	if suppressWarning {
+		slog.SetDefault(slog.New(oldHandler))
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Qdrant client: %w", err)
 	}
