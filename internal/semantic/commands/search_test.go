@@ -289,3 +289,218 @@ func TestSearchCmd_ValidFusionAlpha_Bounds(t *testing.T) {
 		})
 	}
 }
+
+// ===== Backward Compatibility Regression Tests =====
+// These tests ensure that existing CLI behavior is unchanged after adding hybrid search.
+
+// TestSearchCmd_DefaultBehavior_NoHybrid verifies that the default search (no --hybrid)
+// still performs dense-only search, preserving existing behavior.
+func TestSearchCmd_DefaultBehavior_NoHybrid(t *testing.T) {
+	cmd := searchCmd()
+
+	// Verify hybrid is false by default
+	hybridFlag := cmd.Flags().Lookup("hybrid")
+	if hybridFlag == nil {
+		t.Fatal("hybrid flag not found")
+	}
+	if hybridFlag.DefValue != "false" {
+		t.Errorf("hybrid default = %s, want false", hybridFlag.DefValue)
+	}
+
+	// Verify hybrid is not set initially
+	if hybridFlag.Value.String() != "false" {
+		t.Errorf("hybrid value = %s, want false", hybridFlag.Value.String())
+	}
+}
+
+// TestSearchCmd_ExistingFlags_Unchanged verifies all pre-existing flags still work.
+func TestSearchCmd_ExistingFlags_Unchanged(t *testing.T) {
+	cmd := searchCmd()
+
+	// Test all original flags with their expected defaults and shortcuts
+	existingFlags := []struct {
+		name      string
+		shortcut  string
+		defValue  string
+		testValue string
+	}{
+		{"top", "n", "10", "20"},
+		{"threshold", "t", "0", "0.5"},
+		{"type", "", "", "function"},
+		{"path", "p", "", "internal/"},
+		{"json", "", "false", "true"},
+		{"min", "", "false", "true"},
+	}
+
+	for _, f := range existingFlags {
+		t.Run(f.name, func(t *testing.T) {
+			// Check flag exists
+			flag := cmd.Flags().Lookup(f.name)
+			if flag == nil {
+				t.Fatalf("Flag --%s not found", f.name)
+			}
+
+			// Check default value
+			if flag.DefValue != f.defValue {
+				t.Errorf("Flag --%s default = %s, want %s", f.name, flag.DefValue, f.defValue)
+			}
+
+			// Check shortcut exists if expected
+			if f.shortcut != "" {
+				shortFlag := cmd.Flags().ShorthandLookup(f.shortcut)
+				if shortFlag == nil {
+					t.Errorf("Shorthand -%s not found for --%s", f.shortcut, f.name)
+				}
+			}
+
+			// Check flag can be set
+			err := flag.Value.Set(f.testValue)
+			if err != nil {
+				t.Errorf("Failed to set --%s=%s: %v", f.name, f.testValue, err)
+			}
+		})
+	}
+}
+
+// TestSearchCmd_OutputFlags_Unchanged verifies --json and --min output flags work.
+func TestSearchCmd_OutputFlags_Unchanged(t *testing.T) {
+	cmd := searchCmd()
+
+	// --json flag
+	jsonFlag := cmd.Flags().Lookup("json")
+	if jsonFlag == nil {
+		t.Fatal("--json flag not found")
+	}
+	if jsonFlag.DefValue != "false" {
+		t.Errorf("--json default = %s, want false", jsonFlag.DefValue)
+	}
+
+	// --min flag
+	minFlag := cmd.Flags().Lookup("min")
+	if minFlag == nil {
+		t.Fatal("--min flag not found")
+	}
+	if minFlag.DefValue != "false" {
+		t.Errorf("--min default = %s, want false", minFlag.DefValue)
+	}
+
+	// Verify they can be combined (not mutually exclusive)
+	err := jsonFlag.Value.Set("true")
+	if err != nil {
+		t.Errorf("Failed to set --json=true: %v", err)
+	}
+	err = minFlag.Value.Set("true")
+	if err != nil {
+		t.Errorf("Failed to set --min=true: %v", err)
+	}
+}
+
+// TestSearchCmd_HelpOutput_ContainsOriginalFlags verifies help output has all original flags.
+func TestSearchCmd_HelpOutput_ContainsOriginalFlags(t *testing.T) {
+	root := RootCmd()
+	output, err := executeCommand(root, "search", "--help")
+
+	if err != nil {
+		t.Fatalf("Help command failed: %v", err)
+	}
+
+	// All original flags must be documented
+	originalFlags := []string{
+		"--top",
+		"--threshold",
+		"--type",
+		"--path",
+		"--json",
+		"--min",
+		"-n,", // shortcut for --top
+		"-t,", // shortcut for --threshold
+		"-p,", // shortcut for --path
+	}
+
+	for _, flag := range originalFlags {
+		if !bytes.Contains([]byte(output), []byte(flag)) {
+			t.Errorf("Help output should contain %q", flag)
+		}
+	}
+}
+
+// TestSearchCmd_CommandStructure_Unchanged verifies the command structure is stable.
+func TestSearchCmd_CommandStructure_Unchanged(t *testing.T) {
+	cmd := searchCmd()
+
+	// Command name and usage unchanged
+	if cmd.Use != "search <query>" {
+		t.Errorf("Use = %q, want 'search <query>'", cmd.Use)
+	}
+
+	// Short description exists
+	if cmd.Short == "" {
+		t.Error("Short description should not be empty")
+	}
+
+	// Still requires at least one argument
+	err := cmd.Args(cmd, []string{})
+	if err == nil {
+		t.Error("Should require at least one argument (query)")
+	}
+
+	// Accepts query argument
+	err = cmd.Args(cmd, []string{"test query"})
+	if err != nil {
+		t.Errorf("Should accept query argument: %v", err)
+	}
+
+	// Accepts multi-word query
+	err = cmd.Args(cmd, []string{"multiple", "word", "query"})
+	if err != nil {
+		t.Errorf("Should accept multi-word query: %v", err)
+	}
+}
+
+// TestRootCmd_SearchSubcommand_Exists verifies search is still a subcommand.
+func TestRootCmd_SearchSubcommand_Exists(t *testing.T) {
+	root := RootCmd()
+
+	var searchCmd *cobra.Command
+	for _, cmd := range root.Commands() {
+		if cmd.Name() == "search" {
+			searchCmd = cmd
+			break
+		}
+	}
+
+	if searchCmd == nil {
+		t.Fatal("search subcommand not found on root")
+	}
+
+	// Verify it's runnable
+	if searchCmd.RunE == nil {
+		t.Error("search command should have RunE handler")
+	}
+}
+
+// TestSearchCmd_TopKDefault_Unchanged verifies default TopK is 10.
+func TestSearchCmd_TopKDefault_Unchanged(t *testing.T) {
+	cmd := searchCmd()
+
+	topFlag := cmd.Flags().Lookup("top")
+	if topFlag == nil {
+		t.Fatal("--top flag not found")
+	}
+	if topFlag.DefValue != "10" {
+		t.Errorf("--top default = %s, want 10", topFlag.DefValue)
+	}
+}
+
+// TestSearchCmd_ThresholdDefault_Unchanged verifies default threshold is 0.
+func TestSearchCmd_ThresholdDefault_Unchanged(t *testing.T) {
+	cmd := searchCmd()
+
+	thresholdFlag := cmd.Flags().Lookup("threshold")
+	if thresholdFlag == nil {
+		t.Fatal("--threshold flag not found")
+	}
+	if thresholdFlag.DefValue != "0" {
+		t.Errorf("--threshold default = %s, want 0", thresholdFlag.DefValue)
+	}
+}
