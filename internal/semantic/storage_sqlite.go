@@ -105,8 +105,16 @@ func (s *SQLiteStorage) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_memory_status ON memory(status);
 	`
 
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Initialize FTS5 for lexical search
+	if err := s.initFTS5Schema(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *SQLiteStorage) Create(ctx context.Context, chunk Chunk, embedding []float32) error {
@@ -458,10 +466,17 @@ func (s *SQLiteStorage) Clear(ctx context.Context) error {
 		return ErrStorageClosed
 	}
 
-	// Clear both chunks and file hashes
+	// Clear chunks (triggers will clear FTS automatically)
 	if _, err := s.db.ExecContext(ctx, "DELETE FROM chunks"); err != nil {
 		return err
 	}
+
+	// Also explicitly clear FTS to ensure consistency
+	if err := s.clearFTS5(); err != nil {
+		return err
+	}
+
+	// Clear file hashes
 	_, err := s.db.ExecContext(ctx, "DELETE FROM file_hashes")
 	return err
 }
