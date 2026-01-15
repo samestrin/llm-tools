@@ -13,19 +13,25 @@ import (
 
 func searchCmd() *cobra.Command {
 	var (
-		topK       int
-		threshold  float64
-		typeFilter string
-		pathFilter string
-		jsonOutput bool
-		minOutput  bool
+		topK        int
+		threshold   float64
+		typeFilter  string
+		pathFilter  string
+		jsonOutput  bool
+		minOutput   bool
+		hybrid      bool
+		fusionK     int
+		fusionAlpha float64
 	)
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
 		Short: "Search the semantic index",
 		Long: `Search the semantic code index using natural language queries.
-Returns ranked results based on semantic similarity.`,
+Returns ranked results based on semantic similarity.
+
+With --hybrid, performs combined dense (vector) and lexical (FTS5) search
+using Reciprocal Rank Fusion (RRF) for improved recall.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := args[0]
@@ -37,13 +43,26 @@ Returns ranked results based on semantic similarity.`,
 				}
 			}
 
+			// Validate hybrid parameters
+			if hybrid {
+				if fusionK <= 0 {
+					return fmt.Errorf("fusion-k must be a positive integer, got: %d", fusionK)
+				}
+				if fusionAlpha < 0.0 || fusionAlpha > 1.0 {
+					return fmt.Errorf("fusion-alpha must be between 0.0 and 1.0, got: %f", fusionAlpha)
+				}
+			}
+
 			return runSearch(cmd.Context(), query, searchOpts{
-				topK:       topK,
-				threshold:  float32(threshold),
-				typeFilter: typeFilter,
-				pathFilter: pathFilter,
-				jsonOutput: jsonOutput,
-				minOutput:  minOutput,
+				topK:        topK,
+				threshold:   float32(threshold),
+				typeFilter:  typeFilter,
+				pathFilter:  pathFilter,
+				jsonOutput:  jsonOutput,
+				minOutput:   minOutput,
+				hybrid:      hybrid,
+				fusionK:     fusionK,
+				fusionAlpha: fusionAlpha,
 			})
 		},
 	}
@@ -54,17 +73,23 @@ Returns ranked results based on semantic similarity.`,
 	cmd.Flags().StringVarP(&pathFilter, "path", "p", "", "Filter by path prefix")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Output minimal JSON format")
+	cmd.Flags().BoolVar(&hybrid, "hybrid", false, "Enable hybrid search (dense + lexical with RRF fusion)")
+	cmd.Flags().IntVar(&fusionK, "fusion-k", 60, "RRF fusion k parameter (higher = smoother ranking)")
+	cmd.Flags().Float64Var(&fusionAlpha, "fusion-alpha", 0.7, "Fusion weight: 1.0 = dense only, 0.0 = lexical only")
 
 	return cmd
 }
 
 type searchOpts struct {
-	topK       int
-	threshold  float32
-	typeFilter string
-	pathFilter string
-	jsonOutput bool
-	minOutput  bool
+	topK        int
+	threshold   float32
+	typeFilter  string
+	pathFilter  string
+	jsonOutput  bool
+	minOutput   bool
+	hybrid      bool
+	fusionK     int
+	fusionAlpha float64
 }
 
 func runSearch(ctx context.Context, query string, opts searchOpts) error {
@@ -103,13 +128,27 @@ func runSearch(ctx context.Context, query string, opts searchOpts) error {
 	// Create searcher
 	searcher := semantic.NewSearcher(storage, embedder)
 
-	// Perform search
-	results, err := searcher.Search(ctx, query, semantic.SearchOptions{
-		TopK:       opts.topK,
-		Threshold:  opts.threshold,
-		Type:       opts.typeFilter,
-		PathFilter: opts.pathFilter,
-	})
+	// Perform search (hybrid or dense-only)
+	var results []semantic.SearchResult
+	if opts.hybrid {
+		results, err = searcher.HybridSearch(ctx, query, semantic.HybridSearchOptions{
+			SearchOptions: semantic.SearchOptions{
+				TopK:       opts.topK,
+				Threshold:  opts.threshold,
+				Type:       opts.typeFilter,
+				PathFilter: opts.pathFilter,
+			},
+			FusionK:     opts.fusionK,
+			FusionAlpha: opts.fusionAlpha,
+		})
+	} else {
+		results, err = searcher.Search(ctx, query, semantic.SearchOptions{
+			TopK:       opts.topK,
+			Threshold:  opts.threshold,
+			Type:       opts.typeFilter,
+			PathFilter: opts.pathFilter,
+		})
+	}
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
 	}

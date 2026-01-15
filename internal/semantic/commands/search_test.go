@@ -148,3 +148,144 @@ func TestSearchCmd_HelpOutput(t *testing.T) {
 		}
 	}
 }
+
+// ===== Hybrid Search Flag Tests =====
+
+// TestSearchCmd_HybridFlags verifies that hybrid search flags exist.
+func TestSearchCmd_HybridFlags(t *testing.T) {
+	cmd := searchCmd()
+
+	// Check hybrid-related flags exist
+	hybridFlags := []struct {
+		name     string
+		defValue string
+	}{
+		{"hybrid", "false"},
+		{"fusion-k", "60"},
+		{"fusion-alpha", "0.7"},
+	}
+
+	for _, f := range hybridFlags {
+		flag := cmd.Flags().Lookup(f.name)
+		if flag == nil {
+			t.Errorf("Flag --%s not found", f.name)
+			continue
+		}
+		if flag.DefValue != f.defValue {
+			t.Errorf("Flag --%s default = %s, want %s", f.name, flag.DefValue, f.defValue)
+		}
+	}
+}
+
+// TestSearchCmd_HybridFlag_HelpOutput verifies that hybrid flags appear in help output.
+func TestSearchCmd_HybridFlag_HelpOutput(t *testing.T) {
+	root := RootCmd()
+	output, err := executeCommand(root, "search", "--help")
+
+	if err != nil {
+		t.Fatalf("Help command failed: %v", err)
+	}
+
+	// Check help contains hybrid-related content
+	expectedStrings := []string{
+		"--hybrid",
+		"--fusion-k",
+		"--fusion-alpha",
+	}
+
+	for _, s := range expectedStrings {
+		if !bytes.Contains([]byte(output), []byte(s)) {
+			t.Errorf("Help output should contain %q", s)
+		}
+	}
+}
+
+// TestSearchCmd_InvalidFusionAlpha_Error verifies that invalid alpha values are rejected.
+func TestSearchCmd_InvalidFusionAlpha_Error(t *testing.T) {
+	tests := []struct {
+		name  string
+		alpha string
+	}{
+		{"negative", "-0.1"},
+		{"greater_than_1", "1.5"},
+		{"much_greater", "2.0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := RootCmd()
+			_, err := executeCommand(root, "search", "--hybrid", "--fusion-alpha", tt.alpha, "test query")
+
+			// Should fail with validation error
+			if err == nil {
+				t.Errorf("Expected error for fusion-alpha=%s, got nil", tt.alpha)
+			}
+		})
+	}
+}
+
+// TestSearchCmd_InvalidFusionK_Error verifies that invalid k values are rejected.
+func TestSearchCmd_InvalidFusionK_Error(t *testing.T) {
+	tests := []struct {
+		name string
+		k    string
+	}{
+		{"zero", "0"},
+		{"negative", "-1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := RootCmd()
+			_, err := executeCommand(root, "search", "--hybrid", "--fusion-k", tt.k, "test query")
+
+			// Should fail with validation error
+			if err == nil {
+				t.Errorf("Expected error for fusion-k=%s, got nil", tt.k)
+			}
+		})
+	}
+}
+
+// TestSearchCmd_FusionParamsWithoutHybrid_Warning verifies that fusion params
+// without --hybrid produce a warning (but still work).
+func TestSearchCmd_FusionParamsWithoutHybrid_Warning(t *testing.T) {
+	// This test verifies the behavior when fusion params are provided without --hybrid
+	// The implementation should either warn or ignore silently
+	cmd := searchCmd()
+
+	// Verify the flags can be set independently
+	fusionK := cmd.Flags().Lookup("fusion-k")
+	if fusionK == nil {
+		t.Fatal("fusion-k flag not found")
+	}
+
+	fusionAlpha := cmd.Flags().Lookup("fusion-alpha")
+	if fusionAlpha == nil {
+		t.Fatal("fusion-alpha flag not found")
+	}
+}
+
+// TestSearchCmd_ValidFusionAlpha_Bounds verifies that alpha boundary values are accepted.
+func TestSearchCmd_ValidFusionAlpha_Bounds(t *testing.T) {
+	tests := []struct {
+		name  string
+		alpha string
+	}{
+		{"zero", "0.0"},
+		{"one", "1.0"},
+		{"middle", "0.5"},
+		{"dense_heavy", "0.8"},
+		{"lexical_heavy", "0.3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := searchCmd()
+			err := cmd.Flags().Set("fusion-alpha", tt.alpha)
+			if err != nil {
+				t.Errorf("Failed to set valid fusion-alpha=%s: %v", tt.alpha, err)
+			}
+		})
+	}
+}

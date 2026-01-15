@@ -201,14 +201,6 @@ func (s *SQLiteStorage) clearFTS5() error {
 	return nil
 }
 
-// LexicalSearchOptions configures lexical search behavior.
-type LexicalSearchOptions struct {
-	TopK       int     // Maximum results to return (default: 10)
-	Type       string  // Filter by chunk type
-	PathFilter string  // Filter by file path prefix
-	Threshold  float64 // Minimum BM25 score (more negative = more relevant)
-}
-
 // LexicalSearch performs a full-text search using FTS5.
 // Returns results ranked by BM25 relevance score.
 // The score is converted from BM25 (where more negative is better) to a
