@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"os"
 	"reflect"
 	"testing"
 )
@@ -350,6 +351,852 @@ func TestBuildSearchArgs_AllParameters(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("buildSearchArgs() missing flag %s in result %v", flag, result)
+		}
+	}
+}
+
+// Profile configuration tests
+
+func TestLoadConfig(t *testing.T) {
+	// Create a temp config file
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  code_collection: my-code-index
+  code_storage: qdrant
+  docs_collection: my-docs-index
+  docs_storage: sqlite
+  memory_collection: my-memory-index
+  memory_storage: qdrant
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		t.Fatalf("loadConfig() error = %v", err)
+	}
+
+	if cfg.Semantic.CodeCollection != "my-code-index" {
+		t.Errorf("loadConfig() CodeCollection = %s, want my-code-index", cfg.Semantic.CodeCollection)
+	}
+	if cfg.Semantic.CodeStorage != "qdrant" {
+		t.Errorf("loadConfig() CodeStorage = %s, want qdrant", cfg.Semantic.CodeStorage)
+	}
+	if cfg.Semantic.DocsCollection != "my-docs-index" {
+		t.Errorf("loadConfig() DocsCollection = %s, want my-docs-index", cfg.Semantic.DocsCollection)
+	}
+	if cfg.Semantic.DocsStorage != "sqlite" {
+		t.Errorf("loadConfig() DocsStorage = %s, want sqlite", cfg.Semantic.DocsStorage)
+	}
+	if cfg.Semantic.MemoryCollection != "my-memory-index" {
+		t.Errorf("loadConfig() MemoryCollection = %s, want my-memory-index", cfg.Semantic.MemoryCollection)
+	}
+	if cfg.Semantic.MemoryStorage != "qdrant" {
+		t.Errorf("loadConfig() MemoryStorage = %s, want qdrant", cfg.Semantic.MemoryStorage)
+	}
+}
+
+func TestLoadConfig_FileNotFound(t *testing.T) {
+	_, err := loadConfig("/nonexistent/path/config.yaml")
+	if err == nil {
+		t.Error("loadConfig() expected error for missing file, got nil")
+	}
+}
+
+func TestLoadConfig_InvalidYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/invalid.yaml"
+
+	invalidContent := "semantic:\n  code_collection: [invalid yaml\n  broken: missing\n"
+	if err := writeTestFile(configPath, invalidContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	_, err := loadConfig(configPath)
+	if err == nil {
+		t.Error("loadConfig() expected error for invalid YAML, got nil")
+	}
+}
+
+func TestResolveProfileSettings_CodeProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  code_collection: llm-tools-code
+  code_storage: qdrant
+  docs_collection: llm-tools-docs
+  docs_storage: sqlite
+  memory_collection: llm-tools-memory
+  memory_storage: qdrant
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	args := map[string]interface{}{
+		"query":   "test",
+		"profile": "code",
+		"config":  configPath,
+	}
+
+	err := resolveProfileSettings(args)
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	if args["collection"] != "llm-tools-code" {
+		t.Errorf("resolveProfileSettings() collection = %v, want llm-tools-code", args["collection"])
+	}
+	if args["storage"] != "qdrant" {
+		t.Errorf("resolveProfileSettings() storage = %v, want qdrant", args["storage"])
+	}
+}
+
+func TestResolveProfileSettings_DocsProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  code_collection: llm-tools-code
+  code_storage: qdrant
+  docs_collection: llm-tools-docs
+  docs_storage: sqlite
+  memory_collection: llm-tools-memory
+  memory_storage: qdrant
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	args := map[string]interface{}{
+		"query":   "test",
+		"profile": "docs",
+		"config":  configPath,
+	}
+
+	err := resolveProfileSettings(args)
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	if args["collection"] != "llm-tools-docs" {
+		t.Errorf("resolveProfileSettings() collection = %v, want llm-tools-docs", args["collection"])
+	}
+	if args["storage"] != "sqlite" {
+		t.Errorf("resolveProfileSettings() storage = %v, want sqlite", args["storage"])
+	}
+}
+
+func TestResolveProfileSettings_MemoryProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  code_collection: llm-tools-code
+  code_storage: sqlite
+  docs_collection: llm-tools-docs
+  docs_storage: sqlite
+  memory_collection: llm-tools-memory
+  memory_storage: qdrant
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	args := map[string]interface{}{
+		"query":   "test",
+		"profile": "memory",
+		"config":  configPath,
+	}
+
+	err := resolveProfileSettings(args)
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	if args["collection"] != "llm-tools-memory" {
+		t.Errorf("resolveProfileSettings() collection = %v, want llm-tools-memory", args["collection"])
+	}
+	if args["storage"] != "qdrant" {
+		t.Errorf("resolveProfileSettings() storage = %v, want qdrant", args["storage"])
+	}
+}
+
+func TestResolveProfileSettings_ExplicitOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  code_collection: llm-tools-code
+  code_storage: qdrant
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	// Explicit collection and storage should NOT be overwritten by profile
+	args := map[string]interface{}{
+		"query":      "test",
+		"profile":    "code",
+		"config":     configPath,
+		"collection": "my-custom-collection",
+		"storage":    "sqlite",
+	}
+
+	err := resolveProfileSettings(args)
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	// Explicit values should be preserved
+	if args["collection"] != "my-custom-collection" {
+		t.Errorf("resolveProfileSettings() should preserve explicit collection, got %v", args["collection"])
+	}
+	if args["storage"] != "sqlite" {
+		t.Errorf("resolveProfileSettings() should preserve explicit storage, got %v", args["storage"])
+	}
+}
+
+func TestResolveProfileSettings_NoProfile(t *testing.T) {
+	// When no profile is provided, nothing should change
+	args := map[string]interface{}{
+		"query": "test",
+	}
+
+	err := resolveProfileSettings(args)
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	// No collection or storage should be added
+	if _, ok := args["collection"]; ok {
+		t.Error("resolveProfileSettings() should not add collection when no profile")
+	}
+	if _, ok := args["storage"]; ok {
+		t.Error("resolveProfileSettings() should not add storage when no profile")
+	}
+}
+
+func TestResolveProfileSettings_ProfileWithoutConfig(t *testing.T) {
+	// Profile without config should do nothing
+	args := map[string]interface{}{
+		"query":   "test",
+		"profile": "code",
+	}
+
+	err := resolveProfileSettings(args)
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	// No collection or storage should be added
+	if _, ok := args["collection"]; ok {
+		t.Error("resolveProfileSettings() should not add collection when no config")
+	}
+}
+
+func TestResolveProfileSettings_UnknownProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  code_collection: llm-tools-code
+  code_storage: qdrant
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	args := map[string]interface{}{
+		"query":   "test",
+		"profile": "unknown_profile",
+		"config":  configPath,
+	}
+
+	err := resolveProfileSettings(args)
+	if err == nil {
+		t.Error("resolveProfileSettings() expected error for unknown profile, got nil")
+	}
+}
+
+func TestResolveProfileSettings_MissingConfigFile(t *testing.T) {
+	args := map[string]interface{}{
+		"query":   "test",
+		"profile": "code",
+		"config":  "/nonexistent/config.yaml",
+	}
+
+	err := resolveProfileSettings(args)
+	if err == nil {
+		t.Error("resolveProfileSettings() expected error for missing config file, got nil")
+	}
+}
+
+func TestResolveProfileSettings_EmptyValues(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	// Config with empty values
+	configContent := `semantic:
+  code_collection: ""
+  code_storage: ""
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	args := map[string]interface{}{
+		"query":   "test",
+		"profile": "code",
+		"config":  configPath,
+	}
+
+	err := resolveProfileSettings(args)
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	// Empty values from config should not be set
+	if _, ok := args["collection"].(string); ok && args["collection"] != "" {
+		t.Errorf("resolveProfileSettings() should not set empty collection")
+	}
+}
+
+func TestResolveProfileSettings_PartialOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  code_collection: llm-tools-code
+  code_storage: qdrant
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	// Only collection is explicitly set, storage should come from profile
+	args := map[string]interface{}{
+		"query":      "test",
+		"profile":    "code",
+		"config":     configPath,
+		"collection": "my-custom-collection",
+	}
+
+	err := resolveProfileSettings(args)
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	// Explicit collection preserved
+	if args["collection"] != "my-custom-collection" {
+		t.Errorf("resolveProfileSettings() collection = %v, want my-custom-collection", args["collection"])
+	}
+	// Storage from profile
+	if args["storage"] != "qdrant" {
+		t.Errorf("resolveProfileSettings() storage = %v, want qdrant", args["storage"])
+	}
+}
+
+// Helper function to write test files
+func writeTestFile(path, content string) error {
+	return writeFile(path, []byte(content))
+}
+
+func writeFile(path string, data []byte) error {
+	return os.WriteFile(path, data, 0644)
+}
+
+// Additional tests for coverage
+
+func TestGetBool(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]interface{}
+		key      string
+		expected bool
+	}{
+		{"true value", map[string]interface{}{"flag": true}, "flag", true},
+		{"false value", map[string]interface{}{"flag": false}, "flag", false},
+		{"missing key", map[string]interface{}{}, "flag", false},
+		{"wrong type", map[string]interface{}{"flag": "true"}, "flag", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getBool(tt.args, tt.key)
+			if result != tt.expected {
+				t.Errorf("getBool() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetInt(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]interface{}
+		key      string
+		expected int
+		ok       bool
+	}{
+		{"int value", map[string]interface{}{"num": 42}, "num", 42, true},
+		{"float64 value", map[string]interface{}{"num": float64(42)}, "num", 42, true},
+		{"int64 value", map[string]interface{}{"num": int64(42)}, "num", 42, true},
+		{"missing key", map[string]interface{}{}, "num", 0, false},
+		{"wrong type", map[string]interface{}{"num": "42"}, "num", 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, ok := getInt(tt.args, tt.key)
+			if ok != tt.ok {
+				t.Errorf("getInt() ok = %v, want %v", ok, tt.ok)
+			}
+			if result != tt.expected {
+				t.Errorf("getInt() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetFloat(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]interface{}
+		key      string
+		expected float64
+		ok       bool
+	}{
+		{"float64 value", map[string]interface{}{"num": float64(3.14)}, "num", 3.14, true},
+		{"float32 value", map[string]interface{}{"num": float32(3.14)}, "num", float64(float32(3.14)), true},
+		{"int value", map[string]interface{}{"num": 42}, "num", 42.0, true},
+		{"missing key", map[string]interface{}{}, "num", 0, false},
+		{"wrong type", map[string]interface{}{"num": "3.14"}, "num", 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, ok := getFloat(tt.args, tt.key)
+			if ok != tt.ok {
+				t.Errorf("getFloat() ok = %v, want %v", ok, tt.ok)
+			}
+			if result != tt.expected {
+				t.Errorf("getFloat() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBuildIndexArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]interface{}
+		contains []string
+	}{
+		{
+			name:     "basic path",
+			args:     map[string]interface{}{"path": "/some/path"},
+			contains: []string{"index", "/some/path"},
+		},
+		{
+			name: "with includes",
+			args: map[string]interface{}{
+				"include": []interface{}{"*.go", "*.ts"},
+			},
+			contains: []string{"index", "--include", "*.go", "--include", "*.ts"},
+		},
+		{
+			name: "with excludes",
+			args: map[string]interface{}{
+				"exclude": []interface{}{"vendor", "node_modules"},
+			},
+			contains: []string{"index", "--exclude", "vendor", "--exclude", "node_modules"},
+		},
+		{
+			name:     "with force",
+			args:     map[string]interface{}{"force": true},
+			contains: []string{"index", "--force"},
+		},
+		{
+			name: "with storage and collection",
+			args: map[string]interface{}{
+				"storage":    "qdrant",
+				"collection": "my-collection",
+			},
+			contains: []string{"--storage", "qdrant", "--collection", "my-collection"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildIndexArgs(tt.args)
+			for _, expected := range tt.contains {
+				found := false
+				for _, arg := range result {
+					if arg == expected {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("buildIndexArgs() missing %q in %v", expected, result)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildStatusArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]interface{}
+		contains []string
+	}{
+		{
+			name:     "basic",
+			args:     map[string]interface{}{},
+			contains: []string{"index-status"},
+		},
+		{
+			name:     "with storage",
+			args:     map[string]interface{}{"storage": "qdrant"},
+			contains: []string{"index-status", "--storage", "qdrant"},
+		},
+		{
+			name:     "with collection",
+			args:     map[string]interface{}{"collection": "my-index"},
+			contains: []string{"index-status", "--collection", "my-index"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildStatusArgs(tt.args)
+			for _, expected := range tt.contains {
+				found := false
+				for _, arg := range result {
+					if arg == expected {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("buildStatusArgs() missing %q in %v", expected, result)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildUpdateArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]interface{}
+		contains []string
+	}{
+		{
+			name:     "basic",
+			args:     map[string]interface{}{},
+			contains: []string{"index-update"},
+		},
+		{
+			name:     "with path",
+			args:     map[string]interface{}{"path": "/some/path"},
+			contains: []string{"index-update", "/some/path"},
+		},
+		{
+			name: "with includes",
+			args: map[string]interface{}{
+				"include": []interface{}{"*.go"},
+			},
+			contains: []string{"index-update", "--include", "*.go"},
+		},
+		{
+			name: "with excludes",
+			args: map[string]interface{}{
+				"exclude": []interface{}{"vendor"},
+			},
+			contains: []string{"index-update", "--exclude", "vendor"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildUpdateArgs(tt.args)
+			for _, expected := range tt.contains {
+				found := false
+				for _, arg := range result {
+					if arg == expected {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("buildUpdateArgs() missing %q in %v", expected, result)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildSearchArgs_Basic(t *testing.T) {
+	args := map[string]interface{}{
+		"query": "test query",
+	}
+	result := buildSearchArgs(args)
+
+	if result[0] != "search" {
+		t.Errorf("buildSearchArgs() first arg = %s, want search", result[0])
+	}
+	if result[1] != "test query" {
+		t.Errorf("buildSearchArgs() query = %s, want 'test query'", result[1])
+	}
+}
+
+func TestBuildSearchArgs_WithMinFlag(t *testing.T) {
+	args := map[string]interface{}{
+		"query": "test",
+		"min":   true,
+	}
+	result := buildSearchArgs(args)
+
+	found := false
+	for _, arg := range result {
+		if arg == "--min" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("buildSearchArgs() missing --min flag")
+	}
+}
+
+func TestBuildArgs_AllCommands(t *testing.T) {
+	tests := []struct {
+		cmdName     string
+		args        map[string]interface{}
+		wantCommand string
+		wantErr     bool
+	}{
+		{"search", map[string]interface{}{"query": "test"}, "search", false},
+		{"index", map[string]interface{}{}, "index", false},
+		{"index_status", map[string]interface{}{}, "index-status", false},
+		{"index_update", map[string]interface{}{}, "index-update", false},
+		{"memory_store", map[string]interface{}{"question": "Q", "answer": "A"}, "memory", false},
+		{"memory_search", map[string]interface{}{"query": "test"}, "memory", false},
+		{"memory_promote", map[string]interface{}{"id": "123", "target": "CLAUDE.md"}, "memory", false},
+		{"memory_list", map[string]interface{}{}, "memory", false},
+		{"memory_delete", map[string]interface{}{"id": "123"}, "memory", false},
+		{"invalid_command", map[string]interface{}{}, "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.cmdName, func(t *testing.T) {
+			result, err := buildArgs(tt.cmdName, tt.args)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("buildArgs() expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("buildArgs() unexpected error: %v", err)
+				return
+			}
+
+			if result[0] != tt.wantCommand {
+				t.Errorf("buildArgs() first arg = %s, want %s", result[0], tt.wantCommand)
+			}
+		})
+	}
+}
+
+func TestResolveProfileSettings_EmptyProfile(t *testing.T) {
+	args := map[string]interface{}{
+		"query":   "test",
+		"profile": "",
+		"config":  "/some/config.yaml",
+	}
+
+	err := resolveProfileSettings(args)
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	// Nothing should be added with empty profile
+	if _, ok := args["collection"]; ok {
+		t.Error("resolveProfileSettings() should not add collection with empty profile")
+	}
+}
+
+func TestResolveProfileSettings_EmptyConfig(t *testing.T) {
+	args := map[string]interface{}{
+		"query":   "test",
+		"profile": "code",
+		"config":  "",
+	}
+
+	err := resolveProfileSettings(args)
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	// Nothing should be added with empty config
+	if _, ok := args["collection"]; ok {
+		t.Error("resolveProfileSettings() should not add collection with empty config")
+	}
+}
+
+func TestBuildMemoryStoreArgs_AllParams(t *testing.T) {
+	args := map[string]interface{}{
+		"question":   "Q",
+		"answer":     "A",
+		"tags":       "tag1,tag2",
+		"source":     "manual",
+		"storage":    "qdrant",
+		"collection": "my-collection",
+	}
+
+	result := buildMemoryStoreArgs(args)
+
+	expected := []string{
+		"--question", "Q",
+		"--answer", "A",
+		"--tags", "tag1,tag2",
+		"--source", "manual",
+		"--storage", "qdrant",
+		"--collection", "my-collection",
+	}
+
+	for i := 0; i < len(expected); i += 2 {
+		found := false
+		for j := 2; j < len(result)-1; j++ {
+			if result[j] == expected[i] && result[j+1] == expected[i+1] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("buildMemoryStoreArgs() missing %s %s", expected[i], expected[i+1])
+		}
+	}
+}
+
+func TestBuildMemoryListArgs_AllParams(t *testing.T) {
+	args := map[string]interface{}{
+		"limit":      float64(50),
+		"status":     "pending",
+		"storage":    "sqlite",
+		"collection": "memory-collection",
+	}
+
+	result := buildMemoryListArgs(args)
+
+	if result[0] != "memory" || result[1] != "list" {
+		t.Errorf("buildMemoryListArgs() should start with [memory, list], got %v", result[:2])
+	}
+
+	// Check limit
+	foundLimit := false
+	for i, arg := range result {
+		if arg == "--limit" && i+1 < len(result) && result[i+1] == "50" {
+			foundLimit = true
+			break
+		}
+	}
+	if !foundLimit {
+		t.Errorf("buildMemoryListArgs() missing --limit 50")
+	}
+}
+
+func TestBuildMemorySearchArgs_AllParams(t *testing.T) {
+	args := map[string]interface{}{
+		"query":      "search query",
+		"top_k":      float64(10),
+		"threshold":  0.5,
+		"tags":       "tag1",
+		"status":     "promoted",
+		"storage":    "qdrant",
+		"collection": "mem-collection",
+	}
+
+	result := buildMemorySearchArgs(args)
+
+	expected := []string{
+		"--top", "--threshold", "--tags", "--status", "--storage", "--collection",
+	}
+
+	for _, flag := range expected {
+		found := false
+		for _, arg := range result {
+			if arg == flag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("buildMemorySearchArgs() missing flag %s", flag)
+		}
+	}
+}
+
+func TestBuildMemoryPromoteArgs_AllParams(t *testing.T) {
+	args := map[string]interface{}{
+		"id":         "mem-123",
+		"target":     "CLAUDE.md",
+		"section":    "My Section",
+		"force":      true,
+		"storage":    "qdrant",
+		"collection": "mem-collection",
+	}
+
+	result := buildMemoryPromoteArgs(args)
+
+	for _, flag := range []string{"--target", "--section", "--force", "--storage", "--collection"} {
+		found := false
+		for _, arg := range result {
+			if arg == flag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("buildMemoryPromoteArgs() missing flag %s in %v", flag, result)
+		}
+	}
+}
+
+func TestBuildMemoryDeleteArgs_AllParams(t *testing.T) {
+	args := map[string]interface{}{
+		"id":         "mem-456",
+		"force":      true,
+		"storage":    "sqlite",
+		"collection": "del-collection",
+	}
+
+	result := buildMemoryDeleteArgs(args)
+
+	if result[0] != "memory" || result[1] != "delete" || result[2] != "mem-456" {
+		t.Errorf("buildMemoryDeleteArgs() should start with [memory, delete, mem-456], got %v", result[:3])
+	}
+
+	for _, flag := range []string{"--force", "--storage", "--collection"} {
+		found := false
+		for _, arg := range result {
+			if arg == flag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("buildMemoryDeleteArgs() missing flag %s", flag)
 		}
 	}
 }

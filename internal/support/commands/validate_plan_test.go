@@ -66,6 +66,7 @@ func TestValidatePlanMissingPlanMD(t *testing.T) {
 	// Create structure without plan.md
 	os.MkdirAll(filepath.Join(planDir, "user-stories"), 0755)
 	os.MkdirAll(filepath.Join(planDir, "acceptance-criteria"), 0755)
+	os.WriteFile(filepath.Join(planDir, "original-requirements.md"), []byte("# Requirements"), 0644)
 	os.WriteFile(filepath.Join(planDir, "user-stories", "01-story.md"), []byte("# Story"), 0644)
 	os.WriteFile(filepath.Join(planDir, "acceptance-criteria", "01-01-criteria.md"), []byte("# AC"), 0644)
 
@@ -86,6 +87,34 @@ func TestValidatePlanMissingPlanMD(t *testing.T) {
 	}
 }
 
+func TestValidatePlanMissingOriginalRequirements(t *testing.T) {
+	tmpDir := t.TempDir()
+	planDir := filepath.Join(tmpDir, "test-plan")
+
+	// Create structure without original-requirements.md
+	os.MkdirAll(filepath.Join(planDir, "user-stories"), 0755)
+	os.MkdirAll(filepath.Join(planDir, "acceptance-criteria"), 0755)
+	os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Plan"), 0644)
+	os.WriteFile(filepath.Join(planDir, "user-stories", "01-story.md"), []byte("# Story"), 0644)
+	os.WriteFile(filepath.Join(planDir, "acceptance-criteria", "01-01-criteria.md"), []byte("# AC"), 0644)
+
+	cmd := newValidatePlanCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--path", planDir})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for missing original-requirements.md")
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "missing required file: original-requirements.md") {
+		t.Errorf("expected 'missing required file: original-requirements.md' in output, got: %s", output)
+	}
+}
+
 func TestValidatePlanMissingUserStories(t *testing.T) {
 	tmpDir := t.TempDir()
 	planDir := filepath.Join(tmpDir, "test-plan")
@@ -93,6 +122,7 @@ func TestValidatePlanMissingUserStories(t *testing.T) {
 	// Create structure without user-stories
 	os.MkdirAll(filepath.Join(planDir, "acceptance-criteria"), 0755)
 	os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Plan"), 0644)
+	os.WriteFile(filepath.Join(planDir, "original-requirements.md"), []byte("# Requirements"), 0644)
 	os.WriteFile(filepath.Join(planDir, "acceptance-criteria", "01-01-criteria.md"), []byte("# AC"), 0644)
 
 	cmd := newValidatePlanCmd()
@@ -197,6 +227,7 @@ func TestValidatePlanEmptyDirectories(t *testing.T) {
 	os.MkdirAll(filepath.Join(planDir, "user-stories"), 0755)
 	os.MkdirAll(filepath.Join(planDir, "acceptance-criteria"), 0755)
 	os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Plan"), 0644)
+	os.WriteFile(filepath.Join(planDir, "original-requirements.md"), []byte("# Requirements"), 0644)
 
 	cmd := newValidatePlanCmd()
 	buf := new(bytes.Buffer)
@@ -236,7 +267,6 @@ func TestValidatePlanWithOptionalFiles(t *testing.T) {
 	createValidPlanStructure(t, planDir)
 
 	// Add optional files
-	os.WriteFile(filepath.Join(planDir, "original-request.md"), []byte("# Request"), 0644)
 	os.WriteFile(filepath.Join(planDir, "sprint-design.md"), []byte("# Design"), 0644)
 	os.MkdirAll(filepath.Join(planDir, "documentation"), 0755)
 
@@ -255,14 +285,10 @@ func TestValidatePlanWithOptionalFiles(t *testing.T) {
 	}
 
 	// Check optional files are detected
-	foundRequest := false
 	foundDesign := false
 	foundDocs := false
 
 	for _, f := range result.OptionalFiles {
-		if f.Path == "original-request.md" && f.Exists {
-			foundRequest = true
-		}
 		if f.Path == "sprint-design.md" && f.Exists {
 			foundDesign = true
 		}
@@ -271,9 +297,6 @@ func TestValidatePlanWithOptionalFiles(t *testing.T) {
 		}
 	}
 
-	if !foundRequest {
-		t.Error("expected original-request.md to be detected")
-	}
 	if !foundDesign {
 		t.Error("expected sprint-design.md to be detected")
 	}
@@ -338,6 +361,7 @@ func createValidPlanStructure(t *testing.T, planDir string) {
 	os.MkdirAll(filepath.Join(planDir, "acceptance-criteria"), 0755)
 
 	os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Test Plan\n\nPlan content here."), 0644)
+	os.WriteFile(filepath.Join(planDir, "original-requirements.md"), []byte("# Original Requirements\n\nRequirements here."), 0644)
 	os.WriteFile(filepath.Join(planDir, "user-stories", "01-story.md"), []byte("# User Story 01"), 0644)
 	os.WriteFile(filepath.Join(planDir, "acceptance-criteria", "01-01-criteria.md"), []byte("# AC 01-01"), 0644)
 }

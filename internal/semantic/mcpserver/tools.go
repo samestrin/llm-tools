@@ -62,6 +62,14 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "string",
 						"description": "Collection name for qdrant storage (default: llm_semantic)"
 					},
+					"profile": {
+						"type": "string",
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+					},
 					"hybrid": {
 						"type": "boolean",
 						"description": "Enable hybrid search (dense + lexical with RRF fusion)"
@@ -110,6 +118,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"collection": {
 						"type": "string",
 						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					},
+					"profile": {
+						"type": "string",
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
 					}
 				}
 			}`),
@@ -152,6 +168,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"collection": {
 						"type": "string",
 						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					},
+					"profile": {
+						"type": "string",
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
 					}
 				}
 			}`),
@@ -190,6 +214,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"collection": {
 						"type": "string",
 						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					},
+					"profile": {
+						"type": "string",
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
 					}
 				}
 			}`),
@@ -234,6 +266,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"collection": {
 						"type": "string",
 						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					},
+					"profile": {
+						"type": "string",
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
 					}
 				},
 				"required": ["question", "answer"]
@@ -284,6 +324,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"collection": {
 						"type": "string",
 						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					},
+					"profile": {
+						"type": "string",
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
 					}
 				},
 				"required": ["query"]
@@ -329,6 +377,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"collection": {
 						"type": "string",
 						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					},
+					"profile": {
+						"type": "string",
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
 					}
 				},
 				"required": ["id", "target"]
@@ -367,6 +423,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"collection": {
 						"type": "string",
 						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					},
+					"profile": {
+						"type": "string",
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
 					}
 				}
 			}`),
@@ -403,6 +467,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"collection": {
 						"type": "string",
 						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					},
+					"profile": {
+						"type": "string",
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
 					}
 				},
 				"required": ["id"]
