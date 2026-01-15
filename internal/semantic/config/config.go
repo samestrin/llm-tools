@@ -122,3 +122,36 @@ func IsValidProfile(profile string) bool {
 	}
 	return false
 }
+
+// ResolveValue returns the explicit value if non-empty, otherwise the config value.
+// This implements the precedence: explicit > config > default.
+func ResolveValue(explicit, configValue string) string {
+	if explicit != "" {
+		return explicit
+	}
+	return configValue
+}
+
+// ResolveFloatValue returns the first non-zero value from explicit, config, or default.
+// This implements the precedence: explicit > config > default.
+func ResolveFloatValue(explicit, configValue, defaultValue float64) float64 {
+	if explicit != 0 {
+		return explicit
+	}
+	if configValue != 0 {
+		return configValue
+	}
+	return defaultValue
+}
+
+// ResolveIntValue returns the first non-zero value from explicit, config, or default.
+// This implements the precedence: explicit > config > default.
+func ResolveIntValue(explicit, configValue, defaultValue int) int {
+	if explicit != 0 {
+		return explicit
+	}
+	if configValue != 0 {
+		return configValue
+	}
+	return defaultValue
+}

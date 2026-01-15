@@ -284,3 +284,72 @@ func TestIsValidProfile(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveValue_ExplicitOverridesConfig(t *testing.T) {
+	cfg := &SemanticConfig{
+		CodeCollection: "config-collection",
+		CodeStorage:    "qdrant",
+		MinScore:       0.5,
+	}
+
+	// Test that ResolveValue returns explicit value when provided
+	explicit := "explicit-collection"
+	result := ResolveValue(explicit, cfg.CodeCollection)
+	if result != explicit {
+		t.Errorf("expected explicit value %q, got %q", explicit, result)
+	}
+
+	// Test that ResolveValue returns config value when explicit is empty
+	result = ResolveValue("", cfg.CodeCollection)
+	if result != cfg.CodeCollection {
+		t.Errorf("expected config value %q, got %q", cfg.CodeCollection, result)
+	}
+}
+
+func TestResolveFloatValue(t *testing.T) {
+	cfg := &SemanticConfig{
+		MinScore: 0.5,
+	}
+
+	// Explicit non-zero overrides
+	result := ResolveFloatValue(0.8, cfg.MinScore, 0.0)
+	if result != 0.8 {
+		t.Errorf("expected 0.8, got %f", result)
+	}
+
+	// Zero explicit falls back to config
+	result = ResolveFloatValue(0.0, cfg.MinScore, 0.0)
+	if result != 0.5 {
+		t.Errorf("expected 0.5, got %f", result)
+	}
+
+	// Both zero falls back to default
+	result = ResolveFloatValue(0.0, 0.0, 0.7)
+	if result != 0.7 {
+		t.Errorf("expected 0.7, got %f", result)
+	}
+}
+
+func TestResolveIntValue(t *testing.T) {
+	cfg := &SemanticConfig{
+		MaxResults: 20,
+	}
+
+	// Explicit non-zero overrides
+	result := ResolveIntValue(50, cfg.MaxResults, 10)
+	if result != 50 {
+		t.Errorf("expected 50, got %d", result)
+	}
+
+	// Zero explicit falls back to config
+	result = ResolveIntValue(0, cfg.MaxResults, 10)
+	if result != 20 {
+		t.Errorf("expected 20, got %d", result)
+	}
+
+	// Both zero falls back to default
+	result = ResolveIntValue(0, 0, 10)
+	if result != 10 {
+		t.Errorf("expected 10, got %d", result)
+	}
+}
