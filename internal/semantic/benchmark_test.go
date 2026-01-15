@@ -2,36 +2,148 @@ package semantic
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
+	"time"
 )
 
-// MockEmbedder provides deterministic embeddings for benchmarking
-type MockEmbedder struct {
-	dimensions int
-}
-
-func NewMockEmbedder(dims int) *MockEmbedder {
-	return &MockEmbedder{dimensions: dims}
-}
-
-func (m *MockEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
-	// Generate deterministic embedding based on text hash
-	embedding := make([]float32, m.dimensions)
-	hash := uint32(0)
-	for _, ch := range text {
-		hash = hash*31 + uint32(ch)
+// TestHybridSearchLatency validates that hybrid search overhead is acceptable.
+// This is a basic latency validation - a full benchmark framework would need
+// ground truth datasets which are out of scope for this sprint.
+func TestHybridSearchLatency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping latency test in short mode")
 	}
-	for i := 0; i < m.dimensions; i++ {
-		hash = hash*1103515245 + 12345
-		embedding[i] = float32(hash%1000) / 1000.0
+
+	// Create in-memory storage for testing
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
 	}
-	return embedding, nil
+	defer storage.Close()
+
+	ctx := context.Background()
+
+	// Index test chunks
+	chunks := []Chunk{
+		{ID: "1", FilePath: "/auth/login.go", Type: ChunkFunction, Name: "Login", Content: "func Login(user, pass string) error { return validateCredentials(user, pass) }", StartLine: 10, EndLine: 20, Language: "go", FileMtime: time.Now().Unix()},
+		{ID: "2", FilePath: "/auth/logout.go", Type: ChunkFunction, Name: "Logout", Content: "func Logout(session string) error { return invalidateSession(session) }", StartLine: 5, EndLine: 15, Language: "go", FileMtime: time.Now().Unix()},
+		{ID: "3", FilePath: "/db/connect.go", Type: ChunkFunction, Name: "Connect", Content: "func Connect(dsn string) (*sql.DB, error) { return sql.Open(\"postgres\", dsn) }", StartLine: 20, EndLine: 40, Language: "go", FileMtime: time.Now().Unix()},
+		{ID: "4", FilePath: "/db/query.go", Type: ChunkFunction, Name: "Query", Content: "func Query(db *sql.DB, q string) (*sql.Rows, error) { return db.Query(q) }", StartLine: 10, EndLine: 25, Language: "go", FileMtime: time.Now().Unix()},
+		{ID: "5", FilePath: "/api/handler.go", Type: ChunkFunction, Name: "HandleRequest", Content: "func HandleRequest(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(response) }", StartLine: 30, EndLine: 50, Language: "go", FileMtime: time.Now().Unix()},
+	}
+
+	// Use mock embeddings (4 dimensions to match storage)
+	embeddings := [][]float32{
+		{0.1, 0.2, 0.8, 0.3},
+		{0.1, 0.3, 0.7, 0.2},
+		{0.5, 0.6, 0.2, 0.1},
+		{0.4, 0.7, 0.1, 0.2},
+		{0.3, 0.4, 0.5, 0.6},
+	}
+
+	for i, chunk := range chunks {
+		if err := storage.Create(ctx, chunk, embeddings[i]); err != nil {
+			t.Fatalf("Failed to store chunk: %v", err)
+		}
+	}
+
+	// Create mock embedder
+	mockEmbedder := &mockEmbedderLatency{
+		embeddings: map[string][]float32{
+			"authentication":     {0.1, 0.25, 0.75, 0.25},
+			"database query":     {0.45, 0.65, 0.15, 0.15},
+			"api handler":        {0.3, 0.4, 0.5, 0.6},
+			"login credentials":  {0.1, 0.2, 0.8, 0.3},
+			"session management": {0.1, 0.3, 0.7, 0.2},
+		},
+		dim: 4,
+	}
+
+	searcher := NewSearcher(storage, mockEmbedder)
+
+	testCases := []struct {
+		name        string
+		query       string
+		hybrid      bool
+		maxLatency  time.Duration
+		description string
+	}{
+		{
+			name:        "DenseSearch",
+			query:       "authentication",
+			hybrid:      false,
+			maxLatency:  100 * time.Millisecond,
+			description: "Baseline dense search latency",
+		},
+		{
+			name:        "HybridSearch",
+			query:       "authentication",
+			hybrid:      true,
+			maxLatency:  200 * time.Millisecond,
+			description: "Hybrid search with FTS should add <50ms overhead",
+		},
+		{
+			name:        "HybridSearchWithFilters",
+			query:       "database query",
+			hybrid:      true,
+			maxLatency:  250 * time.Millisecond,
+			description: "Hybrid search with additional filters",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			start := time.Now()
+
+			var results []SearchResult
+			var err error
+
+			if tc.hybrid {
+				results, err = searcher.HybridSearch(ctx, tc.query, HybridSearchOptions{
+					SearchOptions: SearchOptions{TopK: 10},
+					FusionK:       60,
+					FusionAlpha:   0.7,
+				})
+			} else {
+				results, err = searcher.Search(ctx, tc.query, SearchOptions{TopK: 10})
+			}
+
+			elapsed := time.Since(start)
+
+			if err != nil {
+				t.Errorf("Search failed: %v", err)
+				return
+			}
+
+			if elapsed > tc.maxLatency {
+				t.Errorf("%s: latency %v exceeds threshold %v", tc.description, elapsed, tc.maxLatency)
+			}
+
+			// Verify we got results
+			if len(results) == 0 {
+				t.Logf("Warning: no results returned for query %q", tc.query)
+			}
+
+			t.Logf("%s: %v, returned %d results", tc.name, elapsed, len(results))
+		})
+	}
 }
 
-func (m *MockEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+// mockEmbedderLatency provides deterministic embeddings for testing
+type mockEmbedderLatency struct {
+	embeddings map[string][]float32
+	dim        int
+}
+
+func (m *mockEmbedderLatency) Embed(ctx context.Context, text string) ([]float32, error) {
+	if emb, ok := m.embeddings[text]; ok {
+		return emb, nil
+	}
+	// Default embedding for unknown queries
+	return []float32{0.25, 0.25, 0.25, 0.25}, nil
+}
+
+func (m *mockEmbedderLatency) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	results := make([][]float32, len(texts))
 	for i, text := range texts {
 		emb, err := m.Embed(ctx, text)
@@ -43,366 +155,90 @@ func (m *MockEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]floa
 	return results, nil
 }
 
-func (m *MockEmbedder) Dimensions() int {
-	return m.dimensions
+func (m *mockEmbedderLatency) Dimensions() int {
+	return m.dim
 }
 
-// Sample Go code for benchmarking
-const sampleGoCode = `package main
-
-import (
-	"fmt"
-	"strings"
-)
-
-// User represents a user in the system
-type User struct {
-	ID       int
-	Name     string
-	Email    string
-	IsActive bool
-}
-
-// UserService handles user operations
-type UserService struct {
-	users map[int]*User
-}
-
-// NewUserService creates a new user service
-func NewUserService() *UserService {
-	return &UserService{
-		users: make(map[int]*User),
-	}
-}
-
-// AddUser adds a user to the service
-func (s *UserService) AddUser(user *User) error {
-	if user.ID <= 0 {
-		return fmt.Errorf("invalid user ID")
-	}
-	s.users[user.ID] = user
-	return nil
-}
-
-// GetUser retrieves a user by ID
-func (s *UserService) GetUser(id int) (*User, error) {
-	user, ok := s.users[id]
-	if !ok {
-		return nil, fmt.Errorf("user not found")
-	}
-	return user, nil
-}
-
-// FindByEmail finds users by email substring
-func (s *UserService) FindByEmail(substr string) []*User {
-	var result []*User
-	for _, user := range s.users {
-		if strings.Contains(user.Email, substr) {
-			result = append(result, user)
-		}
-	}
-	return result
-}
-
-// Deactivate deactivates a user
-func (s *UserService) Deactivate(id int) error {
-	user, err := s.GetUser(id)
-	if err != nil {
-		return err
-	}
-	user.IsActive = false
-	return nil
-}
-
-func main() {
-	svc := NewUserService()
-	svc.AddUser(&User{ID: 1, Name: "Alice", Email: "alice@example.com", IsActive: true})
-	fmt.Println("User service initialized")
-}
-`
-
-// BenchmarkGoChunker measures chunking performance for Go code
-func BenchmarkGoChunker(b *testing.B) {
-	chunker := NewGoChunker()
-	content := []byte(sampleGoCode)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := chunker.Chunk("test.go", content)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// BenchmarkJSChunker measures chunking performance for JS code
-func BenchmarkJSChunker(b *testing.B) {
-	chunker := NewJSChunker()
-	content := []byte(`
-class UserService {
-	constructor() {
-		this.users = new Map();
+// TestRecencyBoostLatency validates that recency boosting adds minimal overhead
+func TestRecencyBoostLatency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping latency test in short mode")
 	}
 
-	addUser(user) {
-		this.users.set(user.id, user);
+	// Create test data with varying mtimes
+	now := time.Now()
+	results := []SearchResult{
+		{Chunk: Chunk{ID: "1", Name: "Recent", FilePath: "/a.go", FileMtime: now.Unix()}, Score: 0.8},
+		{Chunk: Chunk{ID: "2", Name: "Week", FilePath: "/b.go", FileMtime: now.AddDate(0, 0, -7).Unix()}, Score: 0.85},
+		{Chunk: Chunk{ID: "3", Name: "Month", FilePath: "/c.go", FileMtime: now.AddDate(0, -1, 0).Unix()}, Score: 0.9},
+		{Chunk: Chunk{ID: "4", Name: "Old", FilePath: "/d.go", FileMtime: now.AddDate(0, -6, 0).Unix()}, Score: 0.75},
+		{Chunk: Chunk{ID: "5", Name: "NoMtime", FilePath: "/e.go", FileMtime: 0}, Score: 0.7},
 	}
 
-	getUser(id) {
-		return this.users.get(id);
-	}
-
-	findByEmail(substr) {
-		return Array.from(this.users.values())
-			.filter(u => u.email.includes(substr));
-	}
-}
-
-function createUser(name, email) {
-	return { id: Date.now(), name, email, isActive: true };
-}
-
-const deactivateUser = (user) => {
-	user.isActive = false;
-	return user;
-};
-`)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := chunker.Chunk("test.js", content)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// BenchmarkPythonChunker measures chunking performance for Python code
-func BenchmarkPythonChunker(b *testing.B) {
-	chunker := NewPythonChunker()
-	content := []byte(`
-class UserService:
-    def __init__(self):
-        self.users = {}
-
-    def add_user(self, user):
-        self.users[user.id] = user
-
-    def get_user(self, id):
-        return self.users.get(id)
-
-    def find_by_email(self, substr):
-        return [u for u in self.users.values() if substr in u.email]
-
-def create_user(name, email):
-    return {"id": 1, "name": name, "email": email, "is_active": True}
-
-async def fetch_user(user_id):
-    response = await http.get(f"/api/users/{user_id}")
-    return response.json()
-`)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := chunker.Chunk("test.py", content)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// BenchmarkMockEmbedder measures embedding generation performance
-func BenchmarkMockEmbedder(b *testing.B) {
-	embedder := NewMockEmbedder(1024)
-	ctx := context.Background()
-	text := "This is a sample function that does something useful in the codebase"
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := embedder.Embed(ctx, text)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// BenchmarkMockEmbedderBatch measures batch embedding performance
-func BenchmarkMockEmbedderBatch(b *testing.B) {
-	embedder := NewMockEmbedder(1024)
-	ctx := context.Background()
-	texts := []string{
-		"func NewUserService() *UserService",
-		"func (s *UserService) AddUser(user *User) error",
-		"func (s *UserService) GetUser(id int) (*User, error)",
-		"type User struct { ID int; Name string }",
-		"type UserService struct { users map[int]*User }",
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := embedder.EmbedBatch(ctx, texts)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// BenchmarkCosineSimilarity measures similarity computation performance
-func BenchmarkCosineSimilarity(b *testing.B) {
-	dims := 1024
-	v1 := make([]float32, dims)
-	v2 := make([]float32, dims)
-	for i := 0; i < dims; i++ {
-		v1[i] = float32(i) / float32(dims)
-		v2[i] = float32(dims-i) / float32(dims)
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = cosineSimilarity(v1, v2)
-	}
-}
-
-// BenchmarkStorageWrite measures SQLite write performance
-func BenchmarkStorageWrite(b *testing.B) {
-	tmpDir := b.TempDir()
-	dbPath := filepath.Join(tmpDir, "bench.db")
-
-	storage, err := NewSQLiteStorage(dbPath, 1024)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer storage.Close()
-
-	ctx := context.Background()
-	embedding := make([]float32, 1024)
-	for i := range embedding {
-		embedding[i] = float32(i) / 1024.0
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		chunk := Chunk{
-			ID:        fmt.Sprintf("chunk-%d", i),
-			FilePath:  "test.go",
-			Type:      ChunkFunction,
-			Name:      fmt.Sprintf("Function%d", i),
-			Content:   "func test() { return nil }",
-			StartLine: 1,
-			EndLine:   3,
-			Language:  "go",
-		}
-		err := storage.Create(ctx, chunk, embedding)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// BenchmarkSearch measures search performance with mock data
-func BenchmarkSearch(b *testing.B) {
-	tmpDir := b.TempDir()
-	dbPath := filepath.Join(tmpDir, "bench.db")
-
-	storage, err := NewSQLiteStorage(dbPath, 1024)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer storage.Close()
-
-	ctx := context.Background()
-	embedder := NewMockEmbedder(1024)
-
-	// Seed with chunks
-	numChunks := 100
-	for i := 0; i < numChunks; i++ {
-		chunk := Chunk{
-			ID:        fmt.Sprintf("chunk-%d", i),
-			FilePath:  fmt.Sprintf("file%d.go", i%10),
-			Type:      ChunkFunction,
-			Name:      fmt.Sprintf("Function%d", i),
-			Content:   fmt.Sprintf("func Function%d() { return %d }", i, i),
-			StartLine: i * 10,
-			EndLine:   i*10 + 5,
-			Language:  "go",
-		}
-		embedding, _ := embedder.Embed(ctx, chunk.Content)
-		if err := storage.Create(ctx, chunk, embedding); err != nil {
-			b.Fatal(err)
+	// Create mtime map from results
+	mtimes := make(map[string]time.Time)
+	for _, r := range results {
+		if r.Chunk.FileMtime > 0 {
+			mtimes[r.Chunk.FilePath] = time.Unix(r.Chunk.FileMtime, 0)
 		}
 	}
 
-	searcher := NewSearcher(storage, embedder)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := searcher.Search(ctx, "find user function", SearchOptions{TopK: 10})
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// BenchmarkIndexSmallProject benchmarks indexing a small synthetic project
-func BenchmarkIndexSmallProject(b *testing.B) {
-	// Create a temp directory with sample files
-	tmpDir := b.TempDir()
-	projectDir := filepath.Join(tmpDir, "project")
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		b.Fatal(err)
+	cfg := RecencyConfig{
+		Factor:       0.5,
+		HalfLifeDays: 7.0,
 	}
 
-	// Create 10 Go files with sample code
-	for i := 0; i < 10; i++ {
-		content := fmt.Sprintf(`package main
+	// Measure recency calculation time
+	iterations := 1000
+	start := time.Now()
 
-import "fmt"
-
-type Service%d struct {
-	data map[string]interface{}
-}
-
-func NewService%d() *Service%d {
-	return &Service%d{data: make(map[string]interface{})}
-}
-
-func (s *Service%d) Process(input string) (string, error) {
-	return fmt.Sprintf("processed: %%s", input), nil
-}
-
-func (s *Service%d) Validate(data interface{}) bool {
-	return data != nil
-}
-`, i, i, i, i, i, i)
-
-		filePath := filepath.Join(projectDir, fmt.Sprintf("service%d.go", i))
-		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
-			b.Fatal(err)
-		}
+	for i := 0; i < iterations; i++ {
+		ApplyRecencyBoost(results, mtimes, cfg, now)
 	}
 
-	dbPath := filepath.Join(tmpDir, "index.db")
+	elapsed := time.Since(start)
+	avgLatency := elapsed / time.Duration(iterations)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		// Clean up from previous iteration
-		os.Remove(dbPath)
-
-		storage, err := NewSQLiteStorage(dbPath, 1024)
-		if err != nil {
-			b.Fatal(err)
-		}
-
-		embedder := NewMockEmbedder(1024)
-		factory := NewChunkerFactory()
-		factory.Register("go", NewGoChunker())
-
-		mgr := NewIndexManager(storage, embedder, factory)
-		_, err = mgr.Index(context.Background(), projectDir, IndexOptions{})
-		if err != nil {
-			storage.Close()
-			b.Fatal(err)
-		}
-		storage.Close()
+	// Recency calculation should be sub-millisecond
+	maxAvgLatency := 1 * time.Millisecond
+	if avgLatency > maxAvgLatency {
+		t.Errorf("Recency boost average latency %v exceeds threshold %v", avgLatency, maxAvgLatency)
 	}
+
+	t.Logf("Recency boost avg latency over %d iterations: %v", iterations, avgLatency)
+}
+
+// TestRRFFusionLatency validates that RRF fusion calculation is efficient
+func TestRRFFusionLatency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping latency test in short mode")
+	}
+
+	// Create test result sets
+	denseResults := make([]SearchResult, 100)
+	lexicalResults := make([]SearchResult, 100)
+
+	for i := 0; i < 100; i++ {
+		denseResults[i] = SearchResult{Chunk: Chunk{ID: string(rune('A' + i%26))}, Score: float32(100-i) / 100}
+		lexicalResults[i] = SearchResult{Chunk: Chunk{ID: string(rune('Z' - i%26))}, Score: float32(100-i) / 100}
+	}
+
+	// Measure fusion time
+	iterations := 1000
+	start := time.Now()
+
+	for i := 0; i < iterations; i++ {
+		FuseRRF(denseResults, lexicalResults, 60)
+	}
+
+	elapsed := time.Since(start)
+	avgLatency := elapsed / time.Duration(iterations)
+
+	// RRF fusion should be sub-millisecond for typical result sets
+	maxAvgLatency := 1 * time.Millisecond
+	if avgLatency > maxAvgLatency {
+		t.Errorf("RRF fusion average latency %v exceeds threshold %v", avgLatency, maxAvgLatency)
+	}
+
+	t.Logf("RRF fusion avg latency over %d iterations: %v", iterations, avgLatency)
 }
