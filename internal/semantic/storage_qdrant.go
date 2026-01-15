@@ -30,6 +30,8 @@ type QdrantConfig struct {
 	URL            string // Full URL like https://abc123.qdrant.io:6334
 	CollectionName string
 	EmbeddingDim   int
+	FTSDataDir     string // Directory for parallel FTS database (default: ~/.llm-semantic/)
+	InMemoryFTS    bool   // Use in-memory FTS (for testing)
 }
 
 // Validate checks if the config is valid
@@ -56,6 +58,7 @@ type QdrantStorage struct {
 	embeddingDim   int
 	mu             sync.RWMutex
 	closed         bool
+	parallelFTS    *LexicalIndex // Parallel FTS5 index for lexical search
 }
 
 // NewQdrantStorage creates a new Qdrant-based storage
@@ -105,6 +108,25 @@ func NewQdrantStorage(config QdrantConfig) (*QdrantStorage, error) {
 		client.Close()
 		return nil, fmt.Errorf("failed to ensure collection: %w", err)
 	}
+
+	// Initialize parallel FTS index for lexical search
+	var ftsPath string
+	if config.InMemoryFTS {
+		ftsPath = ":memory:"
+	} else {
+		ftsPath = getFTSPath(config.CollectionName, config.FTSDataDir)
+		if ftsPath == "" {
+			client.Close()
+			return nil, fmt.Errorf("failed to determine FTS database path: cannot get home directory")
+		}
+	}
+
+	fts, err := NewLexicalIndex(ftsPath, config.EmbeddingDim)
+	if err != nil {
+		client.Close()
+		return nil, fmt.Errorf("failed to create parallel FTS index: %w", err)
+	}
+	storage.parallelFTS = fts
 
 	return storage, nil
 }
@@ -195,6 +217,14 @@ func (s *QdrantStorage) Create(ctx context.Context, chunk Chunk, embedding []flo
 		return fmt.Errorf("failed to upsert point: %w", err)
 	}
 
+	// Sync to parallel FTS index
+	if s.parallelFTS != nil {
+		if err := s.parallelFTS.IndexChunk(ctx, chunk); err != nil {
+			// Log but don't fail - FTS is supplementary
+			// In production, consider returning error or using a background sync
+		}
+	}
+
 	return nil
 }
 
@@ -223,6 +253,17 @@ func (s *QdrantStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbed
 	})
 	if err != nil {
 		return fmt.Errorf("failed to batch upsert points: %w", err)
+	}
+
+	// Sync to parallel FTS index
+	if s.parallelFTS != nil {
+		chunkList := make([]Chunk, len(chunks))
+		for i, cwe := range chunks {
+			chunkList[i] = cwe.Chunk
+		}
+		if err := s.parallelFTS.IndexBatch(ctx, chunkList); err != nil {
+			// Log but don't fail - FTS is supplementary
+		}
 	}
 
 	return nil
@@ -292,6 +333,11 @@ func (s *QdrantStorage) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to delete point: %w", err)
 	}
 
+	// Sync to parallel FTS index
+	if s.parallelFTS != nil {
+		s.parallelFTS.DeleteChunk(ctx, id)
+	}
+
 	return nil
 }
 
@@ -338,6 +384,11 @@ func (s *QdrantStorage) DeleteByFilePath(ctx context.Context, filePath string) (
 	})
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete points: %w", err)
+	}
+
+	// Sync to parallel FTS index
+	if s.parallelFTS != nil {
+		s.parallelFTS.DeleteByFilePath(ctx, filePath)
 	}
 
 	return count, nil
@@ -534,6 +585,11 @@ func (s *QdrantStorage) Clear(ctx context.Context) error {
 		return fmt.Errorf("failed to clear collection: %w", err)
 	}
 
+	// Sync to parallel FTS index
+	if s.parallelFTS != nil {
+		s.parallelFTS.Clear(ctx)
+	}
+
 	return nil
 }
 
@@ -546,7 +602,30 @@ func (s *QdrantStorage) Close() error {
 	}
 
 	s.closed = true
+
+	// Close parallel FTS index
+	if s.parallelFTS != nil {
+		s.parallelFTS.Close()
+	}
+
 	return s.client.Close()
+}
+
+// LexicalSearch performs a full-text search using the parallel FTS5 index.
+// Returns results ranked by BM25 relevance score.
+func (s *QdrantStorage) LexicalSearch(ctx context.Context, query string, opts LexicalSearchOptions) ([]SearchResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	if s.parallelFTS == nil {
+		return nil, fmt.Errorf("parallel FTS index not initialized")
+	}
+
+	return s.parallelFTS.Search(ctx, query, opts)
 }
 
 // ===== Memory Entry Methods =====

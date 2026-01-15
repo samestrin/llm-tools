@@ -43,6 +43,81 @@ func (s *Searcher) Search(ctx context.Context, query string, opts SearchOptions)
 	return s.storage.Search(ctx, queryEmbedding, opts)
 }
 
+// HybridSearchOptions configures hybrid search behavior.
+type HybridSearchOptions struct {
+	SearchOptions         // Embedded search options
+	FusionK       int     // RRF k parameter (default: 60)
+	FusionAlpha   float64 // Weighted fusion alpha (default: 0.7)
+	UseWeighted   bool    // Use weighted fusion instead of RRF
+}
+
+// HybridSearch performs combined dense (vector) and lexical (FTS5) search.
+// Results are fused using Reciprocal Rank Fusion (RRF) for improved recall.
+// Returns an error if the storage doesn't support lexical search.
+func (s *Searcher) HybridSearch(ctx context.Context, query string, opts HybridSearchOptions) ([]SearchResult, error) {
+	if query == "" {
+		return nil, errors.New("query cannot be empty")
+	}
+
+	// Check if storage supports lexical search
+	lexicalSearcher, ok := s.storage.(LexicalSearcher)
+	if !ok {
+		return nil, errors.New("hybrid search requires storage with lexical search support")
+	}
+
+	// Set defaults
+	k := opts.FusionK
+	if k <= 0 {
+		k = 60
+	}
+	alpha := opts.FusionAlpha
+	if alpha <= 0 {
+		alpha = 0.7
+	}
+
+	// Perform dense (vector) search
+	queryEmbedding, err := s.embedder.Embed(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	denseResults, err := s.storage.Search(ctx, queryEmbedding, opts.SearchOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	// Perform lexical search
+	lexicalOpts := LexicalSearchOptions{
+		TopK:       opts.TopK,
+		Type:       opts.Type,
+		PathFilter: opts.PathFilter,
+	}
+	lexicalResults, err := lexicalSearcher.LexicalSearch(ctx, query, lexicalOpts)
+	if err != nil {
+		// Log but don't fail - fall back to dense-only
+		// fmt.Fprintf(os.Stderr, "Warning: lexical search failed: %v\n", err)
+		return denseResults, nil
+	}
+
+	// Fuse results
+	var results []SearchResult
+	if opts.UseWeighted {
+		results, err = FuseWeighted(denseResults, lexicalResults, alpha)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		results = FuseRRF(denseResults, lexicalResults, k)
+	}
+
+	// Apply TopK limit
+	if opts.TopK > 0 && len(results) > opts.TopK {
+		results = results[:opts.TopK]
+	}
+
+	return results, nil
+}
+
 // SearchMultiple performs search with multiple query terms and combines results
 func (s *Searcher) SearchMultiple(ctx context.Context, queries []string, opts SearchOptions) ([]SearchResult, error) {
 	if len(queries) == 0 {

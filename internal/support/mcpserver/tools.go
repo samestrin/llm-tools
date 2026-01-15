@@ -773,6 +773,10 @@ func GetToolDefinitions() []ToolDefinition {
 						"items": {"type": "string"},
 						"description": "Keys to retrieve"
 					},
+					"defaults": {
+						"type": "object",
+						"description": "Default values for keys not found (e.g., {\"KEY1\": \"default1\"})"
+					},
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON object"

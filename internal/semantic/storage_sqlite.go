@@ -74,6 +74,7 @@ func (s *SQLiteStorage) initSchema() error {
 		end_line INTEGER,
 		language TEXT,
 		embedding BLOB,
+		file_mtime INTEGER,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -81,6 +82,7 @@ func (s *SQLiteStorage) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path);
 	CREATE INDEX IF NOT EXISTS idx_chunks_type ON chunks(type);
 	CREATE INDEX IF NOT EXISTS idx_chunks_language ON chunks(language);
+	CREATE INDEX IF NOT EXISTS idx_chunks_file_mtime ON chunks(file_mtime);
 
 	CREATE TABLE IF NOT EXISTS file_hashes (
 		file_path TEXT PRIMARY KEY,
@@ -105,8 +107,49 @@ func (s *SQLiteStorage) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_memory_status ON memory(status);
 	`
 
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Migrate existing databases: add file_mtime column if missing
+	if err := s.migrateMtimeColumn(); err != nil {
+		return err
+	}
+
+	// Initialize FTS5 for lexical search
+	if err := s.initFTS5Schema(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// migrateMtimeColumn adds file_mtime column to existing databases if missing.
+func (s *SQLiteStorage) migrateMtimeColumn() error {
+	// Check if column exists
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('chunks')
+		WHERE name = 'file_mtime'
+	`).Scan(&count)
+	if err != nil {
+		return err
+	}
+
+	if count == 0 {
+		// Column doesn't exist, add it
+		_, err = s.db.Exec(`ALTER TABLE chunks ADD COLUMN file_mtime INTEGER`)
+		if err != nil {
+			return fmt.Errorf("failed to add file_mtime column: %w", err)
+		}
+		// Create index for the new column
+		_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_chunks_file_mtime ON chunks(file_mtime)`)
+		if err != nil {
+			return fmt.Errorf("failed to create file_mtime index: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (s *SQLiteStorage) Create(ctx context.Context, chunk Chunk, embedding []float32) error {
@@ -123,10 +166,11 @@ func (s *SQLiteStorage) Create(ctx context.Context, chunk Chunk, embedding []flo
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, embedding)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, embedding, file_mtime)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, chunk.ID, chunk.FilePath, chunk.Type.String(), chunk.Name, chunk.Signature,
-		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language, embeddingBytes)
+		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language, embeddingBytes,
+		nullableInt64(chunk.FileMtime))
 
 	if err != nil {
 		return fmt.Errorf("failed to insert chunk: %w", err)
@@ -154,8 +198,8 @@ func (s *SQLiteStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbed
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, embedding)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, embedding, file_mtime)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -171,7 +215,7 @@ func (s *SQLiteStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbed
 		_, err = stmt.ExecContext(ctx,
 			cwe.Chunk.ID, cwe.Chunk.FilePath, cwe.Chunk.Type.String(), cwe.Chunk.Name,
 			cwe.Chunk.Signature, cwe.Chunk.Content, cwe.Chunk.StartLine, cwe.Chunk.EndLine,
-			cwe.Chunk.Language, embeddingBytes)
+			cwe.Chunk.Language, embeddingBytes, nullableInt64(cwe.Chunk.FileMtime))
 		if err != nil {
 			return fmt.Errorf("failed to insert chunk: %w", err)
 		}
@@ -353,7 +397,7 @@ func (s *SQLiteStorage) Search(ctx context.Context, queryEmbedding []float32, op
 
 	// For now, we do brute-force cosine similarity search
 	// In production, consider using sqlite-vss or FAISS
-	query := `SELECT id, file_path, type, name, signature, content, start_line, end_line, language, embedding FROM chunks WHERE 1=1`
+	query := `SELECT id, file_path, type, name, signature, content, start_line, end_line, language, embedding, file_mtime FROM chunks WHERE 1=1`
 	args := []interface{}{}
 
 	if opts.Type != "" {
@@ -377,15 +421,19 @@ func (s *SQLiteStorage) Search(ctx context.Context, queryEmbedding []float32, op
 		var chunk Chunk
 		var typeStr string
 		var embeddingBytes []byte
+		var fileMtime sql.NullInt64
 
 		if err := rows.Scan(&chunk.ID, &chunk.FilePath, &typeStr, &chunk.Name,
 			&chunk.Signature, &chunk.Content, &chunk.StartLine, &chunk.EndLine,
-			&chunk.Language, &embeddingBytes); err != nil {
+			&chunk.Language, &embeddingBytes, &fileMtime); err != nil {
 			return nil, fmt.Errorf("failed to scan chunk: %w", err)
 		}
 
 		chunkType, _ := ParseChunkType(typeStr)
 		chunk.Type = chunkType
+		if fileMtime.Valid {
+			chunk.FileMtime = fileMtime.Int64
+		}
 
 		embedding, err := decodeEmbedding(embeddingBytes)
 		if err != nil {
@@ -458,10 +506,17 @@ func (s *SQLiteStorage) Clear(ctx context.Context) error {
 		return ErrStorageClosed
 	}
 
-	// Clear both chunks and file hashes
+	// Clear chunks (triggers will clear FTS automatically)
 	if _, err := s.db.ExecContext(ctx, "DELETE FROM chunks"); err != nil {
 		return err
 	}
+
+	// Also explicitly clear FTS to ensure consistency
+	if err := s.clearFTS5(); err != nil {
+		return err
+	}
+
+	// Clear file hashes
 	_, err := s.db.ExecContext(ctx, "DELETE FROM file_hashes")
 	return err
 }
@@ -956,4 +1011,13 @@ func sortResultsByScore(results []SearchResult) {
 // IndexPath returns the default index path for a repository
 func IndexPath(repoRoot string) string {
 	return filepath.Join(repoRoot, ".llm-index", "semantic.db")
+}
+
+// nullableInt64 returns nil if value is 0, otherwise returns the value.
+// Used for optional INTEGER columns in SQLite.
+func nullableInt64(v int64) interface{} {
+	if v == 0 {
+		return nil
+	}
+	return v
 }

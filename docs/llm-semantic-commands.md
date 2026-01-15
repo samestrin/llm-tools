@@ -304,6 +304,56 @@ The MCP wrapper (`llm-semantic-mcp`) exposes commands as MCP tools with the `llm
 - `llm_semantic_memory_list` - List stored memories
 - `llm_semantic_memory_delete` - Delete a memory entry
 
+### Profile-Based Configuration
+
+All MCP tools support the `profile` and `config` parameters for simplified configuration. This allows you to define named profiles in a config.yaml file and reference them by name instead of specifying `storage` and `collection` on every call.
+
+**Config File Structure (`.planning/.config/config.yaml`):**
+```yaml
+semantic:
+  code_collection: llm-tools-code
+  code_storage: qdrant
+  docs_collection: llm-tools-docs
+  docs_storage: sqlite
+  memory_collection: llm-tools-memory
+  memory_storage: qdrant
+```
+
+**Supported Profiles:**
+| Profile | Config Keys Used |
+|---------|------------------|
+| `code` | `code_collection`, `code_storage` |
+| `docs` | `docs_collection`, `docs_storage` |
+| `memory` | `memory_collection`, `memory_storage` |
+
+**MCP Tool Usage:**
+```json
+// Get status for the code index
+{
+  "name": "llm_semantic_index_status",
+  "arguments": {
+    "profile": "code",
+    "config": ".planning/.config/config.yaml"
+  }
+}
+
+// Search the code index with custom top_k
+{
+  "name": "llm_semantic_search",
+  "arguments": {
+    "query": "authentication",
+    "profile": "code",
+    "config": ".planning/.config/config.yaml",
+    "top_k": 3
+  }
+}
+```
+
+**Override Behavior:**
+- Explicit `storage` and `collection` parameters override profile values
+- Profile values are only applied when the corresponding parameter is not already set
+- If `profile` is provided but `config` is missing, no profile resolution occurs
+
 See [MCP Setup Guide](MCP_SETUP.md) for integration instructions.
 
 ## How It Works

@@ -604,9 +604,14 @@ eval "$(llm-support context dump --dir .planning/.temp/mysession)"
 
 # Clear all values
 llm-support context clear --dir .planning/.temp/mysession
+
+# Batch operations (more efficient)
+llm-support context multiset --dir .planning/.temp/mysession KEY1 val1 KEY2 val2
+llm-support context multiget --dir .planning/.temp/mysession KEY1 KEY2
+llm-support context multiget --dir .planning/.temp/mysession KEY1 MISSING --defaults '{"MISSING": "fallback"}'
 ```
 
-**Subcommands:** init, set, get, list, dump, clear
+**Subcommands:** init, set, get, list, dump, clear, multiset, multiget
 
 ### git-changes - Git Working Tree Changes
 
