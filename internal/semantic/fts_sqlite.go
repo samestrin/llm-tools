@@ -1,6 +1,7 @@
 package semantic
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 )
@@ -200,14 +201,6 @@ func (s *SQLiteStorage) clearFTS5() error {
 	return nil
 }
 
-// LexicalSearchResult represents a result from lexical (FTS5) search.
-type LexicalSearchResult struct {
-	ChunkID string
-	Name    string
-	Content string
-	Score   float64
-}
-
 // LexicalSearchOptions configures lexical search behavior.
 type LexicalSearchOptions struct {
 	TopK       int     // Maximum results to return (default: 10)
@@ -218,7 +211,9 @@ type LexicalSearchOptions struct {
 
 // LexicalSearch performs a full-text search using FTS5.
 // Returns results ranked by BM25 relevance score.
-func (s *SQLiteStorage) LexicalSearch(query string, opts LexicalSearchOptions) ([]LexicalSearchResult, error) {
+// The score is converted from BM25 (where more negative is better) to a
+// positive scale where higher is better for consistency with vector search.
+func (s *SQLiteStorage) LexicalSearch(ctx context.Context, query string, opts LexicalSearchOptions) ([]SearchResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -227,7 +222,7 @@ func (s *SQLiteStorage) LexicalSearch(query string, opts LexicalSearchOptions) (
 	}
 
 	if query == "" {
-		return []LexicalSearchResult{}, nil
+		return []SearchResult{}, nil
 	}
 
 	// Set defaults
@@ -239,7 +234,8 @@ func (s *SQLiteStorage) LexicalSearch(query string, opts LexicalSearchOptions) (
 	// Build the query with optional filters
 	// Join with chunks table to get full chunk info and apply filters
 	sqlQuery := `
-		SELECT c.id, f.name, f.content, bm25(chunks_fts) as score
+		SELECT c.id, c.file_path, c.type, c.name, c.signature, c.content,
+		       c.start_line, c.end_line, c.language, bm25(chunks_fts) as score
 		FROM chunks_fts f
 		JOIN chunks c ON c.rowid = f.rowid
 		WHERE chunks_fts MATCH ?
@@ -259,7 +255,7 @@ func (s *SQLiteStorage) LexicalSearch(query string, opts LexicalSearchOptions) (
 	sqlQuery += ` ORDER BY bm25(chunks_fts) LIMIT ?`
 	args = append(args, topK)
 
-	rows, err := s.db.Query(sqlQuery, args...)
+	rows, err := s.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
 		// Check for FTS5 syntax errors and return a clearer message
 		if isFTS5SyntaxError(err) {
@@ -269,17 +265,37 @@ func (s *SQLiteStorage) LexicalSearch(query string, opts LexicalSearchOptions) (
 	}
 	defer rows.Close()
 
-	var results []LexicalSearchResult
+	var results []SearchResult
 	for rows.Next() {
-		var r LexicalSearchResult
-		if err := rows.Scan(&r.ChunkID, &r.Name, &r.Content, &r.Score); err != nil {
+		var chunk Chunk
+		var typeStr string
+		var bm25Score float64
+
+		if err := rows.Scan(
+			&chunk.ID, &chunk.FilePath, &typeStr, &chunk.Name, &chunk.Signature,
+			&chunk.Content, &chunk.StartLine, &chunk.EndLine, &chunk.Language, &bm25Score,
+		); err != nil {
 			return nil, fmt.Errorf("failed to scan result: %w", err)
 		}
-		results = append(results, r)
+
+		chunkType, _ := ParseChunkType(typeStr)
+		chunk.Type = chunkType
+
+		// Convert BM25 score (more negative = better) to positive scale
+		// We use -bm25Score so higher is better, matching vector search convention
+		results = append(results, SearchResult{
+			Chunk: chunk,
+			Score: float32(-bm25Score),
+		})
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating results: %w", err)
+	}
+
+	// Ensure we return empty slice instead of nil for consistency
+	if results == nil {
+		results = []SearchResult{}
 	}
 
 	return results, nil
@@ -333,8 +349,8 @@ func EscapeFTS5Query(query string) string {
 // SafeLexicalSearch performs a lexical search with automatic query escaping.
 // Use this when the query comes from untrusted user input.
 // For advanced users who want FTS5 operators, use LexicalSearch directly.
-func (s *SQLiteStorage) SafeLexicalSearch(query string, opts LexicalSearchOptions) ([]LexicalSearchResult, error) {
-	return s.LexicalSearch(EscapeFTS5Query(query), opts)
+func (s *SQLiteStorage) SafeLexicalSearch(ctx context.Context, query string, opts LexicalSearchOptions) ([]SearchResult, error) {
+	return s.LexicalSearch(ctx, EscapeFTS5Query(query), opts)
 }
 
 // Ensure FTS5 is not being explicitly checked (for migration)
