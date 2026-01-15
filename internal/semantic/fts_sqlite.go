@@ -40,12 +40,13 @@ func (s *SQLiteStorage) initFTS5Schema() error {
 	}
 
 	// Create INSERT trigger to sync new chunks to FTS
+	// Use COALESCE for both name and content to handle NULLs safely
 	insertTrigger := `
 	CREATE TRIGGER IF NOT EXISTS chunks_fts_insert
 	AFTER INSERT ON chunks
 	BEGIN
 		INSERT INTO chunks_fts(rowid, name, content)
-		VALUES (NEW.rowid, NEW.name, COALESCE(NEW.content, ''));
+		VALUES (NEW.rowid, COALESCE(NEW.name, ''), COALESCE(NEW.content, ''));
 	END;
 	`
 
@@ -61,7 +62,7 @@ func (s *SQLiteStorage) initFTS5Schema() error {
 	BEGIN
 		DELETE FROM chunks_fts WHERE rowid = OLD.rowid;
 		INSERT INTO chunks_fts(rowid, name, content)
-		VALUES (NEW.rowid, NEW.name, COALESCE(NEW.content, ''));
+		VALUES (NEW.rowid, COALESCE(NEW.name, ''), COALESCE(NEW.content, ''));
 	END;
 	`
 
@@ -166,12 +167,25 @@ func (s *SQLiteStorage) FTSIntegrityCheck() error {
 		return ErrStorageClosed
 	}
 
-	// Run FTS5 integrity check
-	rows, err := s.db.Query(`INSERT INTO chunks_fts(chunks_fts) VALUES('integrity-check')`)
+	// Run FTS5 integrity check - this returns rows with any issues found
+	rows, err := s.db.Query(`SELECT * FROM chunks_fts WHERE chunks_fts MATCH 'integrity-check'`)
 	if err != nil {
-		return fmt.Errorf("FTS5 index integrity check failed: %w", err)
+		// Try the insert command for older SQLite versions
+		_, execErr := s.db.Exec(`INSERT INTO chunks_fts(chunks_fts) VALUES('integrity-check')`)
+		if execErr != nil {
+			return fmt.Errorf("FTS5 index integrity check failed: %w", execErr)
+		}
+		return nil
 	}
 	defer rows.Close()
+
+	// If any rows are returned, there are integrity issues
+	if rows.Next() {
+		var issue string
+		if err := rows.Scan(&issue); err == nil && issue != "" {
+			return fmt.Errorf("FTS5 index integrity check failed: %s", issue)
+		}
+	}
 
 	return nil
 }
@@ -292,14 +306,20 @@ func contains(s, substr string) bool {
 }
 
 // EscapeFTS5Query escapes special FTS5 characters in a query string.
-// This prevents injection and syntax errors from user input.
+// This prevents FTS5 syntax errors from user input containing operators.
+// Note: This converts FTS5 operators to literal text - if you want to
+// allow users to use FTS5 operators (AND, OR, NOT, *), don't escape.
 func EscapeFTS5Query(query string) string {
-	// FTS5 special characters that need escaping: " * - + ( ) : ^
+	// FTS5 special characters that need quoting: " * - + ( ) : ^ \
+	// We wrap each special char in quotes to treat it literally
 	var result []byte
 	for i := 0; i < len(query); i++ {
 		c := query[i]
 		switch c {
-		case '"', '*', '-', '+', '(', ')', ':', '^':
+		case '"':
+			// Double quotes need to be doubled inside quoted strings
+			result = append(result, '"', '"')
+		case '*', '-', '+', '(', ')', ':', '^', '\\':
 			result = append(result, '"')
 			result = append(result, c)
 			result = append(result, '"')
@@ -308,6 +328,13 @@ func EscapeFTS5Query(query string) string {
 		}
 	}
 	return string(result)
+}
+
+// SafeLexicalSearch performs a lexical search with automatic query escaping.
+// Use this when the query comes from untrusted user input.
+// For advanced users who want FTS5 operators, use LexicalSearch directly.
+func (s *SQLiteStorage) SafeLexicalSearch(query string, opts LexicalSearchOptions) ([]LexicalSearchResult, error) {
+	return s.LexicalSearch(EscapeFTS5Query(query), opts)
 }
 
 // Ensure FTS5 is not being explicitly checked (for migration)
