@@ -61,6 +61,7 @@ func NewLexicalIndex(dbPath string, embeddingDim int) (*LexicalIndex, error) {
 // initSchema creates the FTS5 virtual table and supporting tables.
 func (idx *LexicalIndex) initSchema() error {
 	// Create chunks table to store chunk metadata (mirrors SQLiteStorage schema)
+	// Note: file_mtime column is added via migration for backward compatibility
 	chunksSchema := `
 	CREATE TABLE IF NOT EXISTS chunks (
 		rowid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,14 +73,30 @@ func (idx *LexicalIndex) initSchema() error {
 		content TEXT,
 		start_line INTEGER,
 		end_line INTEGER,
-		language TEXT
+		language TEXT,
+		file_mtime INTEGER
 	);
-	CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path);
-	CREATE INDEX IF NOT EXISTS idx_chunks_type ON chunks(type);
 	`
 
 	if _, err := idx.db.Exec(chunksSchema); err != nil {
 		return fmt.Errorf("failed to create chunks table: %w", err)
+	}
+
+	// Migrate existing databases: add file_mtime column if missing
+	// This must run BEFORE creating indexes that reference file_mtime
+	if err := idx.migrateMtimeColumn(); err != nil {
+		return err
+	}
+
+	// Create indexes (after migration ensures file_mtime column exists)
+	indexSchema := `
+	CREATE INDEX IF NOT EXISTS idx_chunks_file_path ON chunks(file_path);
+	CREATE INDEX IF NOT EXISTS idx_chunks_type ON chunks(type);
+	CREATE INDEX IF NOT EXISTS idx_chunks_file_mtime ON chunks(file_mtime);
+	`
+
+	if _, err := idx.db.Exec(indexSchema); err != nil {
+		return fmt.Errorf("failed to create indexes: %w", err)
 	}
 
 	// Create FTS5 virtual table
@@ -177,10 +194,10 @@ func (idx *LexicalIndex) IndexChunk(ctx context.Context, chunk Chunk) error {
 	}
 
 	_, err := idx.db.ExecContext(ctx, `
-		INSERT OR REPLACE INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT OR REPLACE INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, file_mtime)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, chunk.ID, chunk.FilePath, chunk.Type.String(), chunk.Name, chunk.Signature,
-		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language)
+		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language, nullableInt64Lexical(chunk.FileMtime))
 
 	if err != nil {
 		return fmt.Errorf("failed to index chunk: %w", err)
@@ -209,8 +226,8 @@ func (idx *LexicalIndex) IndexBatch(ctx context.Context, chunks []Chunk) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT OR REPLACE INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT OR REPLACE INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, file_mtime)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -219,7 +236,8 @@ func (idx *LexicalIndex) IndexBatch(ctx context.Context, chunks []Chunk) error {
 
 	for _, chunk := range chunks {
 		if _, err := stmt.ExecContext(ctx, chunk.ID, chunk.FilePath, chunk.Type.String(),
-			chunk.Name, chunk.Signature, chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language); err != nil {
+			chunk.Name, chunk.Signature, chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language,
+			nullableInt64Lexical(chunk.FileMtime)); err != nil {
 			return fmt.Errorf("failed to index chunk %s: %w", chunk.ID, err)
 		}
 	}
@@ -298,7 +316,7 @@ func (idx *LexicalIndex) Search(ctx context.Context, query string, opts LexicalS
 	// Build query with optional filters
 	sqlQuery := `
 		SELECT c.id, c.file_path, c.type, c.name, c.signature, c.content,
-		       c.start_line, c.end_line, c.language, bm25(chunks_fts) as score
+		       c.start_line, c.end_line, c.language, c.file_mtime, bm25(chunks_fts) as score
 		FROM chunks_fts f
 		JOIN chunks c ON c.rowid = f.rowid
 		WHERE chunks_fts MATCH ?
@@ -329,16 +347,20 @@ func (idx *LexicalIndex) Search(ctx context.Context, query string, opts LexicalS
 		var chunk Chunk
 		var typeStr string
 		var bm25Score float64
+		var fileMtime sql.NullInt64
 
 		if err := rows.Scan(
 			&chunk.ID, &chunk.FilePath, &typeStr, &chunk.Name, &chunk.Signature,
-			&chunk.Content, &chunk.StartLine, &chunk.EndLine, &chunk.Language, &bm25Score,
+			&chunk.Content, &chunk.StartLine, &chunk.EndLine, &chunk.Language, &fileMtime, &bm25Score,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan result: %w", err)
 		}
 
 		chunkType, _ := ParseChunkType(typeStr)
 		chunk.Type = chunkType
+		if fileMtime.Valid {
+			chunk.FileMtime = fileMtime.Int64
+		}
 
 		// Convert BM25 score (more negative = better) to positive scale
 		results = append(results, SearchResult{
@@ -426,4 +448,42 @@ func getFTSPath(collection string, dataDir string) string {
 
 	safeCollection := sanitizeCollectionName(collection)
 	return filepath.Join(dataDir, fmt.Sprintf("qdrant-fts-%s.db", safeCollection))
+}
+
+// nullableInt64Lexical returns nil if value is 0, otherwise returns the value.
+// Used for optional INTEGER columns in SQLite. Separate from storage_sqlite.go
+// to avoid package-level name collision.
+func nullableInt64Lexical(v int64) interface{} {
+	if v == 0 {
+		return nil
+	}
+	return v
+}
+
+// migrateMtimeColumn adds file_mtime column to existing LexicalIndex databases if missing.
+func (idx *LexicalIndex) migrateMtimeColumn() error {
+	// Check if column exists
+	var count int
+	err := idx.db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('chunks')
+		WHERE name = 'file_mtime'
+	`).Scan(&count)
+	if err != nil {
+		return err
+	}
+
+	if count == 0 {
+		// Column doesn't exist, add it
+		_, err = idx.db.Exec(`ALTER TABLE chunks ADD COLUMN file_mtime INTEGER`)
+		if err != nil {
+			return fmt.Errorf("failed to add file_mtime column: %w", err)
+		}
+		// Create index for the new column
+		_, err = idx.db.Exec(`CREATE INDEX IF NOT EXISTS idx_chunks_file_mtime ON chunks(file_mtime)`)
+		if err != nil {
+			return fmt.Errorf("failed to create file_mtime index: %w", err)
+		}
+	}
+
+	return nil
 }
