@@ -792,3 +792,375 @@ func TestLexicalSearcher_InterfaceCompatibility(t *testing.T) {
 		}
 	}
 }
+
+// ===== Atomic Dual-Write Synchronization Tests =====
+// These tests verify that CRUD operations on the primary store
+// correctly sync to the parallel FTS index.
+
+// TestDualWrite_CreateSyncsToFTS verifies that Create operations sync to FTS.
+func TestDualWrite_CreateSyncsToFTS(t *testing.T) {
+	ctx := context.Background()
+
+	// Create SQLiteStorage (which has native FTS)
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Create a chunk
+	chunk := Chunk{
+		ID:        "dual-write-create",
+		FilePath:  "/test/handler.go",
+		Type:      ChunkFunction,
+		Name:      "handleDualWrite",
+		Content:   "func handleDualWrite() { process() }",
+		StartLine: 10,
+		EndLine:   15,
+		Language:  "go",
+	}
+
+	embedding := make([]float32, 4)
+	if err := storage.Create(ctx, chunk, embedding); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Verify chunk is searchable via lexical search (FTS)
+	results, err := storage.LexicalSearch(ctx, "handleDualWrite", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearch failed: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("expected 1 result in FTS after Create, got %d", len(results))
+	}
+
+	if len(results) > 0 && results[0].Chunk.ID != chunk.ID {
+		t.Errorf("expected chunk ID %s, got %s", chunk.ID, results[0].Chunk.ID)
+	}
+}
+
+// TestDualWrite_CreateBatchSyncsToFTS verifies that CreateBatch operations sync to FTS.
+func TestDualWrite_CreateBatchSyncsToFTS(t *testing.T) {
+	ctx := context.Background()
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Create a batch of chunks
+	chunks := []ChunkWithEmbedding{
+		{
+			Chunk: Chunk{
+				ID:       "batch-1",
+				FilePath: "/test/service.go",
+				Type:     ChunkFunction,
+				Name:     "processBatch",
+				Content:  "func processBatch() { handle items }",
+				Language: "go",
+			},
+			Embedding: make([]float32, 4),
+		},
+		{
+			Chunk: Chunk{
+				ID:       "batch-2",
+				FilePath: "/test/service.go",
+				Type:     ChunkFunction,
+				Name:     "validateBatch",
+				Content:  "func validateBatch() { check items }",
+				Language: "go",
+			},
+			Embedding: make([]float32, 4),
+		},
+		{
+			Chunk: Chunk{
+				ID:       "batch-3",
+				FilePath: "/test/service.go",
+				Type:     ChunkFunction,
+				Name:     "saveBatch",
+				Content:  "func saveBatch() { store items }",
+				Language: "go",
+			},
+			Embedding: make([]float32, 4),
+		},
+	}
+
+	if err := storage.CreateBatch(ctx, chunks); err != nil {
+		t.Fatalf("CreateBatch failed: %v", err)
+	}
+
+	// Verify all chunks are searchable via lexical search
+	// Search for "items" which appears in all chunks
+	results, err := storage.LexicalSearch(ctx, "items", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearch failed: %v", err)
+	}
+
+	if len(results) != 3 {
+		t.Errorf("expected 3 results in FTS after CreateBatch, got %d", len(results))
+	}
+}
+
+// TestDualWrite_DeleteSyncsToFTS verifies that Delete operations sync to FTS.
+func TestDualWrite_DeleteSyncsToFTS(t *testing.T) {
+	ctx := context.Background()
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Create a chunk
+	chunk := Chunk{
+		ID:        "dual-write-delete",
+		FilePath:  "/test/handler.go",
+		Type:      ChunkFunction,
+		Name:      "deletableFunc",
+		Content:   "func deletableFunc() { willBeRemoved() }",
+		StartLine: 10,
+		EndLine:   15,
+		Language:  "go",
+	}
+
+	if err := storage.Create(ctx, chunk, make([]float32, 4)); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Verify it's searchable
+	results, err := storage.LexicalSearch(ctx, "deletableFunc", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearch failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result before delete, got %d", len(results))
+	}
+
+	// Delete the chunk
+	if err := storage.Delete(ctx, chunk.ID); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	// Verify it's no longer searchable via FTS
+	results, err = storage.LexicalSearch(ctx, "deletableFunc", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearch after delete failed: %v", err)
+	}
+
+	if len(results) != 0 {
+		t.Errorf("expected 0 results in FTS after Delete, got %d", len(results))
+	}
+}
+
+// TestDualWrite_DeleteByFilePathSyncsToFTS verifies that DeleteByFilePath syncs to FTS.
+func TestDualWrite_DeleteByFilePathSyncsToFTS(t *testing.T) {
+	ctx := context.Background()
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Create chunks from different files
+	chunks := []ChunkWithEmbedding{
+		{
+			Chunk: Chunk{
+				ID:       "file-a-1",
+				FilePath: "/test/fileA.go",
+				Type:     ChunkFunction,
+				Name:     "funcA1",
+				Content:  "func funcA1() { targetFile operation }",
+				Language: "go",
+			},
+			Embedding: make([]float32, 4),
+		},
+		{
+			Chunk: Chunk{
+				ID:       "file-a-2",
+				FilePath: "/test/fileA.go",
+				Type:     ChunkFunction,
+				Name:     "funcA2",
+				Content:  "func funcA2() { targetFile operation }",
+				Language: "go",
+			},
+			Embedding: make([]float32, 4),
+		},
+		{
+			Chunk: Chunk{
+				ID:       "file-b-1",
+				FilePath: "/test/fileB.go",
+				Type:     ChunkFunction,
+				Name:     "funcB1",
+				Content:  "func funcB1() { keepFile operation }",
+				Language: "go",
+			},
+			Embedding: make([]float32, 4),
+		},
+	}
+
+	if err := storage.CreateBatch(ctx, chunks); err != nil {
+		t.Fatalf("CreateBatch failed: %v", err)
+	}
+
+	// Verify all chunks are searchable
+	results, err := storage.LexicalSearch(ctx, "operation", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearch failed: %v", err)
+	}
+	if len(results) != 3 {
+		t.Errorf("expected 3 results before delete, got %d", len(results))
+	}
+
+	// Delete all chunks from fileA.go
+	deleted, err := storage.DeleteByFilePath(ctx, "/test/fileA.go")
+	if err != nil {
+		t.Fatalf("DeleteByFilePath failed: %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("expected 2 deleted, got %d", deleted)
+	}
+
+	// Verify only fileB chunks remain searchable
+	results, err = storage.LexicalSearch(ctx, "operation", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearch after delete failed: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("expected 1 result after DeleteByFilePath, got %d", len(results))
+	}
+
+	if len(results) > 0 && results[0].Chunk.FilePath != "/test/fileB.go" {
+		t.Errorf("expected chunk from fileB.go, got %s", results[0].Chunk.FilePath)
+	}
+}
+
+// TestDualWrite_ClearSyncsToFTS verifies that Clear operations sync to FTS.
+func TestDualWrite_ClearSyncsToFTS(t *testing.T) {
+	ctx := context.Background()
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Create some chunks
+	chunks := []ChunkWithEmbedding{
+		{
+			Chunk: Chunk{
+				ID:       "clear-1",
+				FilePath: "/test/a.go",
+				Type:     ChunkFunction,
+				Name:     "clearableA",
+				Content:  "func clearableA() { willBeClearedFromIndex() }",
+				Language: "go",
+			},
+			Embedding: make([]float32, 4),
+		},
+		{
+			Chunk: Chunk{
+				ID:       "clear-2",
+				FilePath: "/test/b.go",
+				Type:     ChunkFunction,
+				Name:     "clearableB",
+				Content:  "func clearableB() { willBeClearedFromIndex() }",
+				Language: "go",
+			},
+			Embedding: make([]float32, 4),
+		},
+	}
+
+	if err := storage.CreateBatch(ctx, chunks); err != nil {
+		t.Fatalf("CreateBatch failed: %v", err)
+	}
+
+	// Verify chunks are searchable
+	results, err := storage.LexicalSearch(ctx, "willBeClearedFromIndex", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearch failed: %v", err)
+	}
+	if len(results) != 2 {
+		t.Errorf("expected 2 results before clear, got %d", len(results))
+	}
+
+	// Clear all data
+	if err := storage.Clear(ctx); err != nil {
+		t.Fatalf("Clear failed: %v", err)
+	}
+
+	// Verify FTS is empty
+	results, err = storage.LexicalSearch(ctx, "willBeClearedFromIndex", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearch after clear failed: %v", err)
+	}
+
+	if len(results) != 0 {
+		t.Errorf("expected 0 results after Clear, got %d", len(results))
+	}
+}
+
+// TestDualWrite_UpdateSyncsToFTS verifies that Update operations sync to FTS.
+func TestDualWrite_UpdateSyncsToFTS(t *testing.T) {
+	ctx := context.Background()
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Create a chunk
+	chunk := Chunk{
+		ID:        "dual-write-update",
+		FilePath:  "/test/handler.go",
+		Type:      ChunkFunction,
+		Name:      "updateableFunc",
+		Content:   "func updateableFunc() { originalContent() }",
+		StartLine: 10,
+		EndLine:   15,
+		Language:  "go",
+	}
+
+	if err := storage.Create(ctx, chunk, make([]float32, 4)); err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Verify original content is searchable
+	results, err := storage.LexicalSearch(ctx, "originalContent", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearch failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result for original content, got %d", len(results))
+	}
+
+	// Update the chunk with new content
+	updatedChunk := chunk
+	updatedChunk.Content = "func updateableFunc() { modifiedContent() }"
+
+	if err := storage.Update(ctx, updatedChunk, make([]float32, 4)); err != nil {
+		t.Fatalf("Update failed: %v", err)
+	}
+
+	// Verify old content is no longer searchable
+	results, err = storage.LexicalSearch(ctx, "originalContent", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearch after update failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results for original content after update, got %d", len(results))
+	}
+
+	// Verify new content is searchable
+	results, err = storage.LexicalSearch(ctx, "modifiedContent", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearch for new content failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result for modified content, got %d", len(results))
+	}
+}
