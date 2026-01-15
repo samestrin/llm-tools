@@ -504,3 +504,159 @@ func TestSearchCmd_ThresholdDefault_Unchanged(t *testing.T) {
 		t.Errorf("--threshold default = %s, want 0", thresholdFlag.DefValue)
 	}
 }
+
+// ===== Recency Boost CLI Flag Tests =====
+
+// TestSearchCmd_RecencyFlags verifies that recency boost flags exist.
+func TestSearchCmd_RecencyFlags(t *testing.T) {
+	cmd := searchCmd()
+
+	// Check recency-related flags exist with correct defaults
+	recencyFlags := []struct {
+		name     string
+		defValue string
+	}{
+		{"recency-boost", "false"},
+		{"recency-factor", "0.5"},
+		{"recency-decay", "7"},
+	}
+
+	for _, f := range recencyFlags {
+		flag := cmd.Flags().Lookup(f.name)
+		if flag == nil {
+			t.Errorf("Flag --%s not found", f.name)
+			continue
+		}
+		if flag.DefValue != f.defValue {
+			t.Errorf("Flag --%s default = %s, want %s", f.name, flag.DefValue, f.defValue)
+		}
+	}
+}
+
+// TestSearchCmd_RecencyFlag_HelpOutput verifies that recency flags appear in help output.
+func TestSearchCmd_RecencyFlag_HelpOutput(t *testing.T) {
+	root := RootCmd()
+	output, err := executeCommand(root, "search", "--help")
+
+	if err != nil {
+		t.Fatalf("Help command failed: %v", err)
+	}
+
+	// Check help contains recency-related content
+	expectedStrings := []string{
+		"--recency-boost",
+		"--recency-factor",
+		"--recency-decay",
+	}
+
+	for _, s := range expectedStrings {
+		if !bytes.Contains([]byte(output), []byte(s)) {
+			t.Errorf("Help output should contain %q", s)
+		}
+	}
+}
+
+// TestSearchCmd_InvalidRecencyFactor_Error verifies that invalid factor values are rejected.
+func TestSearchCmd_InvalidRecencyFactor_Error(t *testing.T) {
+	tests := []struct {
+		name   string
+		factor string
+	}{
+		{"negative", "-0.5"},
+		{"very_negative", "-1.0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := RootCmd()
+			_, err := executeCommand(root, "search", "--recency-boost", "--recency-factor", tt.factor, "test query")
+
+			// Should fail with validation error
+			if err == nil {
+				t.Errorf("Expected error for recency-factor=%s, got nil", tt.factor)
+			}
+		})
+	}
+}
+
+// TestSearchCmd_InvalidRecencyDecay_Error verifies that invalid decay values are rejected.
+func TestSearchCmd_InvalidRecencyDecay_Error(t *testing.T) {
+	tests := []struct {
+		name  string
+		decay string
+	}{
+		{"zero", "0"},
+		{"negative", "-7"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := RootCmd()
+			_, err := executeCommand(root, "search", "--recency-boost", "--recency-decay", tt.decay, "test query")
+
+			// Should fail with validation error
+			if err == nil {
+				t.Errorf("Expected error for recency-decay=%s, got nil", tt.decay)
+			}
+		})
+	}
+}
+
+// TestSearchCmd_RecencyBoostDisabledByDefault verifies that recency is off by default.
+func TestSearchCmd_RecencyBoostDisabledByDefault(t *testing.T) {
+	cmd := searchCmd()
+
+	recencyFlag := cmd.Flags().Lookup("recency-boost")
+	if recencyFlag == nil {
+		t.Fatal("--recency-boost flag not found")
+	}
+	if recencyFlag.DefValue != "false" {
+		t.Errorf("--recency-boost default = %s, want false", recencyFlag.DefValue)
+	}
+}
+
+// TestSearchCmd_ValidRecencyFactor_Accepted verifies that valid factor values are accepted.
+func TestSearchCmd_ValidRecencyFactor_Accepted(t *testing.T) {
+	tests := []struct {
+		name   string
+		factor string
+	}{
+		{"zero", "0"},
+		{"default", "0.5"},
+		{"high", "1.0"},
+		{"very_high", "2.0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := searchCmd()
+			err := cmd.Flags().Set("recency-factor", tt.factor)
+			if err != nil {
+				t.Errorf("Failed to set valid recency-factor=%s: %v", tt.factor, err)
+			}
+		})
+	}
+}
+
+// TestSearchCmd_ValidRecencyDecay_Accepted verifies that valid decay values are accepted.
+func TestSearchCmd_ValidRecencyDecay_Accepted(t *testing.T) {
+	tests := []struct {
+		name  string
+		decay string
+	}{
+		{"short", "0.5"},
+		{"one_day", "1"},
+		{"default", "7"},
+		{"long", "30"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := searchCmd()
+			err := cmd.Flags().Set("recency-decay", tt.decay)
+			if err != nil {
+				t.Errorf("Failed to set valid recency-decay=%s: %v", tt.decay, err)
+			}
+		})
+	}
+}

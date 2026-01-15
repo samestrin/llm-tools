@@ -13,15 +13,18 @@ import (
 
 func searchCmd() *cobra.Command {
 	var (
-		topK        int
-		threshold   float64
-		typeFilter  string
-		pathFilter  string
-		jsonOutput  bool
-		minOutput   bool
-		hybrid      bool
-		fusionK     int
-		fusionAlpha float64
+		topK          int
+		threshold     float64
+		typeFilter    string
+		pathFilter    string
+		jsonOutput    bool
+		minOutput     bool
+		hybrid        bool
+		fusionK       int
+		fusionAlpha   float64
+		recencyBoost  bool
+		recencyFactor float64
+		recencyDecay  float64
 	)
 
 	cmd := &cobra.Command{
@@ -53,16 +56,29 @@ using Reciprocal Rank Fusion (RRF) for improved recall.`,
 				}
 			}
 
+			// Validate recency parameters
+			if recencyBoost {
+				if recencyFactor < 0 {
+					return fmt.Errorf("recency-factor must be >= 0, got: %f", recencyFactor)
+				}
+				if recencyDecay <= 0 {
+					return fmt.Errorf("recency-decay must be > 0, got: %f", recencyDecay)
+				}
+			}
+
 			return runSearch(cmd.Context(), query, searchOpts{
-				topK:        topK,
-				threshold:   float32(threshold),
-				typeFilter:  typeFilter,
-				pathFilter:  pathFilter,
-				jsonOutput:  jsonOutput,
-				minOutput:   minOutput,
-				hybrid:      hybrid,
-				fusionK:     fusionK,
-				fusionAlpha: fusionAlpha,
+				topK:          topK,
+				threshold:     float32(threshold),
+				typeFilter:    typeFilter,
+				pathFilter:    pathFilter,
+				jsonOutput:    jsonOutput,
+				minOutput:     minOutput,
+				hybrid:        hybrid,
+				fusionK:       fusionK,
+				fusionAlpha:   fusionAlpha,
+				recencyBoost:  recencyBoost,
+				recencyFactor: recencyFactor,
+				recencyDecay:  recencyDecay,
 			})
 		},
 	}
@@ -76,20 +92,26 @@ using Reciprocal Rank Fusion (RRF) for improved recall.`,
 	cmd.Flags().BoolVar(&hybrid, "hybrid", false, "Enable hybrid search (dense + lexical with RRF fusion)")
 	cmd.Flags().IntVar(&fusionK, "fusion-k", 60, "RRF fusion k parameter (higher = smoother ranking)")
 	cmd.Flags().Float64Var(&fusionAlpha, "fusion-alpha", 0.7, "Fusion weight: 1.0 = dense only, 0.0 = lexical only")
+	cmd.Flags().BoolVar(&recencyBoost, "recency-boost", false, "Enable recency boost (recently modified files ranked higher)")
+	cmd.Flags().Float64Var(&recencyFactor, "recency-factor", 0.5, "Recency boost factor (max boost = 1+factor)")
+	cmd.Flags().Float64Var(&recencyDecay, "recency-decay", 7, "Recency half-life in days (higher = slower decay)")
 
 	return cmd
 }
 
 type searchOpts struct {
-	topK        int
-	threshold   float32
-	typeFilter  string
-	pathFilter  string
-	jsonOutput  bool
-	minOutput   bool
-	hybrid      bool
-	fusionK     int
-	fusionAlpha float64
+	topK          int
+	threshold     float32
+	typeFilter    string
+	pathFilter    string
+	jsonOutput    bool
+	minOutput     bool
+	hybrid        bool
+	fusionK       int
+	fusionAlpha   float64
+	recencyBoost  bool
+	recencyFactor float64
+	recencyDecay  float64
 }
 
 func runSearch(ctx context.Context, query string, opts searchOpts) error {
