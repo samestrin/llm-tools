@@ -207,3 +207,149 @@ func TestStripPrefix(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildSearchArgs_HybridParameters(t *testing.T) {
+	args := map[string]interface{}{
+		"query":        "authentication handling",
+		"hybrid":       true,
+		"fusion_k":     float64(80),
+		"fusion_alpha": 0.6,
+	}
+
+	result := buildSearchArgs(args)
+
+	// Check base command and query
+	if len(result) < 2 || result[0] != "search" || result[1] != "authentication handling" {
+		t.Errorf("buildSearchArgs() should start with ['search', '<query>'], got %v", result[:2])
+	}
+
+	// Check --hybrid flag
+	foundHybrid := false
+	for _, arg := range result {
+		if arg == "--hybrid" {
+			foundHybrid = true
+			break
+		}
+	}
+	if !foundHybrid {
+		t.Error("buildSearchArgs() missing --hybrid flag")
+	}
+
+	// Check --fusion-k
+	foundFusionK := false
+	for i, arg := range result {
+		if arg == "--fusion-k" && i+1 < len(result) && result[i+1] == "80" {
+			foundFusionK = true
+			break
+		}
+	}
+	if !foundFusionK {
+		t.Errorf("buildSearchArgs() missing or incorrect --fusion-k 80, got %v", result)
+	}
+
+	// Check --fusion-alpha
+	foundFusionAlpha := false
+	for i, arg := range result {
+		if arg == "--fusion-alpha" && i+1 < len(result) {
+			foundFusionAlpha = true
+			break
+		}
+	}
+	if !foundFusionAlpha {
+		t.Errorf("buildSearchArgs() missing --fusion-alpha, got %v", result)
+	}
+}
+
+func TestBuildSearchArgs_RecencyParameters(t *testing.T) {
+	args := map[string]interface{}{
+		"query":          "database connection",
+		"recency_boost":  true,
+		"recency_factor": 0.3,
+		"recency_decay":  float64(14),
+	}
+
+	result := buildSearchArgs(args)
+
+	// Check base command
+	if len(result) < 2 || result[0] != "search" {
+		t.Errorf("buildSearchArgs() should start with 'search', got %v", result)
+	}
+
+	// Check --recency-boost flag
+	foundRecencyBoost := false
+	for _, arg := range result {
+		if arg == "--recency-boost" {
+			foundRecencyBoost = true
+			break
+		}
+	}
+	if !foundRecencyBoost {
+		t.Error("buildSearchArgs() missing --recency-boost flag")
+	}
+
+	// Check --recency-factor
+	foundRecencyFactor := false
+	for i, arg := range result {
+		if arg == "--recency-factor" && i+1 < len(result) {
+			foundRecencyFactor = true
+			break
+		}
+	}
+	if !foundRecencyFactor {
+		t.Errorf("buildSearchArgs() missing --recency-factor, got %v", result)
+	}
+
+	// Check --recency-decay
+	foundRecencyDecay := false
+	for i, arg := range result {
+		if arg == "--recency-decay" && i+1 < len(result) && result[i+1] == "14" {
+			foundRecencyDecay = true
+			break
+		}
+	}
+	if !foundRecencyDecay {
+		t.Errorf("buildSearchArgs() missing or incorrect --recency-decay 14, got %v", result)
+	}
+}
+
+func TestBuildSearchArgs_AllParameters(t *testing.T) {
+	// Test with all search parameters combined
+	args := map[string]interface{}{
+		"query":          "test query",
+		"top_k":          float64(20),
+		"threshold":      0.5,
+		"type":           "function",
+		"path":           "internal/",
+		"hybrid":         true,
+		"fusion_k":       float64(60),
+		"fusion_alpha":   0.7,
+		"recency_boost":  true,
+		"recency_factor": 0.5,
+		"recency_decay":  float64(7),
+		"storage":        "sqlite",
+		"collection":     "test_collection",
+	}
+
+	result := buildSearchArgs(args)
+
+	// Expected flags (excluding query which is positional)
+	expectedFlags := []string{
+		"--top", "--threshold", "--type", "--path",
+		"--hybrid", "--fusion-k", "--fusion-alpha",
+		"--recency-boost", "--recency-factor", "--recency-decay",
+		"--storage", "--collection",
+	}
+
+	for _, flag := range expectedFlags {
+		found := false
+		for _, arg := range result {
+			if arg == flag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("buildSearchArgs() missing flag %s in result %v", flag, result)
+		}
+	}
+}

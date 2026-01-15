@@ -112,6 +112,28 @@ func buildSearchArgs(args map[string]interface{}) []string {
 		cmdArgs = append(cmdArgs, "--collection", collection)
 	}
 
+	// Hybrid search parameters
+	if getBool(args, "hybrid") {
+		cmdArgs = append(cmdArgs, "--hybrid")
+	}
+	if fusionK, ok := getInt(args, "fusion_k"); ok {
+		cmdArgs = append(cmdArgs, "--fusion-k", strconv.Itoa(fusionK))
+	}
+	if fusionAlpha, ok := getFloat(args, "fusion_alpha"); ok {
+		cmdArgs = append(cmdArgs, "--fusion-alpha", fmt.Sprintf("%.4f", fusionAlpha))
+	}
+
+	// Recency boost parameters
+	if getBool(args, "recency_boost") {
+		cmdArgs = append(cmdArgs, "--recency-boost")
+	}
+	if recencyFactor, ok := getFloat(args, "recency_factor"); ok {
+		cmdArgs = append(cmdArgs, "--recency-factor", fmt.Sprintf("%.4f", recencyFactor))
+	}
+	if recencyDecay, ok := getInt(args, "recency_decay"); ok {
+		cmdArgs = append(cmdArgs, "--recency-decay", strconv.Itoa(recencyDecay))
+	}
+
 	return cmdArgs
 }
 
