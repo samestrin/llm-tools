@@ -38,6 +38,7 @@ type FileStatus struct {
 // Required files for a valid plan
 var requiredPlanFiles = []string{
 	"plan.md",
+	"original-requirements.md",
 }
 
 var requiredPlanDirs = []string{
@@ -46,7 +47,6 @@ var requiredPlanDirs = []string{
 }
 
 var optionalPlanFiles = []string{
-	"original-request.md",
 	"sprint-design.md",
 	"metadata.md",
 	"package-recommendations.md",
@@ -68,13 +68,13 @@ func newValidatePlanCmd() *cobra.Command {
 
 Required files:
   - plan.md
+  - original-requirements.md
 
 Required directories:
   - user-stories/
   - acceptance-criteria/
 
 Optional files:
-  - original-request.md
   - sprint-design.md
   - metadata.md
   - README.md

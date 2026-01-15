@@ -823,6 +823,14 @@ func buildContextMultiGetArgs(args map[string]interface{}) []string {
 		}
 	}
 
+	// Add --defaults if provided (JSON map of fallback values)
+	if defaults, ok := args["defaults"].(map[string]interface{}); ok && len(defaults) > 0 {
+		jsonBytes, err := json.Marshal(defaults)
+		if err == nil {
+			cmdArgs = append(cmdArgs, "--defaults", string(jsonBytes))
+		}
+	}
+
 	// Output format flags - both default to true (matching llm-support pattern)
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")

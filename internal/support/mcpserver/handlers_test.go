@@ -327,12 +327,12 @@ func TestBuildTemplateArgs(t *testing.T) {
 		{
 			name: "basic",
 			args: map[string]interface{}{"file": "template.txt"},
-			want: []string{"template", "template.txt"},
+			want: []string{"template", "template.txt", "--syntax", "brackets", "--json", "--min"},
 		},
 		{
 			name: "with syntax",
 			args: map[string]interface{}{"file": "template.txt", "syntax": "braces"},
-			want: []string{"template", "template.txt", "--syntax", "braces"},
+			want: []string{"template", "template.txt", "--syntax", "braces", "--json", "--min"},
 		},
 	}
 
@@ -1000,6 +1000,70 @@ func TestBuildContextArgs(t *testing.T) {
 			got := buildContextArgs(tt.args)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("buildContextArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildContextMultiGetArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic multiget (defaults to json+min)",
+			args: map[string]interface{}{
+				"dir":  "/tmp/mycontext",
+				"keys": []interface{}{"KEY1", "KEY2"},
+			},
+			want: []string{"context", "multiget", "--dir", "/tmp/mycontext", "KEY1", "KEY2", "--json", "--min"},
+		},
+		{
+			name: "with json+min disabled",
+			args: map[string]interface{}{
+				"dir":  "/tmp/mycontext",
+				"keys": []interface{}{"KEY1"},
+				"json": false,
+				"min":  false,
+			},
+			want: []string{"context", "multiget", "--dir", "/tmp/mycontext", "KEY1"},
+		},
+		{
+			name: "with defaults as JSON object",
+			args: map[string]interface{}{
+				"dir":  "/tmp/mycontext",
+				"keys": []interface{}{"KEY1", "MISSING"},
+				"defaults": map[string]interface{}{
+					"MISSING": "default_value",
+				},
+			},
+			want: []string{"context", "multiget", "--dir", "/tmp/mycontext", "KEY1", "MISSING", "--defaults", `{"MISSING":"default_value"}`, "--json", "--min"},
+		},
+		{
+			name: "with empty defaults (should not add flag)",
+			args: map[string]interface{}{
+				"dir":      "/tmp/mycontext",
+				"keys":     []interface{}{"KEY1"},
+				"defaults": map[string]interface{}{},
+			},
+			want: []string{"context", "multiget", "--dir", "/tmp/mycontext", "KEY1", "--json", "--min"},
+		},
+		{
+			name: "with path alias for dir",
+			args: map[string]interface{}{
+				"path": "/tmp/mycontext",
+				"keys": []interface{}{"KEY1"},
+			},
+			want: []string{"context", "multiget", "--dir", "/tmp/mycontext", "KEY1", "--json", "--min"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildContextMultiGetArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildContextMultiGetArgs() = %v, want %v", got, tt.want)
 			}
 		})
 	}

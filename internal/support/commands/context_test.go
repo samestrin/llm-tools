@@ -916,6 +916,127 @@ func TestContextMultiGetNoArgs(t *testing.T) {
 	}
 }
 
+func TestContextMultiGetDefaults(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "KEY1", "value1")
+
+	// Request existing key and missing key with default
+	stdout, _, err := runContextCmd(t, "multiget", "--dir", tempDir, "KEY1", "MISSING", "--defaults", `{"MISSING": "default_value"}`)
+	if err != nil {
+		t.Fatalf("multiget with defaults failed: %v", err)
+	}
+
+	// Should contain both values
+	if !strings.Contains(stdout, "value1") {
+		t.Errorf("expected value1 in output, got: %s", stdout)
+	}
+	if !strings.Contains(stdout, "default_value") {
+		t.Errorf("expected default_value in output, got: %s", stdout)
+	}
+}
+
+func TestContextMultiGetDefaultsJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "KEY1", "value1")
+
+	// Request with defaults and JSON output
+	stdout, _, err := runContextCmd(t, "multiget", "--dir", tempDir, "KEY1", "MISSING", "--defaults", `{"MISSING": "fallback"}`, "--json")
+	if err != nil {
+		t.Fatalf("multiget with defaults --json failed: %v", err)
+	}
+
+	var result map[string]string
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v", err)
+	}
+
+	if result["KEY1"] != "value1" {
+		t.Errorf("expected KEY1=value1, got: %s", result["KEY1"])
+	}
+	if result["MISSING"] != "fallback" {
+		t.Errorf("expected MISSING=fallback, got: %s", result["MISSING"])
+	}
+}
+
+func TestContextMultiGetDefaultsMin(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "KEY1", "value1")
+
+	// Request with defaults and min output - order should be preserved
+	stdout, _, err := runContextCmd(t, "multiget", "--dir", tempDir, "MISSING", "KEY1", "--defaults", `{"MISSING": "default"}`, "--min")
+	if err != nil {
+		t.Fatalf("multiget with defaults --min failed: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d: %s", len(lines), stdout)
+	}
+	if lines[0] != "default" {
+		t.Errorf("expected first line to be 'default', got: %s", lines[0])
+	}
+	if lines[1] != "value1" {
+		t.Errorf("expected second line to be 'value1', got: %s", lines[1])
+	}
+}
+
+func TestContextMultiGetDefaultsPartialMiss(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "KEY1", "value1")
+
+	// Request two missing keys but only provide default for one - should fail
+	_, _, err := runContextCmd(t, "multiget", "--dir", tempDir, "KEY1", "MISSING1", "MISSING2", "--defaults", `{"MISSING1": "default1"}`)
+	if err == nil {
+		t.Error("expected error when not all missing keys have defaults")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "MISSING2") {
+		t.Errorf("expected error to mention MISSING2, got: %s", errMsg)
+	}
+}
+
+func TestContextMultiGetDefaultsInvalidJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	// Invalid JSON should fail
+	_, _, err := runContextCmd(t, "multiget", "--dir", tempDir, "KEY1", "--defaults", `{invalid}`)
+	if err == nil {
+		t.Error("expected error for invalid JSON defaults")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "invalid") {
+		t.Errorf("expected error to mention invalid JSON, got: %s", errMsg)
+	}
+}
+
+func TestContextMultiGetDefaultsNotNeeded(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "KEY1", "value1")
+	runContextCmd(t, "set", "--dir", tempDir, "KEY2", "value2")
+
+	// Provide defaults but all keys exist - defaults should be ignored
+	stdout, _, err := runContextCmd(t, "multiget", "--dir", tempDir, "KEY1", "KEY2", "--defaults", `{"KEY1": "should_not_use", "KEY3": "also_not_used"}`)
+	if err != nil {
+		t.Fatalf("multiget with unused defaults failed: %v", err)
+	}
+
+	// Should use actual values, not defaults
+	if !strings.Contains(stdout, "value1") {
+		t.Errorf("expected value1 (not default) in output, got: %s", stdout)
+	}
+	if strings.Contains(stdout, "should_not_use") {
+		t.Errorf("should not use default when key exists, got: %s", stdout)
+	}
+}
+
 // Tests for --json/--min output formats
 
 func TestContextInitJSON(t *testing.T) {
@@ -1055,5 +1176,170 @@ func TestContextMultiSetJSONMin(t *testing.T) {
 	}
 	if result.Status != "ok" {
 		t.Errorf("expected status ok, got: %s", result.Status)
+	}
+}
+
+// =============================================================================
+// Path Normalization Tests
+// =============================================================================
+
+func TestNormalizeContextDir_Directory(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Directory should be returned as-is
+	result := normalizeContextDir(tempDir)
+	if result != tempDir {
+		t.Errorf("expected %s, got: %s", tempDir, result)
+	}
+}
+
+func TestNormalizeContextDir_FilePath(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create a file
+	filePath := filepath.Join(tempDir, "context.env")
+	if err := os.WriteFile(filePath, []byte("test"), 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	// File path should return parent directory
+	result := normalizeContextDir(filePath)
+	if result != tempDir {
+		t.Errorf("expected %s, got: %s", tempDir, result)
+	}
+}
+
+func TestNormalizeContextDir_NonexistentPath(t *testing.T) {
+	// Nonexistent path should be returned as-is (let caller handle error)
+	nonexistent := "/this/path/does/not/exist"
+	result := normalizeContextDir(nonexistent)
+	if result != nonexistent {
+		t.Errorf("expected %s, got: %s", nonexistent, result)
+	}
+}
+
+func TestContext_Get_WithFilePathNormalization(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "MY_VAR", "test_value")
+
+	// Pass the full file path instead of directory
+	filePath := filepath.Join(tempDir, "context.env")
+	stdout, _, err := runContextCmd(t, "get", "--dir", filePath, "MY_VAR", "--min")
+	if err != nil {
+		t.Fatalf("get with file path should work: %v", err)
+	}
+
+	if strings.TrimSpace(stdout) != "test_value" {
+		t.Errorf("expected 'test_value', got: %q", stdout)
+	}
+}
+
+func TestContext_Set_WithFilePathNormalization(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	// Pass the full file path instead of directory
+	filePath := filepath.Join(tempDir, "context.env")
+	_, _, err := runContextCmd(t, "set", "--dir", filePath, "MY_VAR", "test_value")
+	if err != nil {
+		t.Fatalf("set with file path should work: %v", err)
+	}
+
+	// Verify value was set
+	stdout, _, _ := runContextCmd(t, "get", "--dir", tempDir, "MY_VAR", "--min")
+	if strings.TrimSpace(stdout) != "test_value" {
+		t.Errorf("expected 'test_value', got: %q", stdout)
+	}
+}
+
+func TestContext_MultiGet_WithFilePathNormalization(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "KEY1", "value1")
+	runContextCmd(t, "set", "--dir", tempDir, "KEY2", "value2")
+
+	// Pass the full file path instead of directory
+	filePath := filepath.Join(tempDir, "context.env")
+	stdout, _, err := runContextCmd(t, "multiget", "--dir", filePath, "KEY1", "KEY2", "--min")
+	if err != nil {
+		t.Fatalf("multiget with file path should work: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 2 {
+		t.Errorf("expected 2 lines, got %d: %q", len(lines), stdout)
+	}
+}
+
+func TestContext_MultiSet_WithFilePathNormalization(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+
+	// Pass the full file path instead of directory
+	filePath := filepath.Join(tempDir, "context.env")
+	_, _, err := runContextCmd(t, "multiset", "--dir", filePath, "KEY1", "value1", "KEY2", "value2")
+	if err != nil {
+		t.Fatalf("multiset with file path should work: %v", err)
+	}
+
+	// Verify values were set
+	stdout, _, _ := runContextCmd(t, "multiget", "--dir", tempDir, "KEY1", "KEY2", "--min")
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 2 {
+		t.Errorf("expected 2 values, got %d: %q", len(lines), stdout)
+	}
+}
+
+func TestContext_List_WithFilePathNormalization(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "MY_VAR", "test_value")
+
+	// Pass the full file path instead of directory
+	filePath := filepath.Join(tempDir, "context.env")
+	stdout, _, err := runContextCmd(t, "list", "--dir", filePath)
+	if err != nil {
+		t.Fatalf("list with file path should work: %v", err)
+	}
+
+	if !strings.Contains(stdout, "MY_VAR") {
+		t.Errorf("expected MY_VAR in output, got: %s", stdout)
+	}
+}
+
+func TestContext_Dump_WithFilePathNormalization(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "MY_VAR", "test_value")
+
+	// Pass the full file path instead of directory
+	filePath := filepath.Join(tempDir, "context.env")
+	stdout, _, err := runContextCmd(t, "dump", "--dir", filePath)
+	if err != nil {
+		t.Fatalf("dump with file path should work: %v", err)
+	}
+
+	if !strings.Contains(stdout, "MY_VAR='test_value'") {
+		t.Errorf("expected MY_VAR='test_value', got: %s", stdout)
+	}
+}
+
+func TestContext_Clear_WithFilePathNormalization(t *testing.T) {
+	tempDir := t.TempDir()
+	runContextCmd(t, "init", "--dir", tempDir)
+	runContextCmd(t, "set", "--dir", tempDir, "MY_VAR", "test_value")
+
+	// Pass the full file path instead of directory
+	filePath := filepath.Join(tempDir, "context.env")
+	_, _, err := runContextCmd(t, "clear", "--dir", filePath)
+	if err != nil {
+		t.Fatalf("clear with file path should work: %v", err)
+	}
+
+	// Verify it was cleared
+	stdout, _, _ := runContextCmd(t, "list", "--dir", tempDir)
+	if strings.TrimSpace(stdout) != "" {
+		t.Errorf("expected empty list after clear, got: %s", stdout)
 	}
 }

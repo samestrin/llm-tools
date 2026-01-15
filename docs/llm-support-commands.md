@@ -1272,7 +1272,7 @@ llm-support validate-plan [flags]
 - `acceptance-criteria/` (directory)
 
 **Optional:**
-- `original-request.md`
+- `original-requirements.md`
 - `sprint-design.md`
 - `metadata.md`
 - `README.md`
@@ -1831,6 +1831,50 @@ Remove all values from the context file (preserves header).
 
 ```bash
 llm-support context clear --dir <directory>
+```
+
+#### context multiset
+
+Store multiple key-value pairs in a single atomic operation.
+
+```bash
+llm-support context multiset --dir <directory> KEY1 VALUE1 [KEY2 VALUE2 ...] [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--json` | Output as JSON |
+| `--min` | Output count only |
+
+**Examples:**
+```bash
+llm-support context multiset --dir /tmp/ctx KEY1 value1 KEY2 value2
+llm-support context multiset --dir /tmp/ctx START "$(date +%s)" BRANCH "main"
+llm-support context multiset --dir /tmp/ctx A 1 B 2 C 3 --json
+```
+
+#### context multiget
+
+Retrieve multiple values in a single operation. More efficient than multiple get calls.
+
+```bash
+llm-support context multiget --dir <directory> KEY1 [KEY2 ...] [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--defaults` | JSON object with default values for missing keys |
+| `--json` | Output as JSON object |
+| `--min` | Output values only (one per line, in argument order) |
+
+**Examples:**
+```bash
+llm-support context multiget --dir /tmp/ctx KEY1 KEY2
+llm-support context multiget --dir /tmp/ctx KEY1 KEY2 --json
+llm-support context multiget --dir /tmp/ctx KEY1 KEY2 --min
+llm-support context multiget --dir /tmp/ctx KEY1 MISSING --defaults '{"MISSING": "fallback"}'
 ```
 
 **Common Workflow:**

@@ -39,6 +39,24 @@ type ChunkWithEmbedding struct {
 	Embedding []float32
 }
 
+// LexicalSearcher is an optional interface for storage backends that support
+// full-text search. Backends implementing this interface can be used with
+// hybrid search (dense + lexical fusion).
+type LexicalSearcher interface {
+	// LexicalSearch performs full-text search using FTS5.
+	// Returns results ranked by BM25 relevance score.
+	LexicalSearch(ctx context.Context, query string, opts LexicalSearchOptions) ([]SearchResult, error)
+}
+
+// LexicalSearchOptions configures lexical search parameters.
+// This is defined here to avoid circular imports with fts_sqlite.go.
+type LexicalSearchOptions struct {
+	TopK       int     // Maximum results to return (default: 10)
+	Type       string  // Filter by chunk type
+	PathFilter string  // Filter by file path prefix
+	Threshold  float64 // Minimum BM25 score (more negative = more relevant)
+}
+
 // Storage defines the interface for persisting and querying chunks with embeddings
 type Storage interface {
 	// Create stores a new chunk with its embedding

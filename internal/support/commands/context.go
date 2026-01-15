@@ -21,6 +21,22 @@ var (
 // Key validation regex: must start with letter or underscore, then letters, digits, underscores
 var validKeyRegex = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// normalizeContextDir ensures dir points to a directory, not a file.
+// If dir is actually a file path (e.g., someone passed /path/context.env instead of /path/),
+// return the parent directory. Otherwise return dir unchanged.
+func normalizeContextDir(dir string) string {
+	info, err := os.Stat(dir)
+	if err != nil {
+		// Path doesn't exist or can't be accessed - return as-is, let caller handle the error
+		return dir
+	}
+	if !info.IsDir() {
+		// It's a file, use the parent directory
+		return filepath.Dir(dir)
+	}
+	return dir
+}
+
 // newContextCmd creates the context parent command
 func newContextCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -76,6 +92,9 @@ Output Formats:
 			if dir == "" {
 				return fmt.Errorf("--dir flag is required")
 			}
+
+			// Normalize dir in case user passed a file path instead of directory
+			dir = normalizeContextDir(dir)
 
 			// Verify directory exists
 			info, err := os.Stat(dir)
@@ -166,6 +185,9 @@ Examples:
 			if dir == "" {
 				return fmt.Errorf("--dir flag is required")
 			}
+
+			// Normalize dir in case user passed a file path instead of directory
+			dir = normalizeContextDir(dir)
 
 			// Verify directory exists
 			if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -332,6 +354,9 @@ Examples:
 				return fmt.Errorf("--dir flag is required")
 			}
 
+			// Normalize dir in case user passed a file path instead of directory
+			dir = normalizeContextDir(dir)
+
 			key := strings.ToUpper(args[0])
 			contextFile := filepath.Join(dir, "context.env")
 
@@ -418,6 +443,9 @@ Examples:
 				return fmt.Errorf("--dir flag is required")
 			}
 
+			// Normalize dir in case user passed a file path instead of directory
+			dir = normalizeContextDir(dir)
+
 			contextFile := filepath.Join(dir, "context.env")
 
 			// Acquire shared lock for read consistency
@@ -499,6 +527,9 @@ Examples:
 				return fmt.Errorf("--dir flag is required")
 			}
 
+			// Normalize dir in case user passed a file path instead of directory
+			dir = normalizeContextDir(dir)
+
 			contextFile := filepath.Join(dir, "context.env")
 
 			// Acquire shared lock for read consistency
@@ -548,6 +579,9 @@ Examples:
 			if dir == "" {
 				return fmt.Errorf("--dir flag is required")
 			}
+
+			// Normalize dir in case user passed a file path instead of directory
+			dir = normalizeContextDir(dir)
 
 			contextFile := filepath.Join(dir, "context.env")
 
@@ -632,6 +666,9 @@ Examples:
 			if dir == "" {
 				return fmt.Errorf("--dir flag is required")
 			}
+
+			// Normalize dir in case user passed a file path instead of directory
+			dir = normalizeContextDir(dir)
 
 			// Verify even number of arguments
 			if len(args)%2 != 0 {
@@ -726,6 +763,7 @@ Examples:
 // newContextMultiGetCmd creates the context multiget subcommand
 func newContextMultiGetCmd() *cobra.Command {
 	var dir string
+	var defaults string
 	var jsonOutput bool
 	var minOutput bool
 
@@ -734,7 +772,7 @@ func newContextMultiGetCmd() *cobra.Command {
 		Short: "Retrieve multiple values by key",
 		Long: `Retrieve multiple values from the context file in a single operation.
 
-If any key is not found, returns an error.
+If any key is not found, returns an error unless a default is provided.
 
 Output Formats:
   default: KEY1=value1\nKEY2=value2 (one per line)
@@ -744,11 +782,23 @@ Output Formats:
 Examples:
   context multiget --dir /tmp KEY1 KEY2
   context multiget --dir /tmp KEY1 KEY2 --json
-  context multiget --dir /tmp KEY1 KEY2 --min`,
+  context multiget --dir /tmp KEY1 KEY2 --min
+  context multiget --dir /tmp KEY1 MISSING --defaults '{"MISSING": "fallback"}'`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dir == "" {
 				return fmt.Errorf("--dir flag is required")
+			}
+
+			// Normalize dir in case user passed a file path instead of directory
+			dir = normalizeContextDir(dir)
+
+			// Parse defaults if provided
+			var defaultsMap map[string]string
+			if defaults != "" {
+				if err := json.Unmarshal([]byte(defaults), &defaultsMap); err != nil {
+					return fmt.Errorf("invalid --defaults JSON: %w", err)
+				}
 			}
 
 			// Uppercase all keys
@@ -775,11 +825,17 @@ Examples:
 				return fmt.Errorf("failed to read context file: %w", err)
 			}
 
-			// Check all keys exist first
+			// Check all keys exist first (use defaults if provided)
 			results := make(map[string]string)
 			for _, key := range keys {
 				value, found := values[key]
 				if !found {
+					if defaultsMap != nil {
+						if def, ok := defaultsMap[key]; ok {
+							results[key] = def
+							continue
+						}
+					}
 					return fmt.Errorf("key not found: %s", key)
 				}
 				results[key] = value
@@ -817,6 +873,7 @@ Examples:
 	}
 
 	cmd.Flags().StringVar(&dir, "dir", "", "Directory for context file (required)")
+	cmd.Flags().StringVar(&defaults, "defaults", "", "Default values as JSON map (e.g., '{\"KEY\": \"value\"}')")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Output values only (minimal)")
 	cmd.MarkFlagRequired("dir")

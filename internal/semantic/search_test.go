@@ -218,3 +218,301 @@ func (m *mockEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]floa
 func (m *mockEmbedder) Dimensions() int {
 	return len(m.embedding)
 }
+
+// ===== Backward Compatibility Regression Tests =====
+// These tests ensure that existing behavior is unchanged after adding hybrid search.
+
+// TestSearch_DefaultBehavior_Unchanged verifies that Search() without hybrid options
+// performs dense-only vector search (original behavior).
+func TestSearch_DefaultBehavior_Unchanged(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add test chunks
+	storage.Create(ctx, Chunk{ID: "1", Name: "Func1", Content: "function one"}, []float32{0.1, 0.2, 0.3, 0.4})
+	storage.Create(ctx, Chunk{ID: "2", Name: "Func2", Content: "function two"}, []float32{0.2, 0.3, 0.4, 0.5})
+
+	// Search with basic SearchOptions (not HybridSearchOptions)
+	results, err := searcher.Search(ctx, "test query", SearchOptions{
+		TopK: 10,
+	})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	// Verify we get results (dense search works)
+	if len(results) != 2 {
+		t.Errorf("Search() returned %d results, want 2", len(results))
+	}
+
+	// Verify results have valid scores (cosine similarity)
+	for _, r := range results {
+		if r.Score < 0 || r.Score > 1 {
+			t.Errorf("Result score %f out of expected range [0,1]", r.Score)
+		}
+	}
+}
+
+// TestSearch_ExistingOptions_Work verifies that all SearchOptions fields work as before.
+func TestSearch_ExistingOptions_Work(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{
+		embedding: []float32{1, 0, 0, 0},
+	}
+
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add test chunks with different types and paths
+	storage.Create(ctx, Chunk{ID: "1", FilePath: "internal/a.go", Name: "FuncA", Type: ChunkFunction}, []float32{1, 0, 0, 0})
+	storage.Create(ctx, Chunk{ID: "2", FilePath: "internal/b.go", Name: "MethodB", Type: ChunkMethod}, []float32{0.9, 0.1, 0, 0})
+	storage.Create(ctx, Chunk{ID: "3", FilePath: "cmd/main.go", Name: "Main", Type: ChunkFunction}, []float32{0.5, 0.5, 0, 0})
+
+	// Test TopK
+	t.Run("TopK", func(t *testing.T) {
+		results, err := searcher.Search(ctx, "test", SearchOptions{TopK: 2})
+		if err != nil {
+			t.Fatalf("Search() error = %v", err)
+		}
+		if len(results) != 2 {
+			t.Errorf("TopK=2 returned %d results, want 2", len(results))
+		}
+	})
+
+	// Test Threshold
+	t.Run("Threshold", func(t *testing.T) {
+		results, err := searcher.Search(ctx, "test", SearchOptions{TopK: 10, Threshold: 0.9})
+		if err != nil {
+			t.Fatalf("Search() error = %v", err)
+		}
+		// Only exact match should pass 0.9 threshold
+		if len(results) != 2 {
+			t.Errorf("Threshold=0.9 returned %d results, want 2", len(results))
+		}
+	})
+
+	// Test Type filter
+	t.Run("Type", func(t *testing.T) {
+		results, err := searcher.Search(ctx, "test", SearchOptions{TopK: 10, Type: "function"})
+		if err != nil {
+			t.Fatalf("Search() error = %v", err)
+		}
+		if len(results) != 2 {
+			t.Errorf("Type=function returned %d results, want 2", len(results))
+		}
+		for _, r := range results {
+			if r.Chunk.Type != ChunkFunction {
+				t.Errorf("Got chunk type %v, want function", r.Chunk.Type)
+			}
+		}
+	})
+
+	// Test PathFilter
+	t.Run("PathFilter", func(t *testing.T) {
+		results, err := searcher.Search(ctx, "test", SearchOptions{TopK: 10, PathFilter: "internal/"})
+		if err != nil {
+			t.Fatalf("Search() error = %v", err)
+		}
+		if len(results) != 2 {
+			t.Errorf("PathFilter=internal/ returned %d results, want 2", len(results))
+		}
+	})
+}
+
+// TestSearch_MethodSignature_Unchanged verifies that Search() signature is backward compatible.
+// This is a compile-time test - if it compiles, the signature is compatible.
+func TestSearch_MethodSignature_Unchanged(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{embedding: []float32{0.1, 0.2, 0.3, 0.4}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// This call verifies the original signature:
+	// Search(ctx context.Context, query string, opts SearchOptions) ([]SearchResult, error)
+	var results []SearchResult
+	var searchErr error
+	results, searchErr = searcher.Search(ctx, "query", SearchOptions{})
+
+	// Use variables to avoid unused warnings
+	_ = results
+	_ = searchErr
+}
+
+// TestSearchResult_Fields_Unchanged verifies SearchResult struct fields are preserved.
+func TestSearchResult_Fields_Unchanged(t *testing.T) {
+	result := SearchResult{
+		Chunk: Chunk{
+			ID:        "test-id",
+			FilePath:  "test.go",
+			Name:      "TestFunc",
+			Type:      ChunkFunction,
+			Signature: "func TestFunc()",
+			Content:   "content",
+			StartLine: 1,
+			EndLine:   10,
+			Language:  "go",
+		},
+		Score: 0.95,
+	}
+
+	// Verify all expected fields are accessible
+	if result.Chunk.ID != "test-id" {
+		t.Error("Chunk.ID field missing or changed")
+	}
+	if result.Chunk.FilePath != "test.go" {
+		t.Error("Chunk.FilePath field missing or changed")
+	}
+	if result.Chunk.Name != "TestFunc" {
+		t.Error("Chunk.Name field missing or changed")
+	}
+	if result.Chunk.Type != ChunkFunction {
+		t.Error("Chunk.Type field missing or changed")
+	}
+	if result.Score != 0.95 {
+		t.Error("Score field missing or changed")
+	}
+}
+
+// TestHybridSearch_NotCalledByDefault verifies that HybridSearch is separate from Search.
+func TestHybridSearch_NotCalledByDefault(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{embedding: []float32{0.1, 0.2, 0.3, 0.4}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add a chunk
+	storage.Create(ctx, Chunk{ID: "1", Name: "Test"}, []float32{0.1, 0.2, 0.3, 0.4})
+
+	// Standard Search should work without HybridSearch
+	results, err := searcher.Search(ctx, "test", SearchOptions{TopK: 5})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("Search() returned %d results, want 1", len(results))
+	}
+
+	// HybridSearch is a separate method that can also be called
+	hybridResults, err := searcher.HybridSearch(ctx, "test", HybridSearchOptions{
+		SearchOptions: SearchOptions{TopK: 5},
+	})
+	if err != nil {
+		t.Fatalf("HybridSearch() error = %v", err)
+	}
+	if len(hybridResults) != 1 {
+		t.Errorf("HybridSearch() returned %d results, want 1", len(hybridResults))
+	}
+}
+
+// TestTopK_BehaviorPreserved verifies that TopK limits results correctly.
+func TestTopK_BehaviorPreserved(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{embedding: []float32{0.1, 0.2, 0.3, 0.4}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add many chunks
+	for i := 0; i < 20; i++ {
+		storage.Create(ctx, Chunk{ID: string(rune('a' + i)), Name: "Chunk"}, []float32{0.1, 0.2, 0.3, 0.4})
+	}
+
+	tests := []struct {
+		topK     int
+		expected int
+	}{
+		{topK: 5, expected: 5},
+		{topK: 10, expected: 10},
+		{topK: 1, expected: 1},
+		{topK: 0, expected: 20}, // 0 means no limit
+	}
+
+	for _, tt := range tests {
+		t.Run("TopK="+string(rune('0'+tt.topK)), func(t *testing.T) {
+			results, err := searcher.Search(ctx, "test", SearchOptions{TopK: tt.topK})
+			if err != nil {
+				t.Fatalf("Search() error = %v", err)
+			}
+			if len(results) != tt.expected {
+				t.Errorf("TopK=%d returned %d results, want %d", tt.topK, len(results), tt.expected)
+			}
+		})
+	}
+}
+
+// TestThreshold_BehaviorPreserved verifies that threshold filtering works correctly.
+func TestThreshold_BehaviorPreserved(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Use specific embeddings for predictable cosine similarity
+	embedder := &mockEmbedder{embedding: []float32{1, 0, 0, 0}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add chunks with different similarity to query
+	storage.Create(ctx, Chunk{ID: "exact", Name: "Exact"}, []float32{1, 0, 0, 0})       // Score 1.0
+	storage.Create(ctx, Chunk{ID: "high", Name: "High"}, []float32{0.9, 0.1, 0, 0})     // Score ~0.99
+	storage.Create(ctx, Chunk{ID: "medium", Name: "Medium"}, []float32{0.7, 0.7, 0, 0}) // Score ~0.7
+	storage.Create(ctx, Chunk{ID: "low", Name: "Low"}, []float32{0.1, 0.9, 0, 0})       // Score ~0.1
+	storage.Create(ctx, Chunk{ID: "zero", Name: "Zero"}, []float32{0, 1, 0, 0})         // Score 0.0
+
+	tests := []struct {
+		threshold float32
+		minCount  int
+		maxCount  int
+	}{
+		{threshold: 0.0, minCount: 5, maxCount: 5},  // All results
+		{threshold: 0.5, minCount: 3, maxCount: 3},  // Medium and above
+		{threshold: 0.9, minCount: 2, maxCount: 2},  // High and exact
+		{threshold: 0.99, minCount: 1, maxCount: 2}, // Only exact (or near-exact)
+	}
+
+	for _, tt := range tests {
+		t.Run("Threshold="+string(rune('0'+int(tt.threshold*10))), func(t *testing.T) {
+			results, err := searcher.Search(ctx, "test", SearchOptions{
+				TopK:      10,
+				Threshold: tt.threshold,
+			})
+			if err != nil {
+				t.Fatalf("Search() error = %v", err)
+			}
+			if len(results) < tt.minCount || len(results) > tt.maxCount {
+				t.Errorf("Threshold=%.2f returned %d results, want between %d and %d",
+					tt.threshold, len(results), tt.minCount, tt.maxCount)
+			}
+		})
+	}
+}
