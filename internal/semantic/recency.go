@@ -1,7 +1,6 @@
 package semantic
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -42,9 +41,6 @@ func ValidateRecencyConfig(cfg RecencyConfig) error {
 	}
 	return nil
 }
-
-// ErrInvalidRecencyConfig is returned when recency configuration is invalid.
-var ErrInvalidRecencyConfig = errors.New("invalid recency configuration")
 
 // CalculateRecencyBoost calculates the recency boost multiplier for a file.
 // Formula: boost = 1 + factor * exp(-age_days / half_life_days)
