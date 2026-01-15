@@ -115,6 +115,10 @@ func NewQdrantStorage(config QdrantConfig) (*QdrantStorage, error) {
 		ftsPath = ":memory:"
 	} else {
 		ftsPath = getFTSPath(config.CollectionName, config.FTSDataDir)
+		if ftsPath == "" {
+			client.Close()
+			return nil, fmt.Errorf("failed to determine FTS database path: cannot get home directory")
+		}
 	}
 
 	fts, err := NewLexicalIndex(ftsPath, config.EmbeddingDim)

@@ -367,11 +367,7 @@ func (idx *LexicalIndex) Clear(ctx context.Context) error {
 		return ErrStorageClosed
 	}
 
-	// Delete from FTS first (trigger will handle, but be explicit)
-	if _, err := idx.db.ExecContext(ctx, `DELETE FROM chunks_fts`); err != nil {
-		return fmt.Errorf("failed to clear FTS index: %w", err)
-	}
-
+	// Delete from chunks table - the DELETE trigger will sync to FTS automatically
 	if _, err := idx.db.ExecContext(ctx, `DELETE FROM chunks`); err != nil {
 		return fmt.Errorf("failed to clear chunks: %w", err)
 	}
@@ -417,12 +413,13 @@ func sanitizeCollectionName(name string) string {
 
 // getFTSPath returns the path for a parallel FTS database.
 // If dataDir is empty, uses ~/.llm-semantic/.
+// Returns empty string if home directory cannot be determined and dataDir is empty.
 func getFTSPath(collection string, dataDir string) string {
 	if dataDir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			// Fallback to current directory if home can't be determined
-			home = "."
+			// Return empty string to signal error - caller should handle
+			return ""
 		}
 		dataDir = filepath.Join(home, ".llm-semantic")
 	}
