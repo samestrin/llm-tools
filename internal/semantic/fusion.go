@@ -62,9 +62,12 @@ func FuseRRFWithError(denseResults, lexicalResults []SearchResult, k int) ([]Sea
 		})
 	}
 
-	// Sort by score descending
+	// Sort by score descending, with chunk ID as tie-breaker for determinism
 	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return results[i].Chunk.ID < results[j].Chunk.ID
 	})
 
 	return results, nil
@@ -83,7 +86,8 @@ func FuseRRFWithTopK(denseResults, lexicalResults []SearchResult, k int, topK in
 // FuseWeighted combines dense and lexical results using weighted score fusion.
 // The formula is: score = alpha * dense_score + (1-alpha) * lexical_score
 // Alpha controls the balance: alpha=1.0 means 100% dense, alpha=0.0 means 100% lexical.
-// Scores from each source are normalized before combining.
+// Note: Scores are combined directly without normalization. For best results,
+// ensure both score sources use comparable scales.
 func FuseWeighted(denseResults, lexicalResults []SearchResult, alpha float64) ([]SearchResult, error) {
 	if alpha < 0.0 || alpha > 1.0 {
 		return nil, fmt.Errorf("fusion alpha must be between 0.0 and 1.0, got: %f", alpha)
@@ -128,9 +132,12 @@ func FuseWeighted(denseResults, lexicalResults []SearchResult, alpha float64) ([
 		})
 	}
 
-	// Sort by score descending
+	// Sort by score descending, with chunk ID as tie-breaker for determinism
 	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return results[i].Chunk.ID < results[j].Chunk.ID
 	})
 
 	return results, nil
