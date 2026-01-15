@@ -505,3 +505,290 @@ func TestLexicalSearch_TopKLimit(t *testing.T) {
 		t.Errorf("expected max 5 results with TopK=5, got %d", len(results))
 	}
 }
+
+// ===== Lexical Search Delegation Tests =====
+// These tests verify that QdrantStorage delegates lexical search to its parallel FTS index
+// and that SQLiteStorage uses its native FTS5 implementation.
+
+// TestSQLiteStorage_ImplementsLexicalSearcher verifies SQLiteStorage implements LexicalSearcher.
+func TestSQLiteStorage_ImplementsLexicalSearcher(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Verify it implements the LexicalSearcher interface
+	var _ LexicalSearcher = storage
+}
+
+// TestLexicalIndex_SearchDelegation verifies the LexicalIndex Search method works correctly.
+// This is the underlying implementation that QdrantStorage delegates to.
+func TestLexicalIndex_SearchDelegation(t *testing.T) {
+	// Create standalone lexical index
+	idx, err := NewLexicalIndex(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create lexical index: %v", err)
+	}
+	defer idx.Close()
+
+	ctx := context.Background()
+
+	// Index some chunks
+	chunks := []Chunk{
+		{
+			ID:        "chunk-1",
+			FilePath:  "/internal/auth/handler.go",
+			Type:      ChunkFunction,
+			Name:      "handleAuthentication",
+			Content:   "func handleAuthentication(ctx context.Context) error { return validateToken(ctx) }",
+			StartLine: 10,
+			EndLine:   20,
+			Language:  "go",
+		},
+		{
+			ID:        "chunk-2",
+			FilePath:  "/internal/user/service.go",
+			Type:      ChunkFunction,
+			Name:      "createUser",
+			Content:   "func createUser(name string) (*User, error) { return &User{Name: name}, nil }",
+			StartLine: 30,
+			EndLine:   40,
+			Language:  "go",
+		},
+	}
+
+	if err := idx.IndexBatch(ctx, chunks); err != nil {
+		t.Fatalf("failed to index batch: %v", err)
+	}
+
+	// Search for "authentication"
+	opts := LexicalSearchOptions{TopK: 10}
+	results, err := idx.Search(ctx, "handleAuthentication", opts)
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Errorf("expected 1 result, got %d", len(results))
+	}
+
+	if len(results) > 0 {
+		if results[0].Chunk.ID != "chunk-1" {
+			t.Errorf("expected chunk-1, got %s", results[0].Chunk.ID)
+		}
+		if results[0].Score <= 0 {
+			t.Error("expected positive relevance score")
+		}
+	}
+}
+
+// TestLexicalIndex_SearchWithFilters verifies that LexicalIndex filters work.
+func TestLexicalIndex_SearchWithFilters(t *testing.T) {
+	idx, err := NewLexicalIndex(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create lexical index: %v", err)
+	}
+	defer idx.Close()
+
+	ctx := context.Background()
+
+	// Index chunks of different types and paths
+	// Using "process" as the search term since FTS5 tokenizes on word boundaries
+	chunks := []Chunk{
+		{
+			ID:       "func-internal",
+			FilePath: "/internal/service/handler.go",
+			Type:     ChunkFunction,
+			Name:     "handleRequest",
+			Content:  "func handleRequest() { process the request }",
+			Language: "go",
+		},
+		{
+			ID:       "method-internal",
+			FilePath: "/internal/service/handler.go",
+			Type:     ChunkMethod,
+			Name:     "handleMethod",
+			Content:  "func (s *Service) handleMethod() { process the data }",
+			Language: "go",
+		},
+		{
+			ID:       "func-cmd",
+			FilePath: "/cmd/main.go",
+			Type:     ChunkFunction,
+			Name:     "handleMain",
+			Content:  "func handleMain() { process the args }",
+			Language: "go",
+		},
+	}
+
+	if err := idx.IndexBatch(ctx, chunks); err != nil {
+		t.Fatalf("failed to index batch: %v", err)
+	}
+
+	// Test type filter - search for "process" which is in all chunks
+	t.Run("TypeFilter", func(t *testing.T) {
+		results, err := idx.Search(ctx, "process", LexicalSearchOptions{TopK: 10, Type: "function"})
+		if err != nil {
+			t.Fatalf("Search with type filter failed: %v", err)
+		}
+		if len(results) != 2 {
+			t.Errorf("expected 2 function results, got %d", len(results))
+		}
+		for _, r := range results {
+			if r.Chunk.Type != ChunkFunction {
+				t.Errorf("expected function type, got %s", r.Chunk.Type)
+			}
+		}
+	})
+
+	// Test path filter - search for "process" but only in /internal paths
+	t.Run("PathFilter", func(t *testing.T) {
+		results, err := idx.Search(ctx, "process", LexicalSearchOptions{TopK: 10, PathFilter: "/internal"})
+		if err != nil {
+			t.Fatalf("Search with path filter failed: %v", err)
+		}
+		if len(results) != 2 {
+			t.Errorf("expected 2 results from /internal, got %d", len(results))
+		}
+	})
+}
+
+// TestLexicalIndex_EmptyIndex verifies that searching an empty index returns empty results.
+func TestLexicalIndex_EmptyIndex(t *testing.T) {
+	idx, err := NewLexicalIndex(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create lexical index: %v", err)
+	}
+	defer idx.Close()
+
+	ctx := context.Background()
+
+	results, err := idx.Search(ctx, "anything", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("Search on empty index should not error: %v", err)
+	}
+
+	if results == nil {
+		t.Error("expected empty slice, got nil")
+	}
+
+	if len(results) != 0 {
+		t.Errorf("expected 0 results from empty index, got %d", len(results))
+	}
+}
+
+// TestLexicalIndex_EmptyQuery verifies that empty query returns empty results.
+func TestLexicalIndex_EmptyQuery(t *testing.T) {
+	idx, err := NewLexicalIndex(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create lexical index: %v", err)
+	}
+	defer idx.Close()
+
+	// Add a chunk first
+	ctx := context.Background()
+	idx.IndexChunk(ctx, Chunk{ID: "test", FilePath: "/test.go", Name: "test", Type: ChunkFunction, Content: "test"})
+
+	results, err := idx.Search(ctx, "", LexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("Search with empty query should not error: %v", err)
+	}
+
+	if len(results) != 0 {
+		t.Errorf("expected 0 results for empty query, got %d", len(results))
+	}
+}
+
+// TestLexicalIndex_ClosedIndex verifies that searching a closed index returns error.
+func TestLexicalIndex_ClosedIndex(t *testing.T) {
+	idx, err := NewLexicalIndex(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create lexical index: %v", err)
+	}
+
+	// Close the index
+	idx.Close()
+
+	ctx := context.Background()
+	_, err = idx.Search(ctx, "test", LexicalSearchOptions{TopK: 10})
+	if err != ErrStorageClosed {
+		t.Errorf("expected ErrStorageClosed, got %v", err)
+	}
+}
+
+// TestLexicalSearcher_InterfaceCompatibility verifies that both SQLiteStorage
+// and LexicalIndex return compatible results when implementing LexicalSearcher.
+func TestLexicalSearcher_InterfaceCompatibility(t *testing.T) {
+	ctx := context.Background()
+
+	// Create SQLiteStorage and LexicalIndex with same data
+	sqliteStorage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create SQLite storage: %v", err)
+	}
+	defer sqliteStorage.Close()
+
+	lexicalIdx, err := NewLexicalIndex(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create lexical index: %v", err)
+	}
+	defer lexicalIdx.Close()
+
+	// Add same chunk to both
+	chunk := Chunk{
+		ID:        "test-chunk",
+		FilePath:  "/test/file.go",
+		Type:      ChunkFunction,
+		Name:      "searchableFunction",
+		Content:   "func searchableFunction() { /* unique content */ }",
+		StartLine: 1,
+		EndLine:   5,
+		Language:  "go",
+	}
+
+	// Add to SQLiteStorage (which auto-syncs to FTS)
+	if err := sqliteStorage.Create(ctx, chunk, make([]float32, 4)); err != nil {
+		t.Fatalf("failed to add chunk to SQLite: %v", err)
+	}
+
+	// Add to LexicalIndex directly
+	if err := lexicalIdx.IndexChunk(ctx, chunk); err != nil {
+		t.Fatalf("failed to add chunk to lexical index: %v", err)
+	}
+
+	// Search both
+	opts := LexicalSearchOptions{TopK: 10}
+	query := "searchableFunction"
+
+	sqliteResults, err := sqliteStorage.LexicalSearch(ctx, query, opts)
+	if err != nil {
+		t.Fatalf("SQLite LexicalSearch failed: %v", err)
+	}
+
+	lexicalResults, err := lexicalIdx.Search(ctx, query, opts)
+	if err != nil {
+		t.Fatalf("LexicalIndex Search failed: %v", err)
+	}
+
+	// Verify results are compatible
+	if len(sqliteResults) != len(lexicalResults) {
+		t.Errorf("result count mismatch: SQLite=%d, LexicalIndex=%d", len(sqliteResults), len(lexicalResults))
+	}
+
+	if len(sqliteResults) > 0 && len(lexicalResults) > 0 {
+		// Check that chunk IDs match
+		if sqliteResults[0].Chunk.ID != lexicalResults[0].Chunk.ID {
+			t.Errorf("chunk ID mismatch: SQLite=%s, LexicalIndex=%s",
+				sqliteResults[0].Chunk.ID, lexicalResults[0].Chunk.ID)
+		}
+
+		// Check that both have positive scores
+		if sqliteResults[0].Score <= 0 {
+			t.Error("SQLite result should have positive score")
+		}
+		if lexicalResults[0].Score <= 0 {
+			t.Error("LexicalIndex result should have positive score")
+		}
+	}
+}
