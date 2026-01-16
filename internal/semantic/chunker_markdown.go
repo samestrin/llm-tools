@@ -96,10 +96,8 @@ func (c *MarkdownChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 				// Found a header - finalize current section and start new one
 				if currentSection != nil {
 					currentSection.endLine = lineNum - 1
-					chunk := c.sectionToChunk(path, filename, currentSection)
-					if chunk != nil {
-						chunks = append(chunks, *chunk)
-					}
+					sectionChunks := c.sectionToChunks(path, filename, currentSection)
+					chunks = append(chunks, sectionChunks...)
 				}
 
 				level := len(match[1])
@@ -139,16 +137,15 @@ func (c *MarkdownChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 	// Finalize last section
 	if currentSection != nil {
 		currentSection.endLine = len(lines)
-		chunk := c.sectionToChunk(path, filename, currentSection)
-		if chunk != nil {
-			chunks = append(chunks, *chunk)
-		}
+		sectionChunks := c.sectionToChunks(path, filename, currentSection)
+		chunks = append(chunks, sectionChunks...)
 	}
 
 	return chunks, nil
 }
 
-// sectionToChunk converts a markdownSection to a Chunk
+// sectionToChunk converts a markdownSection to a Chunk.
+// If the section is larger than maxChunkSize, it may be split into multiple chunks.
 func (c *MarkdownChunker) sectionToChunk(path, filename string, section *markdownSection) *Chunk {
 	content := strings.TrimRight(section.content.String(), "\n")
 	if content == "" {
@@ -171,6 +168,84 @@ func (c *MarkdownChunker) sectionToChunk(path, filename string, section *markdow
 	return chunk
 }
 
+// sectionToChunks converts a markdownSection to one or more Chunks.
+// If the section exceeds maxChunkSize, it splits by line boundaries.
+func (c *MarkdownChunker) sectionToChunks(path, filename string, section *markdownSection) []Chunk {
+	content := strings.TrimRight(section.content.String(), "\n")
+	if content == "" {
+		return nil
+	}
+
+	// If content fits in one chunk, return single chunk
+	if len(content) <= c.maxChunkSize {
+		name := c.buildChunkName(filename, section)
+		chunk := Chunk{
+			FilePath:  path,
+			Type:      ChunkFile,
+			Name:      name,
+			Content:   content,
+			StartLine: section.startLine,
+			EndLine:   section.endLine,
+			Language:  "markdown",
+		}
+		chunk.ID = chunk.GenerateID()
+		return []Chunk{chunk}
+	}
+
+	// Split large section by line boundaries
+	var chunks []Chunk
+	lines := strings.Split(content, "\n")
+	var currentContent strings.Builder
+	currentStartLine := section.startLine
+	partNum := 1
+
+	for i, line := range lines {
+		lineWithNewline := line + "\n"
+
+		// Check if adding this line would exceed max size
+		if currentContent.Len()+len(lineWithNewline) > c.maxChunkSize && currentContent.Len() > 0 {
+			// Emit current chunk
+			name := c.buildChunkNameWithPart(filename, section, partNum)
+			chunk := Chunk{
+				FilePath:  path,
+				Type:      ChunkFile,
+				Name:      name,
+				Content:   strings.TrimRight(currentContent.String(), "\n"),
+				StartLine: currentStartLine,
+				EndLine:   section.startLine + i - 1,
+				Language:  "markdown",
+			}
+			chunk.ID = chunk.GenerateID()
+			chunks = append(chunks, chunk)
+
+			// Reset for next chunk
+			currentContent.Reset()
+			currentStartLine = section.startLine + i
+			partNum++
+		}
+
+		currentContent.WriteString(lineWithNewline)
+	}
+
+	// Emit final chunk
+	if currentContent.Len() > 0 {
+		name := c.buildChunkNameWithPart(filename, section, partNum)
+		chunk := Chunk{
+			FilePath:  path,
+			Type:      ChunkFile,
+			Name:      name,
+			Content:   strings.TrimRight(currentContent.String(), "\n"),
+			StartLine: currentStartLine,
+			EndLine:   section.endLine,
+			Language:  "markdown",
+		}
+		chunk.ID = chunk.GenerateID()
+		chunks = append(chunks, chunk)
+	}
+
+	return chunks
+}
+
 // buildChunkName creates a descriptive name from the header hierarchy
 func (c *MarkdownChunker) buildChunkName(filename string, section *markdownSection) string {
 	if len(section.hierarchy) == 0 {
@@ -182,6 +257,15 @@ func (c *MarkdownChunker) buildChunkName(filename string, section *markdownSecti
 	parts := []string{filename}
 	parts = append(parts, section.hierarchy...)
 	return strings.Join(parts, " > ")
+}
+
+// buildChunkNameWithPart creates a chunk name with a part number suffix
+func (c *MarkdownChunker) buildChunkNameWithPart(filename string, section *markdownSection, partNum int) string {
+	baseName := c.buildChunkName(filename, section)
+	if partNum == 1 {
+		return baseName
+	}
+	return baseName + " (part " + itoa(partNum) + ")"
 }
 
 // extractFrontmatter extracts YAML frontmatter from the beginning of a file.

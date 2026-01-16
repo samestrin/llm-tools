@@ -1,6 +1,7 @@
 package semantic
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -419,6 +420,111 @@ Content after header.`
 	// Second chunk is header section
 	if chunks[1].Name != "test > First Header" {
 		t.Errorf("chunk[1].Name = %q, want %q", chunks[1].Name, "test > First Header")
+	}
+}
+
+func TestMarkdownChunker_SizeBasedFallback(t *testing.T) {
+	// Use moderate max chunk size to trigger fallback with multiple short lines
+	chunker := NewMarkdownChunker(200)
+
+	// Create a section with many lines that together exceed maxChunkSize
+	var lines []string
+	lines = append(lines, "# Header", "")
+	for i := 0; i < 20; i++ {
+		lines = append(lines, "This is line number "+strconv.Itoa(i+1)+" of content.")
+	}
+	lines = append(lines, "", "Final line.")
+	largeContent := strings.Join(lines, "\n")
+
+	chunks, err := chunker.Chunk("test.md", []byte(largeContent))
+	if err != nil {
+		t.Fatalf("Chunk() error = %v", err)
+	}
+
+	// Should split the large section into multiple chunks
+	if len(chunks) < 2 {
+		t.Errorf("expected large section to be split, got %d chunks (total size: %d)", len(chunks), len(largeContent))
+	}
+
+	// All chunks should be within reasonable size (with some buffer for line boundaries)
+	for i, chunk := range chunks {
+		// Allow buffer for line that might exceed slightly
+		if len(chunk.Content) > 400 {
+			t.Errorf("chunk[%d] too large: %d chars", i, len(chunk.Content))
+		}
+	}
+
+	// Verify all content is preserved
+	var allContent strings.Builder
+	for _, chunk := range chunks {
+		allContent.WriteString(chunk.Content)
+		allContent.WriteString("\n")
+	}
+	// Check that key content is present
+	if !strings.Contains(allContent.String(), "line number 1") {
+		t.Error("missing content from beginning")
+	}
+	if !strings.Contains(allContent.String(), "line number 20") {
+		t.Error("missing content from end")
+	}
+}
+
+func TestMarkdownChunker_EdgeCases(t *testing.T) {
+	chunker := NewMarkdownChunker(4000)
+
+	tests := []struct {
+		name       string
+		content    string
+		wantChunks int
+		wantErr    bool
+	}{
+		{
+			name:       "empty file",
+			content:    "",
+			wantChunks: 0,
+		},
+		{
+			name:       "whitespace only",
+			content:    "   \n\n   \t\n",
+			wantChunks: 1, // Creates a preamble chunk
+		},
+		{
+			name:       "no headers at all",
+			content:    "Just some content\nwithout any headers\nat all.",
+			wantChunks: 1,
+		},
+		{
+			name:       "single header no content",
+			content:    "# Just a Header",
+			wantChunks: 1,
+		},
+		{
+			name:       "header immediately followed by header",
+			content:    "# First\n## Second\n### Third",
+			wantChunks: 3,
+		},
+		{
+			name:       "deeply nested headers",
+			content:    "# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6\ncontent",
+			wantChunks: 6,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunks, err := chunker.Chunk("test.md", []byte(tt.content))
+
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Chunk() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if len(chunks) != tt.wantChunks {
+				t.Errorf("got %d chunks, want %d", len(chunks), tt.wantChunks)
+				for i, c := range chunks {
+					t.Logf("  chunk[%d]: name=%q, content=%q", i, c.Name, truncate(c.Content, 50))
+				}
+			}
+		})
 	}
 }
 
