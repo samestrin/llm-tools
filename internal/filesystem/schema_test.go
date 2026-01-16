@@ -5,11 +5,12 @@ import (
 	"testing"
 )
 
-// TestSchemaParityToolCount validates we have exactly 28 tools
+// TestSchemaParityToolCount validates we have exactly 15 batch/specialized tools
+// NOTE: Single-file operations should use Claude's native Read, Write, and Edit tools
 func TestSchemaParityToolCount(t *testing.T) {
 	tools := GetToolDefinitions()
-	if len(tools) != 28 {
-		t.Errorf("Expected 28 tools, got %d", len(tools))
+	if len(tools) != 15 {
+		t.Errorf("Expected 15 tools, got %d", len(tools))
 	}
 }
 
@@ -61,16 +62,7 @@ func TestSchemaParityHasTypeObject(t *testing.T) {
 func TestSchemaParityHasProperties(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Tools that legitimately take no arguments
-	noArgsTools := map[string]bool{
-		"llm_filesystem_list_allowed_directories": true,
-	}
-
 	for _, tool := range tools {
-		if noArgsTools[tool.Name] {
-			continue // Skip tools that take no arguments
-		}
-
 		var schema map[string]interface{}
 		json.Unmarshal(tool.InputSchema, &schema)
 
@@ -92,7 +84,9 @@ func TestSchemaParityNamingConvention(t *testing.T) {
 	}
 }
 
-// TestSchemaParityExpectedTools validates all expected tools exist
+// TestSchemaParityExpectedTools validates all expected batch/specialized tools exist
+// NOTE: Single-file operations (read_file, write_file, edit_block, etc.) are removed
+// as Claude's native Read, Write, and Edit tools provide better performance
 func TestSchemaParityExpectedTools(t *testing.T) {
 	tools := GetToolDefinitions()
 
@@ -102,35 +96,24 @@ func TestSchemaParityExpectedTools(t *testing.T) {
 		toolMap[tool.Name] = true
 	}
 
-	// Expected tools from fast-filesystem-mcp v3.5.1
+	// Expected 15 batch/specialized tools
 	expectedTools := []string{
-		// Core file operations
-		"llm_filesystem_read_file",
+		// Batch Reading
 		"llm_filesystem_read_multiple_files",
-		"llm_filesystem_write_file",
-		"llm_filesystem_large_write_file",
+		"llm_filesystem_extract_lines",
+
+		// Batch Editing
+		"llm_filesystem_edit_blocks",
+		"llm_filesystem_search_and_replace",
 
 		// Directory operations
 		"llm_filesystem_list_directory",
 		"llm_filesystem_get_directory_tree",
-		"llm_filesystem_create_directory",
 		"llm_filesystem_create_directories",
-
-		// File info
-		"llm_filesystem_get_file_info",
 
 		// Search operations
 		"llm_filesystem_search_files",
 		"llm_filesystem_search_code",
-
-		// Edit operations
-		"llm_filesystem_edit_block",
-		"llm_filesystem_edit_blocks",
-		"llm_filesystem_edit_multiple_blocks",
-		"llm_filesystem_safe_edit",
-		"llm_filesystem_edit_file",
-		"llm_filesystem_search_and_replace",
-		"llm_filesystem_extract_lines",
 
 		// File management
 		"llm_filesystem_copy_file",
@@ -138,15 +121,9 @@ func TestSchemaParityExpectedTools(t *testing.T) {
 		"llm_filesystem_delete_file",
 		"llm_filesystem_batch_file_operations",
 
-		// Advanced operations
-		"llm_filesystem_get_disk_usage",
-		"llm_filesystem_find_large_files",
+		// Archive operations
 		"llm_filesystem_compress_files",
 		"llm_filesystem_extract_archive",
-		"llm_filesystem_sync_directories",
-
-		// Info
-		"llm_filesystem_list_allowed_directories",
 	}
 
 	for _, expected := range expectedTools {
