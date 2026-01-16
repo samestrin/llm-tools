@@ -594,3 +594,39 @@ Not code.`,
 		})
 	}
 }
+
+func TestMarkdownChunker_DefaultMaxChunkSize(t *testing.T) {
+	// Test that NewMarkdownChunker uses default when 0 or negative is passed
+	chunker := NewMarkdownChunker(0)
+	if chunker.maxChunkSize != 4000 {
+		t.Errorf("default maxChunkSize should be 4000, got %d", chunker.maxChunkSize)
+	}
+
+	chunker2 := NewMarkdownChunker(-100)
+	if chunker2.maxChunkSize != 4000 {
+		t.Errorf("negative maxChunkSize should default to 4000, got %d", chunker2.maxChunkSize)
+	}
+}
+
+func TestMarkdownChunker_NegativeLineNumber(t *testing.T) {
+	// Test itoa with edge case
+	chunker := NewMarkdownChunker(4000)
+
+	// File without extension
+	content := `# Title
+
+Content here.`
+	chunks, err := chunker.Chunk("README", []byte(content))
+	if err != nil {
+		t.Fatalf("Chunk() error = %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("expected at least one chunk")
+	}
+
+	// Verify file without extension works
+	if !strings.Contains(chunks[0].Name, "README") {
+		t.Errorf("Name should contain filename, got %q", chunks[0].Name)
+	}
+}

@@ -116,8 +116,8 @@ func TestGenericChunker_SupportedExtensions(t *testing.T) {
 		t.Errorf("SupportedExtensions() returned %d extensions, want at least 5", len(exts))
 	}
 
-	// Should include common text extensions
-	expectedExts := map[string]bool{"txt": true, "md": true, "rst": true}
+	// Should include common text extensions (md/html handled by specialized chunkers)
+	expectedExts := map[string]bool{"txt": true, "rst": true, "yaml": true}
 	for _, ext := range exts {
 		delete(expectedExts, ext)
 	}

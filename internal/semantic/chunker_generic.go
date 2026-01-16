@@ -97,12 +97,13 @@ func chunkName(path string, startLine int) string {
 }
 
 // SupportedExtensions returns the file extensions this chunker handles
+// Note: md, markdown, html, htm are handled by specialized chunkers
 func (c *GenericChunker) SupportedExtensions() []string {
 	return []string{
 		// Text files
 		"txt", "text",
-		// Documentation
-		"md", "markdown", "rst", "adoc",
+		// Documentation (md/markdown handled by MarkdownChunker)
+		"rst", "adoc",
 		// Config files
 		"yaml", "yml", "toml", "ini", "cfg", "conf",
 		// Data files

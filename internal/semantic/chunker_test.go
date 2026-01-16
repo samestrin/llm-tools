@@ -1,6 +1,7 @@
 package semantic
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -107,6 +108,59 @@ func TestLanguageFromExtension(t *testing.T) {
 			got := LanguageFromExtension(tt.filename)
 			if got != tt.want {
 				t.Errorf("LanguageFromExtension(%q) = %q, want %q", tt.filename, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChunkerFactory_IntegrationWithRealChunkers(t *testing.T) {
+	factory := NewChunkerFactory()
+
+	// Register real chunkers as they would be in production
+	mdChunker := NewMarkdownChunker(4000)
+	for _, ext := range mdChunker.SupportedExtensions() {
+		factory.Register(ext, mdChunker)
+	}
+
+	htmlChunker := NewHTMLChunker(4000)
+	for _, ext := range htmlChunker.SupportedExtensions() {
+		factory.Register(ext, htmlChunker)
+	}
+
+	goChunker := NewGoChunker()
+	for _, ext := range goChunker.SupportedExtensions() {
+		factory.Register(ext, goChunker)
+	}
+
+	generic := NewGenericChunker(2000)
+	for _, ext := range generic.SupportedExtensions() {
+		factory.Register(ext, generic)
+	}
+
+	tests := []struct {
+		filename    string
+		wantChunker string
+	}{
+		{"README.md", "*semantic.MarkdownChunker"},
+		{"docs.markdown", "*semantic.MarkdownChunker"},
+		{"index.html", "*semantic.HTMLChunker"},
+		{"page.htm", "*semantic.HTMLChunker"},
+		{"main.go", "*semantic.GoChunker"},
+		{"config.yaml", "*semantic.GenericChunker"},
+		{"notes.txt", "*semantic.GenericChunker"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.filename, func(t *testing.T) {
+			chunker, ok := factory.GetByExtension(tt.filename)
+			if !ok {
+				t.Fatalf("GetByExtension(%q) returned false, want chunker", tt.filename)
+			}
+
+			// Use type reflection to get the chunker type name
+			typeName := reflect.TypeOf(chunker).String()
+			if typeName != tt.wantChunker {
+				t.Errorf("GetByExtension(%q) = %s, want %s", tt.filename, typeName, tt.wantChunker)
 			}
 		})
 	}

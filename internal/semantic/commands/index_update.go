@@ -117,6 +117,18 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 		factory.Register(ext, rustChunker)
 	}
 
+	// Register Markdown chunker for documentation files
+	mdChunker := semantic.NewMarkdownChunker(4000)
+	for _, ext := range mdChunker.SupportedExtensions() {
+		factory.Register(ext, mdChunker)
+	}
+
+	// Register HTML chunker for HTML documentation
+	htmlChunker := semantic.NewHTMLChunker(4000)
+	for _, ext := range htmlChunker.SupportedExtensions() {
+		factory.Register(ext, htmlChunker)
+	}
+
 	// Register generic chunker for other file types
 	generic := semantic.NewGenericChunker(2000)
 	for _, ext := range generic.SupportedExtensions() {
