@@ -125,15 +125,15 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 	output, err := cmd.CombinedOutput()
 
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("command timed out after %v", CommandTimeout)
+		return "", fmt.Errorf("command %q timed out after %v", cmdName, CommandTimeout)
 	}
 
 	if err != nil {
-		// Return output even on error (may contain useful error message)
+		// Include both the error and any output for better diagnostics
 		if len(output) > 0 {
-			return string(output), nil
+			return "", fmt.Errorf("command %q failed: %w\nOutput: %s", cmdName, err, string(output))
 		}
-		return "", fmt.Errorf("command failed: %w", err)
+		return "", fmt.Errorf("command %q failed: %w", cmdName, err)
 	}
 
 	return string(output), nil

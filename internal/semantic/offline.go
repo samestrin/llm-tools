@@ -3,6 +3,7 @@ package semantic
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"time"
@@ -150,7 +151,7 @@ func (o *OfflineEmbedder) keywordEmbedding(text string) []float32 {
 		norm += v * v
 	}
 	if norm > 0 {
-		norm = float32(1.0 / sqrt64(float64(norm)))
+		norm = float32(1.0 / math.Sqrt(float64(norm)))
 		for i := range embedding {
 			embedding[i] *= norm
 		}
@@ -167,19 +168,6 @@ func hashString(s string) uint32 {
 		hash *= 16777619 // FNV-1a prime
 	}
 	return hash
-}
-
-// sqrt64 computes square root without importing math
-func sqrt64(x float64) float64 {
-	if x <= 0 {
-		return 0
-	}
-	// Newton's method
-	z := x / 2
-	for i := 0; i < 10; i++ {
-		z = (z + x/z) / 2
-	}
-	return z
 }
 
 // isNetworkError checks if an error is network-related

@@ -337,7 +337,10 @@ func (s *QdrantStorage) Delete(ctx context.Context, id string) error {
 
 	// Sync to parallel FTS index
 	if s.parallelFTS != nil {
-		s.parallelFTS.DeleteChunk(ctx, id)
+		if err := s.parallelFTS.DeleteChunk(ctx, id); err != nil {
+			// Log but don't fail - FTS is supplementary
+			slog.Warn("failed to delete chunk from FTS index", "chunk_id", id, "error", err)
+		}
 	}
 
 	return nil
@@ -534,12 +537,15 @@ func (s *QdrantStorage) Stats(ctx context.Context) (*IndexStats, error) {
 
 	// Count unique file paths by scrolling (expensive but necessary)
 	filesIndexed := 0
-	scrollResult, err := s.client.Scroll(ctx, &qdrant.ScrollPoints{
+	scrollResult, scrollErr := s.client.Scroll(ctx, &qdrant.ScrollPoints{
 		CollectionName: s.collectionName,
 		WithPayload:    qdrant.NewWithPayloadInclude("file_path"),
 		Limit:          qdrant.PtrOf(uint32(10000)),
 	})
-	if err == nil {
+	if scrollErr != nil {
+		// Log but don't fail - file count is best-effort
+		slog.Warn("failed to scroll for file count in Stats", "collection", s.collectionName, "error", scrollErr)
+	} else {
 		fileSet := make(map[string]bool)
 		for _, point := range scrollResult {
 			if fp, ok := point.Payload["file_path"]; ok {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -997,6 +998,7 @@ func decodeEmbedding(data []byte) ([]float32, error) {
 // cosineSimilarity calculates the cosine similarity between two vectors
 func cosineSimilarity(a, b []float32) float32 {
 	if len(a) != len(b) {
+		slog.Debug("cosineSimilarity dimension mismatch", "len_a", len(a), "len_b", len(b))
 		return 0
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -67,8 +68,11 @@ func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 		return fmt.Errorf("failed to get stats: %w", err)
 	}
 
-	// Get calibration metadata
-	calibration, _ := storage.GetCalibrationMetadata(ctx)
+	// Get calibration metadata (optional - may not exist)
+	calibration, calErr := storage.GetCalibrationMetadata(ctx)
+	if calErr != nil {
+		slog.Debug("calibration metadata not available", "error", calErr)
+	}
 
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
