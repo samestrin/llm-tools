@@ -6,7 +6,7 @@ This repository includes four MCP (Model Context Protocol) servers that make llm
 
 1. **llm-support-mcp** - 50+ tools for file operations, search, LLM integration, and project analysis
 2. **llm-clarification-mcp** - 12 tools for the Clarification Learning System
-3. **llm-filesystem-mcp** - 27 tools for high-performance filesystem operations
+3. **llm-filesystem-mcp** - 15 batch/specialized tools for filesystem operations (single-file operations use Claude's native tools)
 4. **llm-semantic-mcp** - 4 tools for semantic code search with embeddings
 
 All servers are native Go binaries with no runtime dependencies.
@@ -104,31 +104,20 @@ All servers are native Go binaries with no runtime dependencies.
 | `llm_clarification_optimize_memory` | Optimize storage (vacuum, prune) |
 | `llm_clarification_reconcile_memory` | Find stale file references |
 
-### llm-filesystem-mcp (27 tools)
+### llm-filesystem-mcp (15 batch/specialized tools)
 
-**Read Operations:**
+Single-file operations (read, write, edit) should use Claude's native Read, Write, and Edit tools for better performance. The MCP server exposes batch and specialized operations only.
+
+**Batch Reading:**
 | Tool | Description |
 |------|-------------|
-| `llm_filesystem_read_file` | Read file with auto-chunking |
 | `llm_filesystem_read_multiple_files` | Read multiple files simultaneously |
 | `llm_filesystem_extract_lines` | Extract specific line ranges |
-| `llm_filesystem_get_file_info` | Get detailed file information |
-| `llm_filesystem_get_disk_usage` | Get disk usage for a path |
 
-**Write Operations:**
+**Batch Editing:**
 | Tool | Description |
 |------|-------------|
-| `llm_filesystem_write_file` | Write content to a file |
-| `llm_filesystem_large_write_file` | Write large files with verification |
-
-**Edit Operations:**
-| Tool | Description |
-|------|-------------|
-| `llm_filesystem_edit_block` | Replace a block of text |
 | `llm_filesystem_edit_blocks` | Apply multiple edits to a file |
-| `llm_filesystem_edit_file` | Line-based editing (insert, replace, delete) |
-| `llm_filesystem_edit_multiple_blocks` | Multi-block editing with backup |
-| `llm_filesystem_safe_edit` | Edit with backup and dry-run support |
 | `llm_filesystem_search_and_replace` | Regex replacement across files |
 
 **Directory Operations:**
@@ -136,8 +125,13 @@ All servers are native Go binaries with no runtime dependencies.
 |------|-------------|
 | `llm_filesystem_list_directory` | List directory with filtering/pagination |
 | `llm_filesystem_get_directory_tree` | Get directory tree structure |
-| `llm_filesystem_create_directory` | Create a directory |
 | `llm_filesystem_create_directories` | Create multiple directories |
+
+**Search Operations:**
+| Tool | Description |
+|------|-------------|
+| `llm_filesystem_search_files` | Search files by name pattern |
+| `llm_filesystem_search_code` | Search patterns in file contents |
 
 **File Management:**
 | Tool | Description |
@@ -146,14 +140,6 @@ All servers are native Go binaries with no runtime dependencies.
 | `llm_filesystem_move_file` | Move or rename file/directory |
 | `llm_filesystem_delete_file` | Delete file or directory |
 | `llm_filesystem_batch_file_operations` | Batch copy/move/delete operations |
-| `llm_filesystem_sync_directories` | Synchronize two directories |
-
-**Search Operations:**
-| Tool | Description |
-|------|-------------|
-| `llm_filesystem_search_files` | Search files by name pattern |
-| `llm_filesystem_search_code` | Search patterns in file contents |
-| `llm_filesystem_find_large_files` | Find files larger than specified size |
 
 **Archive Operations:**
 | Tool | Description |
@@ -296,7 +282,7 @@ Completely quit and restart Claude Desktop for the changes to take effect.
 3. Claude should list:
    - 50+ `llm_support_*` tools
    - 12 `llm_clarification_*` tools
-   - 27 `llm_filesystem_*` tools
+   - 15 `llm_filesystem_*` tools (batch/specialized operations)
    - 4 `llm_semantic_*` tools
 
 ## Usage Examples
@@ -367,11 +353,11 @@ Read the package.json and tsconfig.json files
 ```
 Claude will use `llm_filesystem_read_multiple_files`.
 
-**Edit a file:**
+**Batch edit a file:**
 ```
-Replace "console.log" with "logger.info" in src/utils.ts
+Replace all "console.log" with "logger.info" and "console.error" with "logger.error" in src/utils.ts
 ```
-Claude will use `llm_filesystem_edit_block`.
+Claude will use `llm_filesystem_edit_blocks`.
 
 **Search for code patterns:**
 ```

@@ -179,7 +179,9 @@ func TestExpectedClarifyToolNames(t *testing.T) {
 // TestLLMFilesystemToolCount verifies the correct number of filesystem tools
 func TestLLMFilesystemToolCount(t *testing.T) {
 	tools := filesystemserver.GetToolDefinitions()
-	expected := 28 // llm-filesystem has 28 tools
+	// NOTE: Reduced to 15 batch/specialized tools in sprint 8.9
+	// Single-file operations should use Claude's native tools
+	expected := 15
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-filesystem tools, got %d", expected, len(tools))
 	}
@@ -227,34 +229,36 @@ func TestLLMFilesystemToolDescriptions(t *testing.T) {
 }
 
 // TestExpectedFilesystemToolNames verifies all expected filesystem tools exist
+// NOTE: Updated for 15 batch/specialized tools (sprint 8.9)
 func TestExpectedFilesystemToolNames(t *testing.T) {
+	// 15 batch/specialized tools - single-file operations use Claude's native tools
 	expectedNames := []string{
-		"llm_filesystem_read_file",
+		// Batch Reading
 		"llm_filesystem_read_multiple_files",
-		"llm_filesystem_write_file",
-		"llm_filesystem_large_write_file",
+		"llm_filesystem_extract_lines",
+
+		// Batch Editing
+		"llm_filesystem_edit_blocks",
+		"llm_filesystem_search_and_replace",
+
+		// Directory operations
 		"llm_filesystem_list_directory",
 		"llm_filesystem_get_directory_tree",
-		"llm_filesystem_get_file_info",
-		"llm_filesystem_create_directory",
+		"llm_filesystem_create_directories",
+
+		// Search operations
 		"llm_filesystem_search_files",
 		"llm_filesystem_search_code",
-		"llm_filesystem_edit_block",
-		"llm_filesystem_edit_blocks",
-		"llm_filesystem_edit_file",
-		"llm_filesystem_extract_lines",
+
+		// File management
 		"llm_filesystem_copy_file",
 		"llm_filesystem_move_file",
 		"llm_filesystem_delete_file",
-		"llm_filesystem_get_disk_usage",
-		"llm_filesystem_find_large_files",
+		"llm_filesystem_batch_file_operations",
+
+		// Archive operations
 		"llm_filesystem_compress_files",
 		"llm_filesystem_extract_archive",
-		"llm_filesystem_batch_file_operations",
-		"llm_filesystem_safe_edit",
-		"llm_filesystem_sync_directories",
-		"llm_filesystem_search_and_replace",
-		"llm_filesystem_list_allowed_directories",
 	}
 
 	tools := filesystemserver.GetToolDefinitions()
