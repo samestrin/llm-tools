@@ -3,8 +3,8 @@
 package config
 
 import (
-	"fmt"
 	"os"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -55,14 +55,25 @@ type configWrapper struct {
 // It reads the "semantic:" section and ignores other sections.
 // Returns an error if the file doesn't exist or contains invalid YAML.
 func LoadConfig(path string) (*SemanticConfig, error) {
-	data, err := os.ReadFile(path)
+	// Validate path is not empty or whitespace
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		return nil, ErrConfigPathEmpty()
+	}
+
+	data, err := os.ReadFile(trimmedPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, WrapReadError(trimmedPath, err)
+	}
+
+	// Check for empty file
+	if len(data) == 0 {
+		return nil, ErrConfigEmpty(trimmedPath)
 	}
 
 	var wrapper configWrapper
 	if err := yaml.Unmarshal(data, &wrapper); err != nil {
-		return nil, fmt.Errorf("failed to parse config YAML: %w", err)
+		return nil, ErrConfigInvalidYAML(trimmedPath, err)
 	}
 
 	return &wrapper.Semantic, nil

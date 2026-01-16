@@ -66,17 +66,24 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 				GlobalMinOutput = true
 			}
 
+			// Validate config path early (reject whitespace-only paths)
+			// If user explicitly set --config but with only whitespace, report error
+			if configPath != "" && strings.TrimSpace(configPath) == "" {
+				return config.ErrConfigPathEmpty()
+			}
+
 			// Load config file if specified
 			if configPath != "" {
 				cfg, err := config.LoadConfig(configPath)
 				if err != nil {
-					return fmt.Errorf("failed to load config: %w", err)
+					// Error is already a SemanticError with hint, just return it
+					return err
 				}
 				loadedConfig = cfg
 
 				// Validate profile if specified
 				if profile != "" && !config.IsValidProfile(profile) {
-					return fmt.Errorf("invalid profile %q: valid profiles are %v", profile, config.ValidProfiles())
+					return config.ErrProfileNotFound(profile, config.ValidProfiles())
 				}
 			}
 
