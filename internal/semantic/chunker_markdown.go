@@ -144,30 +144,6 @@ func (c *MarkdownChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 	return chunks, nil
 }
 
-// sectionToChunk converts a markdownSection to a Chunk.
-// If the section is larger than maxChunkSize, it may be split into multiple chunks.
-func (c *MarkdownChunker) sectionToChunk(path, filename string, section *markdownSection) *Chunk {
-	content := strings.TrimRight(section.content.String(), "\n")
-	if content == "" {
-		return nil
-	}
-
-	// Build chunk name from hierarchy
-	name := c.buildChunkName(filename, section)
-
-	chunk := &Chunk{
-		FilePath:  path,
-		Type:      ChunkFile,
-		Name:      name,
-		Content:   content,
-		StartLine: section.startLine,
-		EndLine:   section.endLine,
-		Language:  "markdown",
-	}
-	chunk.ID = chunk.GenerateID()
-	return chunk
-}
-
 // sectionToChunks converts a markdownSection to one or more Chunks.
 // If the section exceeds maxChunkSize, it splits by line boundaries.
 func (c *MarkdownChunker) sectionToChunks(path, filename string, section *markdownSection) []Chunk {
