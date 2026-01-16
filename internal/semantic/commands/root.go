@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/samestrin/llm-tools/internal/semantic"
+	"github.com/samestrin/llm-tools/internal/semantic/config"
 	"github.com/spf13/cobra"
 )
 
@@ -18,6 +19,13 @@ var (
 	storageType    string // "sqlite" (default) or "qdrant"
 	collectionName string // Qdrant collection name (default: from env or "llm_semantic")
 	embedderType   string // "openai" (default), "cohere", "huggingface", "openrouter"
+
+	// Config file support
+	configPath string // Path to YAML config file
+	profile    string // Profile name: code (default), docs, memory
+
+	// Loaded config (cached after first load)
+	loadedConfig *config.SemanticConfig
 
 	// Global output flags accessible to all commands
 	GlobalJSONOutput bool
@@ -49,7 +57,7 @@ func RootCmd() *cobra.Command {
 Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Sync local command flags to global vars for error handling
 			if f := cmd.Flag("json"); f != nil && f.Changed {
 				GlobalJSONOutput = true
@@ -57,6 +65,29 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 			if f := cmd.Flag("min"); f != nil && f.Changed {
 				GlobalMinOutput = true
 			}
+
+			// Validate config path early (reject whitespace-only paths)
+			// If user explicitly set --config but with only whitespace, report error
+			if configPath != "" && strings.TrimSpace(configPath) == "" {
+				return config.ErrConfigPathEmpty()
+			}
+
+			// Load config file if specified
+			if configPath != "" {
+				cfg, err := config.LoadConfig(configPath)
+				if err != nil {
+					// Error is already a SemanticError with hint, just return it
+					return err
+				}
+				loadedConfig = cfg
+
+				// Validate profile if specified
+				if profile != "" && !config.IsValidProfile(profile) {
+					return config.ErrProfileNotFound(profile, config.ValidProfiles())
+				}
+			}
+
+			return nil
 		},
 	}
 
@@ -68,6 +99,8 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 	rootCmd.PersistentFlags().StringVar(&storageType, "storage", "sqlite", "Storage backend: sqlite (default) or qdrant")
 	rootCmd.PersistentFlags().StringVar(&collectionName, "collection", "", "Qdrant collection name (default: QDRANT_COLLECTION env or 'llm_semantic')")
 	rootCmd.PersistentFlags().StringVar(&embedderType, "embedder", "openai", "Embedding provider: openai (default), cohere, huggingface, openrouter")
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Path to YAML config file (reads 'semantic:' section)")
+	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "Profile name: code (default), docs, memory")
 	rootCmd.PersistentFlags().BoolVar(&GlobalJSONOutput, "json", false, "Output as JSON")
 	rootCmd.PersistentFlags().BoolVar(&GlobalMinOutput, "min", false, "Minimal/token-optimized output")
 
@@ -92,16 +125,25 @@ func getAPIKey() string {
 
 // resolveCollectionName returns the Qdrant collection name using this priority:
 // 1. --collection flag if specified
-// 2. Derived from --index-dir (e.g., ".llm-index/code" → "code", ".llm-index/docs" → "docs")
-// 3. QDRANT_COLLECTION environment variable
-// 4. Default: "llm_semantic"
+// 2. Profile-specific config value (e.g., code_collection)
+// 3. Derived from --index-dir (e.g., ".llm-index/code" → "code", ".llm-index/docs" → "docs")
+// 4. QDRANT_COLLECTION environment variable
+// 5. Default: "llm_semantic"
 func resolveCollectionName() string {
 	// Priority 1: explicit --collection flag
 	if collectionName != "" {
 		return collectionName
 	}
 
-	// Priority 2: derive from index-dir if non-default
+	// Priority 2: config value (profile-specific)
+	if loadedConfig != nil {
+		profileCfg := loadedConfig.GetProfileConfig(profile)
+		if profileCfg.Collection != "" {
+			return profileCfg.Collection
+		}
+	}
+
+	// Priority 3: derive from index-dir if non-default
 	if indexDir != "" && indexDir != ".llm-index" {
 		// Extract the last path component as collection name
 		// e.g., ".llm-index/code" → "code", "indexes/docs" → "docs"
@@ -111,13 +153,35 @@ func resolveCollectionName() string {
 		}
 	}
 
-	// Priority 3: environment variable
+	// Priority 4: environment variable
 	if envCollection := os.Getenv("QDRANT_COLLECTION"); envCollection != "" {
 		return envCollection
 	}
 
-	// Priority 4: default
+	// Priority 5: default
 	return "llm_semantic"
+}
+
+// resolveStorageType returns the storage type using this priority:
+// 1. --storage flag if explicitly set
+// 2. Profile-specific config value (e.g., code_storage)
+// 3. Default: "sqlite"
+func resolveStorageType(cmd *cobra.Command) string {
+	// Priority 1: explicit --storage flag
+	if f := cmd.Flag("storage"); f != nil && f.Changed {
+		return storageType
+	}
+
+	// Priority 2: config value (profile-specific)
+	if loadedConfig != nil {
+		profileCfg := loadedConfig.GetProfileConfig(profile)
+		if profileCfg.Storage != "" {
+			return profileCfg.Storage
+		}
+	}
+
+	// Priority 3: default (already set by flag default)
+	return storageType
 }
 
 // deriveCollectionFromPath extracts a collection name from a path
