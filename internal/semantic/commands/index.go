@@ -346,7 +346,9 @@ func resolveIndexPath(rootPath string) string {
 
 func findGitRootFrom(startPath string) (string, error) {
 	dir := startPath
-	for {
+	// Limit traversal depth to prevent infinite loops on unusual filesystems
+	const maxDepth = 256
+	for i := 0; i < maxDepth; i++ {
 		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 			return dir, nil
 		}
@@ -357,6 +359,7 @@ func findGitRootFrom(startPath string) (string, error) {
 		}
 		dir = parent
 	}
+	return "", fmt.Errorf("not in a git repository (max depth %d exceeded)", maxDepth)
 }
 
 // createStorage creates a storage backend based on the --storage flag

@@ -2,10 +2,13 @@ package semantic
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,6 +29,7 @@ type OfflineEmbedder struct {
 	lastCheck     time.Time
 	checkInterval time.Duration
 	dimensions    int
+	mu            sync.Mutex // protects offlineMode and lastCheck
 }
 
 // NewOfflineEmbedder creates an embedder with offline fallback support
@@ -40,23 +44,33 @@ func NewOfflineEmbedder(embedder EmbedderInterface, dimensions int) *OfflineEmbe
 
 // IsOffline returns true if operating in offline mode
 func (o *OfflineEmbedder) IsOffline() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	return o.offlineMode == OfflineFallback
 }
 
 // Embed tries to use the embedder, falls back to keyword embedding if unavailable
 func (o *OfflineEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
-	// Try the real embedder first
-	if o.offlineMode == OnlineMode || time.Since(o.lastCheck) > o.checkInterval {
+	// Check if we should try the real embedder
+	o.mu.Lock()
+	shouldTryEmbedder := o.offlineMode == OnlineMode || time.Since(o.lastCheck) > o.checkInterval
+	o.mu.Unlock()
+
+	if shouldTryEmbedder {
 		embedding, err := o.embedder.Embed(ctx, text)
 		if err == nil {
+			o.mu.Lock()
 			o.offlineMode = OnlineMode
+			o.mu.Unlock()
 			return embedding, nil
 		}
 
 		// Check if it's a network error
 		if isNetworkError(err) {
+			o.mu.Lock()
 			o.offlineMode = OfflineFallback
 			o.lastCheck = time.Now()
+			o.mu.Unlock()
 		} else {
 			// For non-network errors, propagate the error
 			return nil, err
@@ -69,18 +83,26 @@ func (o *OfflineEmbedder) Embed(ctx context.Context, text string) ([]float32, er
 
 // EmbedBatch tries to use the embedder batch, falls back if unavailable
 func (o *OfflineEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	// Try the real embedder first
-	if o.offlineMode == OnlineMode || time.Since(o.lastCheck) > o.checkInterval {
+	// Check if we should try the real embedder
+	o.mu.Lock()
+	shouldTryEmbedder := o.offlineMode == OnlineMode || time.Since(o.lastCheck) > o.checkInterval
+	o.mu.Unlock()
+
+	if shouldTryEmbedder {
 		embeddings, err := o.embedder.EmbedBatch(ctx, texts)
 		if err == nil {
+			o.mu.Lock()
 			o.offlineMode = OnlineMode
+			o.mu.Unlock()
 			return embeddings, nil
 		}
 
 		// Check if it's a network error
 		if isNetworkError(err) {
+			o.mu.Lock()
 			o.offlineMode = OfflineFallback
 			o.lastCheck = time.Now()
+			o.mu.Unlock()
 		} else {
 			// For non-network errors, propagate the error
 			return nil, err
@@ -180,6 +202,11 @@ func isNetworkError(err error) bool {
 		return false
 	}
 
+	// Check for io.EOF directly (unexpected connection close)
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+
 	errStr := err.Error()
 
 	// Check for common network error patterns (all lowercase for case-insensitive matching)
@@ -193,7 +220,7 @@ func isNetworkError(err error) bool {
 		"dial udp",
 		"no route to host",
 		"connection timed out",
-		"eof",
+		"unexpected eof", // More specific than just "eof" to avoid false positives
 	}
 
 	errLower := strings.ToLower(errStr)

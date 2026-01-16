@@ -116,7 +116,21 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 	}
 
 	// Add --json and --min flags for machine-parseable, token-optimized output
-	cmdArgs = append(cmdArgs, "--json", "--min")
+	// Check for existing flags to avoid duplication
+	hasJSON, hasMin := false, false
+	for _, arg := range cmdArgs {
+		if arg == "--json" {
+			hasJSON = true
+		} else if arg == "--min" {
+			hasMin = true
+		}
+	}
+	if !hasJSON {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if !hasMin {
+		cmdArgs = append(cmdArgs, "--min")
+	}
 
 	// Execute command
 	ctx, cancel := context.WithTimeout(context.Background(), CommandTimeout)
