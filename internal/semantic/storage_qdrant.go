@@ -222,7 +222,7 @@ func (s *QdrantStorage) Create(ctx context.Context, chunk Chunk, embedding []flo
 	if s.parallelFTS != nil {
 		if err := s.parallelFTS.IndexChunk(ctx, chunk); err != nil {
 			// Log but don't fail - FTS is supplementary
-			// In production, consider returning error or using a background sync
+			slog.Warn("failed to sync chunk to FTS index", "chunk_id", chunk.ID, "error", err)
 		}
 	}
 
@@ -264,6 +264,7 @@ func (s *QdrantStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbed
 		}
 		if err := s.parallelFTS.IndexBatch(ctx, chunkList); err != nil {
 			// Log but don't fail - FTS is supplementary
+			slog.Warn("failed to sync batch to FTS index", "batch_size", len(chunks), "error", err)
 		}
 	}
 

@@ -957,22 +957,24 @@ func TestBuildSearchArgs_Basic(t *testing.T) {
 	}
 }
 
-func TestBuildSearchArgs_WithMinFlag(t *testing.T) {
+func TestBuildSearchArgs_MinFlagAddedGlobally(t *testing.T) {
+	// Note: --min is added globally by ExecuteHandler, not by buildSearchArgs
+	// This test verifies buildSearchArgs does NOT duplicate it
 	args := map[string]interface{}{
 		"query": "test",
 		"min":   true,
 	}
 	result := buildSearchArgs(args)
 
-	found := false
+	count := 0
 	for _, arg := range result {
 		if arg == "--min" {
-			found = true
-			break
+			count++
 		}
 	}
-	if !found {
-		t.Error("buildSearchArgs() missing --min flag")
+	// buildSearchArgs should NOT add --min (ExecuteHandler adds it globally)
+	if count > 0 {
+		t.Errorf("buildSearchArgs() should not add --min (added globally), but found %d instances", count)
 	}
 }
 

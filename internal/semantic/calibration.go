@@ -80,6 +80,10 @@ func RunCalibration(ctx context.Context, storage Storage, embedder EmbedderInter
 // runSelfMatchProbes selects random chunks and queries them with their own content.
 // Returns the median score of all probes.
 func runSelfMatchProbes(ctx context.Context, storage Storage, embedder EmbedderInterface, count int) (float32, error) {
+	if count <= 0 {
+		return 0, fmt.Errorf("probe count must be positive, got %d", count)
+	}
+
 	// Get chunks to probe
 	chunks, err := storage.List(ctx, ListOptions{Limit: count * 3}) // Get more than we need for random selection
 	if err != nil {
@@ -133,6 +137,10 @@ func runSelfMatchProbes(ctx context.Context, storage Storage, embedder EmbedderI
 // runUnrelatedProbes queries the index with unrelated text to establish baseline.
 // Returns the median score of all probes.
 func runUnrelatedProbes(ctx context.Context, storage Storage, embedder EmbedderInterface, count int) (float32, error) {
+	if count <= 0 {
+		return 0, fmt.Errorf("probe count must be positive, got %d", count)
+	}
+
 	// Embed the unrelated probe text
 	embedding, err := embedder.Embed(ctx, unrelatedProbeText)
 	if err != nil {

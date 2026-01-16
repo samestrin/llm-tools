@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -251,7 +252,7 @@ func (s *SQLiteStorage) Read(ctx context.Context, id string) (*Chunk, error) {
 	`, id).Scan(&chunk.ID, &chunk.FilePath, &typeStr, &chunk.Name, &chunk.Signature,
 		&chunk.Content, &chunk.StartLine, &chunk.EndLine, &chunk.Language)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
@@ -290,7 +291,10 @@ func (s *SQLiteStorage) Update(ctx context.Context, chunk Chunk, embedding []flo
 		return fmt.Errorf("failed to update chunk: %w", err)
 	}
 
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
 	if rows == 0 {
 		return ErrNotFound
 	}
@@ -311,7 +315,10 @@ func (s *SQLiteStorage) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to delete chunk: %w", err)
 	}
 
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
 	if rows == 0 {
 		return ErrNotFound
 	}
@@ -332,7 +339,10 @@ func (s *SQLiteStorage) DeleteByFilePath(ctx context.Context, filePath string) (
 		return 0, fmt.Errorf("failed to delete chunks by file path: %w", err)
 	}
 
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
 	return int(rows), nil
 }
 
@@ -541,7 +551,7 @@ func (s *SQLiteStorage) GetFileHash(ctx context.Context, filePath string) (strin
 		`SELECT content_hash FROM file_hashes WHERE file_path = ?`,
 		filePath).Scan(&hash)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil // Not indexed yet
 	}
 	if err != nil {
@@ -812,7 +822,7 @@ func (s *SQLiteStorage) GetMemory(ctx context.Context, id string) (*MemoryEntry,
 		WHERE id = ?
 	`, id).Scan(&entry.ID, &entry.Question, &entry.Answer, &tagsStr, &source, &entry.Status, &entry.Occurrences, &entry.CreatedAt, &entry.UpdatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrMemoryNotFound
 	}
 	if err != nil {

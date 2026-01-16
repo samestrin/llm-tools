@@ -91,7 +91,7 @@ func GetToolDefinitions() []ToolDefinition {
 						"description": "Recency boost factor, max boost = 1+factor (default: 0.5)"
 					},
 					"recency_decay": {
-						"type": "number",
+						"type": "integer",
 						"description": "Recency half-life in days (default: 7)"
 					}
 				},

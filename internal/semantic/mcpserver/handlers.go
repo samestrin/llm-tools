@@ -190,9 +190,7 @@ func buildSearchArgs(args map[string]interface{}) []string {
 	if pathFilter, ok := args["path"].(string); ok && pathFilter != "" {
 		cmdArgs = append(cmdArgs, "--path", pathFilter)
 	}
-	if getBool(args, "min") {
-		cmdArgs = append(cmdArgs, "--min")
-	}
+	// Note: --min is already added globally by ExecuteHandler, no need to add here
 	if storage, ok := args["storage"].(string); ok && storage != "" {
 		cmdArgs = append(cmdArgs, "--storage", storage)
 	}
@@ -320,9 +318,13 @@ func getInt(args map[string]interface{}, key string) (int, bool) {
 	switch v := args[key].(type) {
 	case int:
 		return v, true
-	case float64:
+	case int32:
 		return int(v), true
 	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	case float32:
 		return int(v), true
 	}
 	return 0, false
