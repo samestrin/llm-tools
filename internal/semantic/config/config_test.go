@@ -215,6 +215,25 @@ func TestGetProfileConfig_Memory(t *testing.T) {
 	}
 }
 
+func TestGetProfileConfig_Sprints(t *testing.T) {
+	cfg := &SemanticConfig{
+		SprintsCollection: "sprints-idx",
+		SprintsStorage:    "sqlite",
+		SprintsEnabled:    true,
+	}
+
+	profile := cfg.GetProfileConfig("sprints")
+	if profile.Collection != "sprints-idx" {
+		t.Errorf("expected Collection='sprints-idx', got %q", profile.Collection)
+	}
+	if profile.Storage != "sqlite" {
+		t.Errorf("expected Storage='sqlite', got %q", profile.Storage)
+	}
+	if !profile.Enabled {
+		t.Error("expected Enabled to be true")
+	}
+}
+
 func TestGetProfileConfig_DefaultIsCode(t *testing.T) {
 	cfg := &SemanticConfig{
 		CodeCollection:   "code-default",
@@ -244,7 +263,7 @@ func TestGetProfileConfig_UnknownProfile(t *testing.T) {
 
 func TestValidProfiles(t *testing.T) {
 	profiles := ValidProfiles()
-	expected := []string{"code", "docs", "memory"}
+	expected := []string{"code", "docs", "memory", "sprints"}
 
 	if len(profiles) != len(expected) {
 		t.Errorf("expected %d profiles, got %d", len(expected), len(profiles))
@@ -272,6 +291,7 @@ func TestIsValidProfile(t *testing.T) {
 		{"code", true},
 		{"docs", true},
 		{"memory", true},
+		{"sprints", true},
 		{"", true}, // empty defaults to code
 		{"unknown", false},
 		{"CODE", false}, // case sensitive
