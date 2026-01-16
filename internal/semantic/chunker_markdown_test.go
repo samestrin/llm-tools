@@ -217,3 +217,143 @@ func truncate(s string, n int) string {
 	}
 	return s[:n] + "..."
 }
+
+func TestMarkdownChunker_FencedCodeBlockPreservation(t *testing.T) {
+	chunker := NewMarkdownChunker(4000)
+
+	tests := []struct {
+		name         string
+		content      string
+		wantChunks   int
+		wantContains []string // strings that should be in same chunk
+		wantNotSplit string   // code block that must not be split
+	}{
+		{
+			name:         "basic fenced code block",
+			content:      "# Section\n\nSome text.\n\n```go\nfunc main() {\n    println(\"hello\")\n}\n```\n\nMore text.",
+			wantChunks:   1,
+			wantContains: []string{"```go", "func main()", "```"},
+		},
+		{
+			name:         "code block with header-like content inside",
+			content:      "# Real Header\n\n```markdown\n# This is NOT a header\n## Neither is this\n```\n\nAfter code.",
+			wantChunks:   1, // Should NOT split on the fake headers inside code
+			wantContains: []string{"# Real Header", "# This is NOT a header", "## Neither is this"},
+		},
+		{
+			name:         "tilde fence",
+			content:      "# Section\n\n~~~python\nprint('hello')\n~~~\n\nDone.",
+			wantChunks:   1,
+			wantContains: []string{"~~~python", "print('hello')", "~~~"},
+		},
+		{
+			name:         "longer fence matches",
+			content:      "# Section\n\n````\ncode with ``` inside\n````\n\nEnd.",
+			wantChunks:   1,
+			wantContains: []string{"````", "code with ``` inside"},
+		},
+		{
+			name:         "multiple code blocks",
+			content:      "# Section\n\n```\nblock1\n```\n\ntext\n\n```\nblock2\n```",
+			wantChunks:   1,
+			wantContains: []string{"block1", "block2"},
+		},
+		{
+			name:       "code block then real header",
+			content:    "# First\n\n```\ncode\n```\n\n# Second\n\nContent.",
+			wantChunks: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunks, err := chunker.Chunk("test.md", []byte(tt.content))
+			if err != nil {
+				t.Fatalf("Chunk() error = %v", err)
+			}
+
+			if len(chunks) != tt.wantChunks {
+				t.Errorf("got %d chunks, want %d", len(chunks), tt.wantChunks)
+				for i, c := range chunks {
+					t.Logf("  chunk[%d]: %q", i, truncate(c.Content, 80))
+				}
+			}
+
+			// For single chunk tests, verify all expected content is together
+			if tt.wantChunks == 1 && len(chunks) == 1 {
+				for _, want := range tt.wantContains {
+					if !strings.Contains(chunks[0].Content, want) {
+						t.Errorf("chunk should contain %q", want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestMarkdownChunker_IndentedCodeBlockPreservation(t *testing.T) {
+	chunker := NewMarkdownChunker(4000)
+
+	tests := []struct {
+		name         string
+		content      string
+		wantChunks   int
+		wantContains []string
+	}{
+		{
+			name: "indented code block (4 spaces)",
+			content: `# Section
+
+Here is some code:
+
+    func example() {
+        return 42
+    }
+
+After the code.`,
+			wantChunks:   1,
+			wantContains: []string{"func example()", "return 42"},
+		},
+		{
+			name: "indented code with header-like line",
+			content: `# Real Header
+
+    # This looks like a header but is code
+    ## Also code
+
+Not code.`,
+			wantChunks:   1,
+			wantContains: []string{"# Real Header", "# This looks like a header but is code"},
+		},
+		{
+			name:         "tab-indented code",
+			content:      "# Section\n\n\tcode line 1\n\tcode line 2\n\nNot code.",
+			wantChunks:   1,
+			wantContains: []string{"code line 1", "code line 2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunks, err := chunker.Chunk("test.md", []byte(tt.content))
+			if err != nil {
+				t.Fatalf("Chunk() error = %v", err)
+			}
+
+			if len(chunks) != tt.wantChunks {
+				t.Errorf("got %d chunks, want %d", len(chunks), tt.wantChunks)
+				for i, c := range chunks {
+					t.Logf("  chunk[%d]: %q", i, truncate(c.Content, 80))
+				}
+			}
+
+			if len(chunks) > 0 {
+				for _, want := range tt.wantContains {
+					if !strings.Contains(chunks[0].Content, want) {
+						t.Errorf("chunk should contain %q", want)
+					}
+				}
+			}
+		})
+	}
+}
