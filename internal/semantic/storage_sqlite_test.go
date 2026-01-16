@@ -1,6 +1,10 @@
 package semantic
 
 import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -228,4 +232,217 @@ func TestSQLiteStorage_CalibrationMetadata_Overwrite(t *testing.T) {
 	if retrieved.PerfectMatchScore != 0.95 {
 		t.Errorf("PerfectMatchScore = %v, want 0.95", retrieved.PerfectMatchScore)
 	}
+}
+
+// TestSQLiteStorage_ConcurrentReads verifies thread-safe concurrent reads
+func TestSQLiteStorage_ConcurrentReads(t *testing.T) {
+	// Use temp file database for reliable concurrent access testing
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "concurrent_reads_test.db")
+
+	storage, err := NewSQLiteStorage(dbPath, 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := context.Background()
+
+	// Create test data
+	chunk := Chunk{
+		ID:      "test-1",
+		Content: "test content",
+		Name:    "test.go:TestFunc",
+		Type:    ChunkFunction,
+	}
+	embedding := []float32{0.1, 0.2, 0.3, 0.4}
+	if err := storage.Create(ctx, chunk, embedding); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	// Concurrent reads should not panic or error
+	const goroutines = 5
+	const iterations = 20
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, goroutines*iterations*3)
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_, err := storage.Read(ctx, "test-1")
+				if err != nil {
+					errChan <- err
+				}
+
+				_, err = storage.List(ctx, ListOptions{Limit: 10})
+				if err != nil {
+					errChan <- err
+				}
+
+				_, err = storage.Search(ctx, embedding, SearchOptions{TopK: 5})
+				if err != nil {
+					errChan <- err
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	for err := range errChan {
+		t.Errorf("Concurrent read error: %v", err)
+	}
+}
+
+// TestSQLiteStorage_ConcurrentWrites verifies thread-safe concurrent writes
+func TestSQLiteStorage_ConcurrentWrites(t *testing.T) {
+	// Use temp file database for reliable concurrent access testing
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "concurrent_writes_test.db")
+
+	storage, err := NewSQLiteStorage(dbPath, 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := context.Background()
+
+	const goroutines = 3
+	const iterations = 10
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, goroutines*iterations)
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				chunk := Chunk{
+					ID:      idForWorker(workerID, j),
+					Content: "test content",
+					Name:    "test.go:TestFunc",
+					Type:    ChunkFunction,
+				}
+				embedding := []float32{0.1, 0.2, 0.3, 0.4}
+				if err := storage.Create(ctx, chunk, embedding); err != nil {
+					errChan <- err
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	for err := range errChan {
+		t.Errorf("Concurrent write error: %v", err)
+	}
+
+	// Verify all chunks were created
+	stats, err := storage.Stats(ctx)
+	if err != nil {
+		t.Fatalf("Stats() error = %v", err)
+	}
+	expected := goroutines * iterations
+	if stats.ChunksTotal != expected {
+		t.Errorf("ChunksTotal = %d, want %d", stats.ChunksTotal, expected)
+	}
+}
+
+// TestSQLiteStorage_ConcurrentReadWrite verifies thread-safe mixed reads and writes
+func TestSQLiteStorage_ConcurrentReadWrite(t *testing.T) {
+	// Use temp file database for reliable concurrent access testing
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "concurrent_readwrite_test.db")
+
+	storage, err := NewSQLiteStorage(dbPath, 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := context.Background()
+
+	// Pre-populate with some data
+	for i := 0; i < 5; i++ {
+		chunk := Chunk{
+			ID:      idForWorker(0, i),
+			Content: "initial content",
+			Name:    "test.go:TestFunc",
+			Type:    ChunkFunction,
+		}
+		embedding := []float32{0.1, 0.2, 0.3, 0.4}
+		if err := storage.Create(ctx, chunk, embedding); err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+	}
+
+	const goroutines = 4
+	const iterations = 10
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, goroutines*iterations*3)
+
+	// Writers
+	for i := 0; i < goroutines/2; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				chunk := Chunk{
+					ID:      idForWorker(workerID+100, j),
+					Content: "new content",
+					Name:    "new.go:NewFunc",
+					Type:    ChunkFunction,
+				}
+				embedding := []float32{0.5, 0.6, 0.7, 0.8}
+				if err := storage.Create(ctx, chunk, embedding); err != nil {
+					errChan <- err
+				}
+			}
+		}(i)
+	}
+
+	// Readers
+	for i := 0; i < goroutines/2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			embedding := []float32{0.1, 0.2, 0.3, 0.4}
+			for j := 0; j < iterations; j++ {
+				_, err := storage.List(ctx, ListOptions{Limit: 10})
+				if err != nil {
+					errChan <- err
+				}
+
+				_, err = storage.Search(ctx, embedding, SearchOptions{TopK: 5})
+				if err != nil {
+					errChan <- err
+				}
+
+				_, err = storage.Stats(ctx)
+				if err != nil {
+					errChan <- err
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	for err := range errChan {
+		t.Errorf("Concurrent read/write error: %v", err)
+	}
+}
+
+// idForWorker generates a unique ID for a worker and iteration
+func idForWorker(workerID, iteration int) string {
+	return fmt.Sprintf("worker-%d-%d", workerID, iteration)
 }

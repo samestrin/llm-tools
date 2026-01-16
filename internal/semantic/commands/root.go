@@ -294,3 +294,62 @@ func createEmbedder() (semantic.EmbedderInterface, error) {
 		return nil, fmt.Errorf("unknown embedder type: %s (use 'openai', 'cohere', 'huggingface', or 'openrouter')", embedderType)
 	}
 }
+
+// TestHelpers provides functions for tests to override global configuration.
+// These should only be used in test code.
+
+// SetStorageTypeForTesting sets the storage type and returns a cleanup function
+// that restores the original value. Use with defer in tests:
+//
+//	cleanup := commands.SetStorageTypeForTesting("qdrant")
+//	defer cleanup()
+func SetStorageTypeForTesting(newType string) func() {
+	old := storageType
+	storageType = newType
+	return func() { storageType = old }
+}
+
+// SetEmbedderTypeForTesting sets the embedder type and returns a cleanup function.
+func SetEmbedderTypeForTesting(newType string) func() {
+	old := embedderType
+	embedderType = newType
+	return func() { embedderType = old }
+}
+
+// SetAPIURLForTesting sets the API URL and returns a cleanup function.
+func SetAPIURLForTesting(newURL string) func() {
+	old := apiURL
+	apiURL = newURL
+	return func() { apiURL = old }
+}
+
+// SetCollectionNameForTesting sets the collection name and returns a cleanup function.
+func SetCollectionNameForTesting(newName string) func() {
+	old := collectionName
+	collectionName = newName
+	return func() { collectionName = old }
+}
+
+// SetConfigForTesting sets the loaded config and returns a cleanup function.
+func SetConfigForTesting(cfg *config.SemanticConfig) func() {
+	old := loadedConfig
+	loadedConfig = cfg
+	return func() { loadedConfig = old }
+}
+
+// ResetGlobalsForTesting resets all global variables to their default values.
+// Useful in TestMain or test teardown.
+func ResetGlobalsForTesting() {
+	apiURL = getDefaultAPIURL()
+	model = getDefaultModel()
+	apiKey = ""
+	indexDir = ".llm-index"
+	storageType = "sqlite"
+	collectionName = ""
+	embedderType = "openai"
+	configPath = ""
+	profile = ""
+	loadedConfig = nil
+	GlobalJSONOutput = false
+	GlobalMinOutput = false
+}

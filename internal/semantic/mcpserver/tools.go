@@ -14,6 +14,77 @@ type ToolDefinition struct {
 	InputSchema json.RawMessage
 }
 
+// schemaProperty defines a JSON Schema property
+type schemaProperty struct {
+	Type        string   `json:"type"`
+	Description string   `json:"description"`
+	Enum        []string `json:"enum,omitempty"`
+	Minimum     *float64 `json:"minimum,omitempty"`
+	Maximum     *float64 `json:"maximum,omitempty"`
+	Items       *struct {
+		Type string `json:"type"`
+	} `json:"items,omitempty"`
+}
+
+// commonProperties returns the shared schema properties used by most tools.
+// This centralizes the definitions to avoid duplication.
+func commonProperties() map[string]schemaProperty {
+	return map[string]schemaProperty{
+		"json": {
+			Type:        "boolean",
+			Description: "Output as JSON",
+		},
+		"min": {
+			Type:        "boolean",
+			Description: "Minimal output format",
+		},
+		"storage": {
+			Type:        "string",
+			Description: "Storage backend (default: sqlite)",
+			Enum:        []string{"sqlite", "qdrant"},
+		},
+		"collection": {
+			Type:        "string",
+			Description: "Collection name for qdrant storage (default: llm_semantic)",
+		},
+		"profile": {
+			Type:        "string",
+			Description: "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config",
+		},
+		"config": {
+			Type:        "string",
+			Description: "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')",
+		},
+	}
+}
+
+// mergeProperties combines tool-specific properties with common properties.
+// Common properties can be overridden by tool-specific ones.
+func mergeProperties(toolProps, common map[string]schemaProperty) map[string]schemaProperty {
+	result := make(map[string]schemaProperty)
+	for k, v := range common {
+		result[k] = v
+	}
+	for k, v := range toolProps {
+		result[k] = v
+	}
+	return result
+}
+
+// buildSchema creates a JSON Schema object with merged properties.
+func buildSchema(toolProps map[string]schemaProperty, required []string) json.RawMessage {
+	props := mergeProperties(toolProps, commonProperties())
+	schema := map[string]interface{}{
+		"type":       "object",
+		"properties": props,
+	}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	data, _ := json.Marshal(schema)
+	return data
+}
+
 // GetToolDefinitions returns tool definitions for the official MCP SDK
 func GetToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{

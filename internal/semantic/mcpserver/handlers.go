@@ -13,11 +13,60 @@ import (
 )
 
 // BinaryPath is the path to the llm-semantic binary
-var BinaryPath = "/usr/local/bin/llm-semantic"
+// Defaults to "llm-semantic" (PATH lookup), falls back to /usr/local/bin
+var BinaryPath = "llm-semantic"
 
 // CommandTimeout is the default timeout for command execution
 // Increased to 120s for index/update operations which can be slow
+// Can be overridden via LLM_SEMANTIC_TIMEOUT env var (in seconds)
 var CommandTimeout = 120 * time.Second
+
+// argBuilder is a function that builds CLI arguments from the args map
+type argBuilder struct {
+	build    func(args map[string]interface{}) []string
+	validate func(args map[string]interface{}) error // optional validation, nil means no extra validation
+}
+
+// commandRegistry maps command names to their argument builders.
+// This provides compile-time verification that all commands are handled
+// and makes it easy to see which commands exist.
+var commandRegistry = map[string]argBuilder{
+	"search":         {build: buildSearchArgs, validate: validateSearchArgs},
+	"index":          {build: buildIndexArgs, validate: nil},
+	"index_status":   {build: buildStatusArgs, validate: nil},
+	"index_update":   {build: buildUpdateArgs, validate: nil},
+	"memory_store":   {build: buildMemoryStoreArgs, validate: nil},
+	"memory_search":  {build: buildMemorySearchArgs, validate: validateMemorySearchArgs},
+	"memory_promote": {build: buildMemoryPromoteArgs, validate: nil},
+	"memory_list":    {build: buildMemoryListArgs, validate: nil},
+	"memory_delete":  {build: buildMemoryDeleteArgs, validate: nil},
+}
+
+// RegisteredCommands returns a list of all registered command names.
+// Useful for testing and documentation.
+func RegisteredCommands() []string {
+	cmds := make([]string, 0, len(commandRegistry))
+	for cmd := range commandRegistry {
+		cmds = append(cmds, cmd)
+	}
+	return cmds
+}
+
+func init() {
+	if timeoutStr := os.Getenv("LLM_SEMANTIC_TIMEOUT"); timeoutStr != "" {
+		if seconds, err := strconv.Atoi(timeoutStr); err == nil && seconds > 0 {
+			CommandTimeout = time.Duration(seconds) * time.Second
+		}
+	}
+
+	// Check if binary is in PATH
+	if _, err := exec.LookPath(BinaryPath); err != nil {
+		// Not in PATH, fallback to standard install location
+		if _, err := os.Stat("/usr/local/bin/llm-semantic"); err == nil {
+			BinaryPath = "/usr/local/bin/llm-semantic"
+		}
+	}
+}
 
 // SemanticConfig represents the semantic section of config.yaml
 type SemanticConfig struct {
@@ -161,38 +210,39 @@ func stripPrefix(toolName string) string {
 	return toolName
 }
 
-// buildArgs builds CLI arguments for the given tool
+// buildArgs builds CLI arguments for the given tool using the command registry
 func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
-	switch cmdName {
-	case "search":
-		query, ok := args["query"].(string)
-		if !ok || strings.TrimSpace(query) == "" {
-			return nil, fmt.Errorf("search requires a non-empty query")
-		}
-		return buildSearchArgs(args), nil
-	case "index":
-		return buildIndexArgs(args), nil
-	case "index_status":
-		return buildStatusArgs(args), nil
-	case "index_update":
-		return buildUpdateArgs(args), nil
-	case "memory_store":
-		return buildMemoryStoreArgs(args), nil
-	case "memory_search":
-		query, ok := args["query"].(string)
-		if !ok || strings.TrimSpace(query) == "" {
-			return nil, fmt.Errorf("memory_search requires a non-empty query")
-		}
-		return buildMemorySearchArgs(args), nil
-	case "memory_promote":
-		return buildMemoryPromoteArgs(args), nil
-	case "memory_list":
-		return buildMemoryListArgs(args), nil
-	case "memory_delete":
-		return buildMemoryDeleteArgs(args), nil
-	default:
+	builder, ok := commandRegistry[cmdName]
+	if !ok {
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
+
+	// Run validation if defined
+	if builder.validate != nil {
+		if err := builder.validate(args); err != nil {
+			return nil, err
+		}
+	}
+
+	return builder.build(args), nil
+}
+
+// validateSearchArgs validates search command arguments
+func validateSearchArgs(args map[string]interface{}) error {
+	query, ok := args["query"].(string)
+	if !ok || strings.TrimSpace(query) == "" {
+		return fmt.Errorf("search requires a non-empty query")
+	}
+	return nil
+}
+
+// validateMemorySearchArgs validates memory_search command arguments
+func validateMemorySearchArgs(args map[string]interface{}) error {
+	query, ok := args["query"].(string)
+	if !ok || strings.TrimSpace(query) == "" {
+		return fmt.Errorf("memory_search requires a non-empty query")
+	}
+	return nil
 }
 
 func buildSearchArgs(args map[string]interface{}) []string {
@@ -204,7 +254,7 @@ func buildSearchArgs(args map[string]interface{}) []string {
 	if topK, ok := getInt(args, "top_k"); ok {
 		cmdArgs = append(cmdArgs, "--top", strconv.Itoa(topK))
 	}
-	if threshold, ok := getFloat(args, "threshold"); ok {
+	if threshold, ok := getThreshold(args); ok {
 		cmdArgs = append(cmdArgs, "--threshold", fmt.Sprintf("%.4f", threshold))
 	}
 	if typeFilter, ok := args["type"].(string); ok && typeFilter != "" {
@@ -375,6 +425,20 @@ func getFloat(args map[string]interface{}, key string) (float64, bool) {
 	return 0, false
 }
 
+// getThreshold extracts and validates threshold from args (must be 0.0-1.0)
+func getThreshold(args map[string]interface{}) (float64, bool) {
+	if threshold, ok := getFloat(args, "threshold"); ok {
+		// Clamp to valid range [0.0, 1.0]
+		if threshold < 0.0 {
+			threshold = 0.0
+		} else if threshold > 1.0 {
+			threshold = 1.0
+		}
+		return threshold, true
+	}
+	return 0, false
+}
+
 // Memory command builders
 
 func buildMemoryStoreArgs(args map[string]interface{}) []string {
@@ -411,7 +475,7 @@ func buildMemorySearchArgs(args map[string]interface{}) []string {
 	if topK, ok := getInt(args, "top_k"); ok {
 		cmdArgs = append(cmdArgs, "--top", strconv.Itoa(topK))
 	}
-	if threshold, ok := getFloat(args, "threshold"); ok {
+	if threshold, ok := getThreshold(args); ok {
 		cmdArgs = append(cmdArgs, "--threshold", fmt.Sprintf("%.4f", threshold))
 	}
 	if tags, ok := args["tags"].(string); ok && tags != "" {

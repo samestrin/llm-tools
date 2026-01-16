@@ -72,6 +72,15 @@ func TestQdrantStorageMemory(t *testing.T) {
 }
 
 func TestQdrantStorage_ConfigValidation(t *testing.T) {
+	// Ensure QDRANT_INSECURE is unset for tests that expect API key validation
+	origInsecure := os.Getenv("QDRANT_INSECURE")
+	os.Unsetenv("QDRANT_INSECURE")
+	defer func() {
+		if origInsecure != "" {
+			os.Setenv("QDRANT_INSECURE", origInsecure)
+		}
+	}()
+
 	tests := []struct {
 		name    string
 		config  QdrantConfig
@@ -133,6 +142,22 @@ func TestQdrantStorage_ConfigValidation(t *testing.T) {
 			}
 		})
 	}
+
+	// Test QDRANT_INSECURE=true allows empty API key
+	t.Run("missing API key with QDRANT_INSECURE=true", func(t *testing.T) {
+		os.Setenv("QDRANT_INSECURE", "true")
+		defer os.Unsetenv("QDRANT_INSECURE")
+
+		config := QdrantConfig{
+			URL:            "https://example.qdrant.io:6334",
+			CollectionName: "test",
+			EmbeddingDim:   1024,
+		}
+		err := config.Validate()
+		if err != nil {
+			t.Errorf("QdrantConfig.Validate() with QDRANT_INSECURE=true should not error, got: %v", err)
+		}
+	})
 }
 
 func TestQdrantStorage_ParseURL(t *testing.T) {

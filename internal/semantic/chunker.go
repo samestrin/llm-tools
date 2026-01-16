@@ -28,11 +28,15 @@ func NewChunkerFactory() *ChunkerFactory {
 	}
 }
 
-// Register adds a chunker for a specific language/extension
-func (f *ChunkerFactory) Register(ext string, chunker Chunker) {
+// Register adds a chunker for a specific language/extension.
+// Returns true if the extension was newly registered, false if it overwrote an existing registration.
+// Callers can use this to detect and handle registration conflicts.
+func (f *ChunkerFactory) Register(ext string, chunker Chunker) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	_, exists := f.chunkers[ext]
 	f.chunkers[ext] = chunker
+	return !exists
 }
 
 // GetChunker returns a chunker for the specified language/extension
