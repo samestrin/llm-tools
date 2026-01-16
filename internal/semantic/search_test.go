@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -461,7 +462,7 @@ func TestTopK_BehaviorPreserved(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run("TopK="+string(rune('0'+tt.topK)), func(t *testing.T) {
+		t.Run(fmt.Sprintf("TopK=%d", tt.topK), func(t *testing.T) {
 			results, err := searcher.Search(ctx, "test", SearchOptions{TopK: tt.topK})
 			if err != nil {
 				t.Fatalf("Search() error = %v", err)
@@ -505,7 +506,7 @@ func TestThreshold_BehaviorPreserved(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run("Threshold="+string(rune('0'+int(tt.threshold*10))), func(t *testing.T) {
+		t.Run(fmt.Sprintf("Threshold=%.2f", tt.threshold), func(t *testing.T) {
 			results, err := searcher.Search(ctx, "test", SearchOptions{
 				TopK:      10,
 				Threshold: tt.threshold,
