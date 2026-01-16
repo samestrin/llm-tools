@@ -22,7 +22,7 @@ var (
 
 	// Config file support
 	configPath string // Path to YAML config file
-	profile    string // Profile name: code (default), docs, memory
+	profile    string // Profile name: code (default), docs, memory, sprints
 
 	// Loaded config (cached after first load)
 	loadedConfig *config.SemanticConfig
@@ -100,7 +100,7 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 	rootCmd.PersistentFlags().StringVar(&collectionName, "collection", "", "Qdrant collection name (default: QDRANT_COLLECTION env or 'llm_semantic')")
 	rootCmd.PersistentFlags().StringVar(&embedderType, "embedder", "openai", "Embedding provider: openai (default), cohere, huggingface, openrouter")
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Path to YAML config file (reads 'semantic:' section)")
-	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "Profile name: code (default), docs, memory")
+	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "Profile name: code (default), docs, memory, sprints")
 	rootCmd.PersistentFlags().BoolVar(&GlobalJSONOutput, "json", false, "Output as JSON")
 	rootCmd.PersistentFlags().BoolVar(&GlobalMinOutput, "min", false, "Minimal/token-optimized output")
 

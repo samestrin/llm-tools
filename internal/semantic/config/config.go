@@ -33,6 +33,11 @@ type SemanticConfig struct {
 	MemoryCollection string `yaml:"memory_collection"`
 	MemoryEnabled    bool   `yaml:"memory_enabled"`
 	MemoryStorage    string `yaml:"memory_storage"`
+
+	// Sprints profile settings
+	SprintsCollection string `yaml:"sprints_collection"`
+	SprintsEnabled    bool   `yaml:"sprints_enabled"`
+	SprintsStorage    string `yaml:"sprints_storage"`
 }
 
 // ProfileConfig represents resolved configuration for a specific profile.
@@ -103,6 +108,10 @@ func (c *SemanticConfig) GetProfileConfig(profile string) ProfileConfig {
 		pc.Collection = c.MemoryCollection
 		pc.Storage = c.MemoryStorage
 		pc.Enabled = c.MemoryEnabled
+	case "sprints":
+		pc.Collection = c.SprintsCollection
+		pc.Storage = c.SprintsStorage
+		pc.Enabled = c.SprintsEnabled
 	case "code":
 		fallthrough
 	default:
@@ -117,7 +126,7 @@ func (c *SemanticConfig) GetProfileConfig(profile string) ProfileConfig {
 
 // ValidProfiles returns the list of valid profile names.
 func ValidProfiles() []string {
-	return []string{"code", "docs", "memory"}
+	return []string{"code", "docs", "memory", "sprints"}
 }
 
 // IsValidProfile checks if the given profile name is valid.
