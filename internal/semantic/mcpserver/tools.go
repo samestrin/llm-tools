@@ -66,7 +66,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
 					},
 					"config": {
 						"type": "string",
@@ -123,7 +123,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
 					},
 					"config": {
 						"type": "string",
@@ -173,7 +173,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
 					},
 					"config": {
 						"type": "string",
@@ -227,7 +227,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
 					},
 					"config": {
 						"type": "string",
@@ -279,7 +279,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
 					},
 					"config": {
 						"type": "string",
@@ -339,7 +339,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
 					},
 					"config": {
 						"type": "string",
@@ -392,7 +392,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
 					},
 					"config": {
 						"type": "string",
@@ -438,7 +438,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
 					},
 					"config": {
 						"type": "string",
@@ -482,7 +482,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
 					},
 					"config": {
 						"type": "string",
