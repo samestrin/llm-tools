@@ -89,51 +89,9 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 	}
 	defer storage.Close()
 
-	// Create chunker factory with language support
+	// Create chunker factory with all language support
 	factory := semantic.NewChunkerFactory()
-	factory.Register("go", semantic.NewGoChunker())
-
-	// Register JS/TS chunker
-	jsChunker := semantic.NewJSChunker()
-	for _, ext := range jsChunker.SupportedExtensions() {
-		factory.Register(ext, jsChunker)
-	}
-
-	// Register Python chunker
-	pyChunker := semantic.NewPythonChunker()
-	for _, ext := range pyChunker.SupportedExtensions() {
-		factory.Register(ext, pyChunker)
-	}
-
-	// Register PHP chunker
-	phpChunker := semantic.NewPHPChunker()
-	for _, ext := range phpChunker.SupportedExtensions() {
-		factory.Register(ext, phpChunker)
-	}
-
-	// Register Rust chunker
-	rustChunker := semantic.NewRustChunker()
-	for _, ext := range rustChunker.SupportedExtensions() {
-		factory.Register(ext, rustChunker)
-	}
-
-	// Register Markdown chunker for documentation files
-	mdChunker := semantic.NewMarkdownChunker(4000)
-	for _, ext := range mdChunker.SupportedExtensions() {
-		factory.Register(ext, mdChunker)
-	}
-
-	// Register HTML chunker for HTML documentation
-	htmlChunker := semantic.NewHTMLChunker(4000)
-	for _, ext := range htmlChunker.SupportedExtensions() {
-		factory.Register(ext, htmlChunker)
-	}
-
-	// Register generic chunker for other file types
-	generic := semantic.NewGenericChunker(2000)
-	for _, ext := range generic.SupportedExtensions() {
-		factory.Register(ext, generic)
-	}
+	RegisterAllChunkers(factory)
 
 	// Create index manager
 	mgr := semantic.NewIndexManager(storage, embedder, factory)

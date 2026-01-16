@@ -3,6 +3,8 @@ package commands
 import (
 	"bytes"
 	"testing"
+
+	"github.com/samestrin/llm-tools/internal/semantic"
 )
 
 func TestIndexCmd_Help(t *testing.T) {
@@ -200,5 +202,78 @@ func TestIndexUpdateCmd_HelpOutput(t *testing.T) {
 		if !bytes.Contains([]byte(output), []byte(s)) {
 			t.Errorf("Help output should contain %q", s)
 		}
+	}
+}
+
+func TestRegisterAllChunkers(t *testing.T) {
+	// This test verifies that RegisterAllChunkers registers chunkers for all expected extensions.
+	// Previously, index.go and index_update.go had duplicated registration code.
+	// Now they share RegisterAllChunkers to ensure consistency.
+	factory := semantic.NewChunkerFactory()
+	RegisterAllChunkers(factory)
+
+	exts := factory.SupportedExtensions()
+	extSet := make(map[string]bool)
+	for _, ext := range exts {
+		extSet[ext] = true
+	}
+
+	// Required extensions from each chunker type
+	requiredExtensions := []struct {
+		ext   string
+		descr string
+	}{
+		{"go", "GoChunker"},
+		{"js", "JSChunker"},
+		{"ts", "JSChunker"},
+		{"py", "PythonChunker"},
+		{"php", "PHPChunker"},
+		{"rs", "RustChunker"},
+		{"md", "MarkdownChunker"},
+		{"markdown", "MarkdownChunker"},
+		{"html", "HTMLChunker"},
+		{"htm", "HTMLChunker"},
+		{"txt", "GenericChunker"},
+		{"yaml", "GenericChunker"},
+	}
+
+	for _, req := range requiredExtensions {
+		if !extSet[req.ext] {
+			t.Errorf("RegisterAllChunkers should register %q extension (from %s)", req.ext, req.descr)
+		}
+	}
+
+	// Verify we have a reasonable number of extensions
+	if len(exts) < 15 {
+		t.Errorf("Expected at least 15 registered extensions, got %d", len(exts))
+	}
+}
+
+func TestRegisterAllChunkers_ChunkerTypesCorrect(t *testing.T) {
+	factory := semantic.NewChunkerFactory()
+	RegisterAllChunkers(factory)
+
+	// Verify correct chunker type for key extensions
+	tests := []struct {
+		ext      string
+		checkFn  func(semantic.Chunker) bool
+		wantType string
+	}{
+		{"go", func(c semantic.Chunker) bool { _, ok := c.(*semantic.GoChunker); return ok }, "GoChunker"},
+		{"md", func(c semantic.Chunker) bool { _, ok := c.(*semantic.MarkdownChunker); return ok }, "MarkdownChunker"},
+		{"html", func(c semantic.Chunker) bool { _, ok := c.(*semantic.HTMLChunker); return ok }, "HTMLChunker"},
+		{"txt", func(c semantic.Chunker) bool { _, ok := c.(*semantic.GenericChunker); return ok }, "GenericChunker"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ext, func(t *testing.T) {
+			chunker, ok := factory.GetChunker(tt.ext)
+			if !ok {
+				t.Fatalf("Extension %q not registered", tt.ext)
+			}
+			if !tt.checkFn(chunker) {
+				t.Errorf("Extension %q should be registered with %s", tt.ext, tt.wantType)
+			}
+		})
 	}
 }

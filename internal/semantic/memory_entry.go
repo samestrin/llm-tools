@@ -86,7 +86,7 @@ func (mr MemorySearchResult) MinimalJSON() string {
 
 // MemorySearchOptions configures memory search behavior
 type MemorySearchOptions struct {
-	TopK      int          // Maximum results to return (default: 10)
+	TopK      int          // Maximum results to return (0 = unlimited/all results, default: 10)
 	Threshold float32      // Minimum similarity score (0.0-1.0)
 	Tags      []string     // Filter by tags (any match)
 	Source    string       // Filter by source

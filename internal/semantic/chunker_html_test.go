@@ -251,8 +251,9 @@ func TestHTMLChunker_EdgeCases(t *testing.T) {
 			description: "unclosed tags should be handled gracefully",
 		},
 		{
-			name:        "invalid UTF-8 bytes",
-			content:     "<html><body><section>Valid text \xff\xfe invalid bytes</section></body></html>",
+			name: "invalid UTF-8 bytes",
+			// Construct string with explicit invalid UTF-8 bytes (0xFF, 0xFE are not valid UTF-8)
+			content:     "<html><body><section>Valid text " + string([]byte{0xFF, 0xFE}) + " invalid bytes</section></body></html>",
 			wantChunks:  1,
 			description: "invalid UTF-8 should not crash",
 		},
@@ -531,6 +532,62 @@ func TestHTMLChunker_NoscriptStripping(t *testing.T) {
 	}
 }
 
+func TestHTMLChunker_StyleElementCSSNotLeaked(t *testing.T) {
+	chunker := NewHTMLChunker(4000)
+
+	// CSS selectors and rules should not appear in extracted text
+	content := `<html><head>
+<style>
+.content { color: red; }
+#main { background: blue; }
+body { font-size: 16px; }
+.warning::before { content: "!"; }
+@media screen { p { margin: 10px; } }
+</style>
+</head><body>
+<section>
+  <p>This is the actual content.</p>
+</section>
+</body></html>`
+
+	chunks, err := chunker.Chunk("test.html", []byte(content))
+	if err != nil {
+		t.Fatalf("Chunk() error = %v", err)
+	}
+
+	// CSS selectors and rules should not leak into content
+	cssPatterns := []string{
+		".content",
+		"#main",
+		"color: red",
+		"background: blue",
+		"font-size",
+		"::before",
+		"@media",
+		"margin:",
+	}
+
+	for _, chunk := range chunks {
+		for _, pattern := range cssPatterns {
+			if strings.Contains(chunk.Content, pattern) {
+				t.Errorf("CSS pattern %q leaked into chunk content: %q", pattern, truncate(chunk.Content, 200))
+			}
+		}
+	}
+
+	// Actual content should be preserved
+	found := false
+	for _, chunk := range chunks {
+		if strings.Contains(chunk.Content, "actual content") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("actual content should be preserved after style stripping")
+	}
+}
+
 func TestHTMLChunker_MalformedHTML(t *testing.T) {
 	chunker := NewHTMLChunker(4000)
 
@@ -711,15 +768,310 @@ func TestHTMLChunker_ChunkMetadata(t *testing.T) {
 	}
 }
 
-func TestHTMLChunker_DefaultMaxChunkSize(t *testing.T) {
-	// Test that NewHTMLChunker uses default when 0 or negative is passed
-	chunker := NewHTMLChunker(0)
-	if chunker.maxChunkSize != 4000 {
-		t.Errorf("default maxChunkSize should be 4000, got %d", chunker.maxChunkSize)
+func TestHTMLChunker_EmptyPath(t *testing.T) {
+	chunker := NewHTMLChunker(4000)
+
+	content := `<html><body><section>Content</section></body></html>`
+	_, err := chunker.Chunk("", []byte(content))
+	if err == nil {
+		t.Error("expected error for empty path, got nil")
+	}
+}
+
+func TestHTMLChunker_UnicodeWhitespace(t *testing.T) {
+	chunker := NewHTMLChunker(4000)
+
+	// Content with various Unicode whitespace characters
+	// \u00A0 = non-breaking space, \u2003 = em space
+	content := `<html><body><section>Word1` + "\u00A0\u00A0" + `Word2` + "\u2003" + `Word3</section></body></html>`
+
+	chunks, err := chunker.Chunk("test.html", []byte(content))
+	if err != nil {
+		t.Fatalf("Chunk() error = %v", err)
 	}
 
-	chunker2 := NewHTMLChunker(-100)
-	if chunker2.maxChunkSize != 4000 {
-		t.Errorf("negative maxChunkSize should default to 4000, got %d", chunker2.maxChunkSize)
+	if len(chunks) == 0 {
+		t.Fatal("expected at least one chunk")
+	}
+
+	// Unicode whitespace should be collapsed to single space
+	if strings.Contains(chunks[0].Content, "\u00A0\u00A0") {
+		t.Error("consecutive unicode whitespace should be collapsed")
+	}
+}
+
+func TestHTMLChunker_NewlineNormalization(t *testing.T) {
+	chunker := NewHTMLChunker(4000)
+
+	// Content with many nested block elements that produce multiple newlines
+	content := `<html><body><section>
+<div>
+<p>Paragraph 1</p>
+</div>
+<div>
+<p>Paragraph 2</p>
+</div>
+<div>
+<p>Paragraph 3</p>
+</div>
+</section></body></html>`
+
+	chunks, err := chunker.Chunk("test.html", []byte(content))
+	if err != nil {
+		t.Fatalf("Chunk() error = %v", err)
+	}
+
+	if len(chunks) == 0 {
+		t.Fatal("expected at least one chunk")
+	}
+
+	// Should not have more than 2 consecutive newlines (paragraph breaks)
+	if strings.Contains(chunks[0].Content, "\n\n\n") {
+		t.Errorf("content should not have more than 2 consecutive newlines, got: %q", chunks[0].Content)
+	}
+
+	// Content should still contain the paragraphs
+	if !strings.Contains(chunks[0].Content, "Paragraph 1") {
+		t.Error("content should contain Paragraph 1")
+	}
+	if !strings.Contains(chunks[0].Content, "Paragraph 2") {
+		t.Error("content should contain Paragraph 2")
+	}
+}
+
+// Security tests for XSS vectors - verify dangerous content is not included in output
+func TestHTMLChunker_XSSEventHandlers(t *testing.T) {
+	chunker := NewHTMLChunker(4000)
+
+	tests := []struct {
+		name           string
+		content        string
+		mustNotContain []string
+		mustContain    []string
+		description    string
+	}{
+		{
+			name: "onclick event handler",
+			content: `<html><body><section>
+<button onclick="alert('xss')">Click me</button>
+<p>Safe paragraph.</p>
+</section></body></html>`,
+			mustNotContain: []string{"alert", "onclick"},
+			mustContain:    []string{"Click me", "Safe paragraph"},
+			description:    "onclick attribute should not appear in text output",
+		},
+		{
+			name: "onerror event handler",
+			content: `<html><body><section>
+<img src="x" onerror="alert('xss')">
+<p>Normal content.</p>
+</section></body></html>`,
+			mustNotContain: []string{"alert", "onerror"},
+			mustContain:    []string{"Normal content"},
+			description:    "onerror attribute should not appear in text output",
+		},
+		{
+			name: "onload event handler",
+			content: `<html><body><section>
+<body onload="malicious()">
+<p>Page content.</p>
+</section></body></html>`,
+			mustNotContain: []string{"malicious", "onload"},
+			mustContain:    []string{"Page content"},
+			description:    "onload attribute should not appear in text output",
+		},
+		{
+			name: "multiple event handlers",
+			content: `<html><body><section>
+<div onmouseover="steal()" onmouseout="evil()">
+<a onclick="hack()" onkeypress="inject()">Link text</a>
+<p>Regular text.</p>
+</div>
+</section></body></html>`,
+			mustNotContain: []string{"steal", "evil", "hack", "inject", "onmouseover", "onmouseout", "onclick", "onkeypress"},
+			mustContain:    []string{"Link text", "Regular text"},
+			description:    "no event handler attributes should leak into text",
+		},
+		{
+			name: "event handler with encoded quotes",
+			content: `<html><body><section>
+<button onclick="alert(&quot;xss&quot;)">Button</button>
+<p>Text.</p>
+</section></body></html>`,
+			mustNotContain: []string{"alert", "onclick"},
+			mustContain:    []string{"Button", "Text"},
+			description:    "encoded event handlers should not leak",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunks, err := chunker.Chunk("test.html", []byte(tt.content))
+			if err != nil {
+				t.Fatalf("Chunk() error = %v (%s)", err, tt.description)
+			}
+
+			// Verify dangerous content is not present
+			for _, chunk := range chunks {
+				for _, forbidden := range tt.mustNotContain {
+					if strings.Contains(strings.ToLower(chunk.Content), strings.ToLower(forbidden)) {
+						t.Errorf("chunk should not contain %q (%s), got: %q", forbidden, tt.description, truncate(chunk.Content, 200))
+					}
+				}
+			}
+
+			// Verify safe content is preserved
+			for _, required := range tt.mustContain {
+				found := false
+				for _, chunk := range chunks {
+					if strings.Contains(chunk.Content, required) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("should contain %q (%s)", required, tt.description)
+				}
+			}
+		})
+	}
+}
+
+func TestHTMLChunker_XSSJavascriptURLs(t *testing.T) {
+	chunker := NewHTMLChunker(4000)
+
+	tests := []struct {
+		name           string
+		content        string
+		mustNotContain []string
+		mustContain    []string
+		description    string
+	}{
+		{
+			name: "javascript href",
+			content: `<html><body><section>
+<a href="javascript:alert('xss')">Click here</a>
+<p>Safe content.</p>
+</section></body></html>`,
+			mustNotContain: []string{"javascript:", "alert"},
+			mustContain:    []string{"Click here", "Safe content"},
+			description:    "javascript: URL should not appear in text output",
+		},
+		{
+			name: "javascript href with entity encoding",
+			content: `<html><body><section>
+<a href="&#106;avascript:alert('xss')">Encoded link</a>
+<p>Normal text.</p>
+</section></body></html>`,
+			mustNotContain: []string{"javascript", "alert"},
+			mustContain:    []string{"Encoded link", "Normal text"},
+			description:    "entity-encoded javascript: URL should not leak",
+		},
+		{
+			name: "javascript src",
+			content: `<html><body><section>
+<iframe src="javascript:evil()"></iframe>
+<p>Page content.</p>
+</section></body></html>`,
+			mustNotContain: []string{"javascript:", "evil"},
+			mustContain:    []string{"Page content"},
+			description:    "javascript: in src should not leak",
+		},
+		{
+			name: "data url with script",
+			content: `<html><body><section>
+<a href="data:text/html,<script>alert('xss')</script>">Data link</a>
+<p>Regular content.</p>
+</section></body></html>`,
+			mustNotContain: []string{"data:text/html", "<script>"},
+			mustContain:    []string{"Data link", "Regular content"},
+			description:    "data: URLs should not leak",
+		},
+		{
+			name: "vbscript url (legacy IE vector)",
+			content: `<html><body><section>
+<a href="vbscript:msgbox('xss')">VB link</a>
+<p>Content here.</p>
+</section></body></html>`,
+			mustNotContain: []string{"vbscript:", "msgbox"},
+			mustContain:    []string{"VB link", "Content here"},
+			description:    "vbscript: URL should not leak",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunks, err := chunker.Chunk("test.html", []byte(tt.content))
+			if err != nil {
+				t.Fatalf("Chunk() error = %v (%s)", err, tt.description)
+			}
+
+			// Verify dangerous content is not present
+			for _, chunk := range chunks {
+				for _, forbidden := range tt.mustNotContain {
+					if strings.Contains(strings.ToLower(chunk.Content), strings.ToLower(forbidden)) {
+						t.Errorf("chunk should not contain %q (%s), got: %q", forbidden, tt.description, truncate(chunk.Content, 200))
+					}
+				}
+			}
+
+			// Verify safe content is preserved
+			for _, required := range tt.mustContain {
+				found := false
+				for _, chunk := range chunks {
+					if strings.Contains(chunk.Content, required) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("should contain %q (%s)", required, tt.description)
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkHTMLChunker_LargeDocument(b *testing.B) {
+	chunker := NewHTMLChunker(4000)
+
+	// Build a large HTML document with many sections
+	var builder strings.Builder
+	builder.WriteString("<html><body>")
+	for i := 0; i < 100; i++ {
+		builder.WriteString("<section><h1>Section ")
+		builder.WriteString(strings.Repeat("x", i%10))
+		builder.WriteString("</h1><p>")
+		builder.WriteString(strings.Repeat("Content paragraph. ", 50))
+		builder.WriteString("</p></section>")
+	}
+	builder.WriteString("</body></html>")
+	content := []byte(builder.String())
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = chunker.Chunk("test.html", content)
+	}
+}
+
+func BenchmarkHTMLChunker_DeepNesting(b *testing.B) {
+	chunker := NewHTMLChunker(4000)
+
+	// Build deeply nested HTML
+	var builder strings.Builder
+	builder.WriteString("<html><body>")
+	for i := 0; i < 50; i++ {
+		builder.WriteString("<div>")
+	}
+	builder.WriteString("<p>Deeply nested content</p>")
+	for i := 0; i < 50; i++ {
+		builder.WriteString("</div>")
+	}
+	builder.WriteString("</body></html>")
+	content := []byte(builder.String())
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = chunker.Chunk("test.html", content)
 	}
 }

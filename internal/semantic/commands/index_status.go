@@ -7,8 +7,21 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/samestrin/llm-tools/internal/semantic"
 	"github.com/spf13/cobra"
 )
+
+// indexStatusJSON represents the JSON output structure for index-status command
+type indexStatusJSON struct {
+	Indexed      bool                          `json:"indexed"`
+	Storage      string                        `json:"storage"`
+	FilesIndexed int                           `json:"files_indexed"`
+	ChunksTotal  int                           `json:"chunks_total"`
+	LastUpdated  string                        `json:"last_updated"`
+	Path         string                        `json:"path,omitempty"`        // Only for sqlite
+	Collection   string                        `json:"collection,omitempty"`  // Only for qdrant
+	Calibration  *semantic.CalibrationMetadata `json:"calibration,omitempty"` // Optional
+}
 
 func indexStatusCmd() *cobra.Command {
 	var jsonOutput bool
@@ -43,16 +56,43 @@ func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 
 	// For Qdrant, we need to probe the embedder to get dimensions
 	embeddingDim := 0
+	embedderOffline := false
 	if storageType == "qdrant" {
 		embedder, err := createEmbedder()
 		if err != nil {
-			return fmt.Errorf("failed to create embedder: %w", err)
+			slog.Debug("embedder unavailable, trying offline mode", "error", err)
+			embedderOffline = true
+		} else {
+			testEmbed, err := embedder.Embed(ctx, "test")
+			if err != nil {
+				slog.Debug("embedder probe failed, trying offline mode", "error", err)
+				embedderOffline = true
+			} else {
+				embeddingDim = len(testEmbed)
+			}
 		}
-		testEmbed, err := embedder.Embed(ctx, "test")
-		if err != nil {
-			return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+
+		// For offline Qdrant status, we can't create the storage without dimensions
+		// Report limited info instead
+		if embedderOffline {
+			collection := resolveCollectionName()
+			if jsonOutput {
+				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+					"indexed":          "unknown",
+					"storage":          "qdrant",
+					"collection":       collection,
+					"embedder_offline": true,
+					"message":          "Embedder service unavailable. Cannot retrieve full index status.",
+				})
+			}
+			fmt.Printf("Semantic Index Status (Limited - Embedder Offline)\n")
+			fmt.Printf("==================================================\n")
+			fmt.Printf("Storage:       qdrant\n")
+			fmt.Printf("Collection:    %s\n", collection)
+			fmt.Printf("\nEmbedder service is offline. Cannot retrieve full index status.\n")
+			fmt.Printf("Start the embedder service to see complete statistics.\n")
+			return nil
 		}
-		embeddingDim = len(testEmbed)
 	}
 
 	// Open storage
@@ -77,20 +117,18 @@ func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		result := map[string]interface{}{
-			"indexed":       true,
-			"storage":       storageType,
-			"files_indexed": stats.FilesIndexed,
-			"chunks_total":  stats.ChunksTotal,
-			"last_updated":  stats.LastUpdated,
+		result := indexStatusJSON{
+			Indexed:      true,
+			Storage:      storageType,
+			FilesIndexed: stats.FilesIndexed,
+			ChunksTotal:  stats.ChunksTotal,
+			LastUpdated:  stats.LastUpdated,
+			Calibration:  calibration,
 		}
 		if storageType == "qdrant" {
-			result["collection"] = resolveCollectionName()
+			result.Collection = resolveCollectionName()
 		} else {
-			result["path"] = indexPath
-		}
-		if calibration != nil {
-			result["calibration"] = calibration
+			result.Path = indexPath
 		}
 		return enc.Encode(result)
 	}

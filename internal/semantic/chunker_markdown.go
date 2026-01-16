@@ -2,8 +2,11 @@ package semantic
 
 import (
 	"bytes"
+	"fmt"
+	"log/slog"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -41,6 +44,9 @@ type markdownSection struct {
 // Chunk breaks markdown content into semantic chunks based on header boundaries.
 // It preserves code blocks intact and tracks header hierarchy for chunk naming.
 func (c *MarkdownChunker) Chunk(path string, content []byte) ([]Chunk, error) {
+	if path == "" {
+		return nil, fmt.Errorf("path cannot be empty")
+	}
 	if len(content) == 0 {
 		return nil, nil
 	}
@@ -91,7 +97,8 @@ func (c *MarkdownChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 		}
 
 		// Only detect headers if not inside a code fence
-		if !insideFence {
+		// Pre-check: headers must start with # (after leading whitespace)
+		if !insideFence && strings.HasPrefix(strings.TrimLeft(line, " \t"), "#") {
 			if match := headerRegex.FindStringSubmatch(line); match != nil {
 				// Found a header - finalize current section and start new one
 				if currentSection != nil {
@@ -101,7 +108,7 @@ func (c *MarkdownChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 				}
 
 				level := len(match[1])
-				title := strings.TrimSpace(match[2])
+				title := stripTrailingHashes(strings.TrimSpace(match[2]))
 
 				// Update header stack for hierarchy
 				headerStack = updateHeaderStack(headerStack, level, title)
@@ -146,6 +153,7 @@ func (c *MarkdownChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 
 // sectionToChunks converts a markdownSection to one or more Chunks.
 // If the section exceeds maxChunkSize, it splits by line boundaries.
+// Very long lines are split at word boundaries when possible.
 func (c *MarkdownChunker) sectionToChunks(path, filename string, section *markdownSection) []Chunk {
 	content := strings.TrimRight(section.content.String(), "\n")
 	if content == "" {
@@ -176,6 +184,52 @@ func (c *MarkdownChunker) sectionToChunks(path, filename string, section *markdo
 	partNum := 1
 
 	for i, line := range lines {
+		// Handle very long lines that exceed maxChunkSize by themselves
+		if len(line) > c.maxChunkSize {
+			slog.Warn("oversized line detected, splitting at word boundaries",
+				"file", path,
+				"line", section.startLine+i,
+				"lineLength", len(line),
+				"maxChunkSize", c.maxChunkSize)
+			// First, emit any accumulated content
+			if currentContent.Len() > 0 {
+				name := c.buildChunkNameWithPart(filename, section, partNum)
+				chunk := Chunk{
+					FilePath:  path,
+					Type:      ChunkFile,
+					Name:      name,
+					Content:   strings.TrimRight(currentContent.String(), "\n"),
+					StartLine: currentStartLine,
+					EndLine:   section.startLine + i - 1,
+					Language:  "markdown",
+				}
+				chunk.ID = chunk.GenerateID()
+				chunks = append(chunks, chunk)
+				currentContent.Reset()
+				partNum++
+			}
+
+			// Split the long line at word boundaries
+			lineParts := c.splitLongLine(line)
+			for _, part := range lineParts {
+				name := c.buildChunkNameWithPart(filename, section, partNum)
+				chunk := Chunk{
+					FilePath:  path,
+					Type:      ChunkFile,
+					Name:      name,
+					Content:   part,
+					StartLine: section.startLine + i,
+					EndLine:   section.startLine + i,
+					Language:  "markdown",
+				}
+				chunk.ID = chunk.GenerateID()
+				chunks = append(chunks, chunk)
+				partNum++
+			}
+			currentStartLine = section.startLine + i + 1
+			continue
+		}
+
 		lineWithNewline := line + "\n"
 
 		// Check if adding this line would exceed max size
@@ -225,8 +279,8 @@ func (c *MarkdownChunker) sectionToChunks(path, filename string, section *markdo
 // buildChunkName creates a descriptive name from the header hierarchy
 func (c *MarkdownChunker) buildChunkName(filename string, section *markdownSection) string {
 	if len(section.hierarchy) == 0 {
-		// Preamble or content before first header
-		return filename + ":" + itoa(section.startLine) + "-" + itoa(section.endLine)
+		// Preamble or content before first header - use :preamble suffix for consistency with :frontmatter
+		return filename + ":preamble"
 	}
 
 	// Build hierarchical name: "filename > H1 > H2 > H3"
@@ -241,11 +295,50 @@ func (c *MarkdownChunker) buildChunkNameWithPart(filename string, section *markd
 	if partNum == 1 {
 		return baseName
 	}
-	return baseName + " (part " + itoa(partNum) + ")"
+	return baseName + " (part " + strconv.Itoa(partNum) + ")"
+}
+
+// splitLongLine breaks a line that exceeds maxChunkSize into smaller parts.
+// It splits at word boundaries (spaces) when possible, preserving content integrity.
+// If no space is found within maxChunkSize (e.g., a long URL), it falls back to
+// hard splitting at maxChunkSize.
+func (c *MarkdownChunker) splitLongLine(line string) []string {
+	if len(line) <= c.maxChunkSize {
+		return []string{line}
+	}
+
+	var parts []string
+	remaining := line
+
+	for len(remaining) > c.maxChunkSize {
+		// Try to find a space within the maxChunkSize limit
+		splitPoint := c.maxChunkSize
+		for i := c.maxChunkSize - 1; i > c.maxChunkSize/2; i-- {
+			if remaining[i] == ' ' {
+				splitPoint = i
+				break
+			}
+		}
+
+		// Add the part (trimming trailing space if we split at a space)
+		part := strings.TrimRight(remaining[:splitPoint], " ")
+		parts = append(parts, part)
+
+		// Move to the remaining content (trimming leading space)
+		remaining = strings.TrimLeft(remaining[splitPoint:], " ")
+	}
+
+	// Add any remaining content
+	if len(remaining) > 0 {
+		parts = append(parts, remaining)
+	}
+
+	return parts
 }
 
 // extractFrontmatter extracts YAML frontmatter from the beginning of a file.
-// Returns the frontmatter content (excluding delimiters) and the line number after the closing ---.
+// Returns the frontmatter content (excluding delimiters) and the line number after the closing delimiter.
+// Supports both --- and ... as closing delimiters per YAML spec.
 // Returns empty string and 0 if no valid frontmatter found.
 func extractFrontmatter(lines [][]byte) (string, int) {
 	if len(lines) < 2 {
@@ -257,11 +350,12 @@ func extractFrontmatter(lines [][]byte) (string, int) {
 		return "", 0
 	}
 
-	// Find closing ---
+	// Find closing delimiter (--- or ... per YAML spec)
 	var content strings.Builder
 	for i := 1; i < len(lines); i++ {
 		line := string(lines[i])
-		if strings.TrimSpace(line) == "---" {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" || trimmed == "..." {
 			// Found closing delimiter
 			return strings.TrimRight(content.String(), "\n"), i + 1
 		}
@@ -269,8 +363,21 @@ func extractFrontmatter(lines [][]byte) (string, int) {
 		content.WriteString("\n")
 	}
 
-	// No closing --- found
+	// No closing delimiter found
 	return "", 0
+}
+
+// stripTrailingHashes removes optional closing hash sequence per CommonMark spec
+// e.g., "Title ##" → "Title", "Title" → "Title"
+func stripTrailingHashes(title string) string {
+	// Strip trailing whitespace first
+	title = strings.TrimRight(title, " \t")
+	// Strip trailing hash characters
+	for len(title) > 0 && title[len(title)-1] == '#' {
+		title = title[:len(title)-1]
+	}
+	// Strip any whitespace between content and the hashes
+	return strings.TrimRight(title, " \t")
 }
 
 // updateHeaderStack maintains the header hierarchy stack
@@ -285,7 +392,9 @@ func updateHeaderStack(stack []string, level int, title string) []string {
 	return append(stack, title)
 }
 
-// isFenceStart checks if a line starts a fenced code block
+// isFenceStart checks if a line starts a fenced code block.
+// Supports both ``` and ~~~ fence markers.
+// Allows any leading whitespace (more permissive than CommonMark's 0-3 spaces).
 func isFenceStart(line string) bool {
 	trimmed := strings.TrimLeft(line, " \t")
 	return strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")
@@ -296,23 +405,15 @@ func getFenceInfo(line string) (byte, int) {
 	trimmed := strings.TrimLeft(line, " \t")
 	if strings.HasPrefix(trimmed, "```") {
 		count := 0
-		for _, ch := range trimmed {
-			if ch == '`' {
-				count++
-			} else {
-				break
-			}
+		for i := 0; i < len(trimmed) && trimmed[i] == '`'; i++ {
+			count++
 		}
 		return '`', count
 	}
 	if strings.HasPrefix(trimmed, "~~~") {
 		count := 0
-		for _, ch := range trimmed {
-			if ch == '~' {
-				count++
-			} else {
-				break
-			}
+		for i := 0; i < len(trimmed) && trimmed[i] == '~'; i++ {
+			count++
 		}
 		return '~', count
 	}
@@ -329,14 +430,10 @@ func isFenceEnd(line string, fenceChar byte, fenceLength int) bool {
 		return false
 	}
 
-	// Count matching fence characters
+	// Count matching fence characters using byte iteration
 	count := 0
-	for _, ch := range trimmed {
-		if byte(ch) == fenceChar {
-			count++
-		} else {
-			break
-		}
+	for i := 0; i < len(trimmed) && trimmed[i] == fenceChar; i++ {
+		count++
 	}
 
 	// Closing fence must have at least as many chars as opening
@@ -349,36 +446,19 @@ func isFenceEnd(line string, fenceChar byte, fenceLength int) bool {
 }
 
 // extractFilename gets the base filename without extension
+// Handles hidden files (e.g., .gitignore) and files with multiple dots
 func extractFilename(path string) string {
 	base := filepath.Base(path)
+	// Handle hidden files (start with .) - don't strip the leading dot as extension
+	if strings.HasPrefix(base, ".") && !strings.Contains(base[1:], ".") {
+		// Hidden file with no extension (e.g., .gitignore)
+		return base
+	}
 	ext := filepath.Ext(base)
 	if ext != "" {
 		return base[:len(base)-len(ext)]
 	}
 	return base
-}
-
-// itoa converts int to string without importing strconv
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	negative := n < 0
-	if negative {
-		n = -n
-	}
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if negative {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
 }
 
 // SupportedExtensions returns the file extensions this chunker handles

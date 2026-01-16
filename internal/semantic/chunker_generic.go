@@ -73,7 +73,7 @@ func (c *GenericChunker) createChunk(path, lang, content string, startLine, endL
 	chunk := Chunk{
 		FilePath:  path,
 		Type:      ChunkFile,
-		Name:      chunkName(path, startLine),
+		Name:      chunkName(path),
 		Content:   content,
 		StartLine: startLine,
 		EndLine:   endLine,
@@ -84,7 +84,7 @@ func (c *GenericChunker) createChunk(path, lang, content string, startLine, endL
 }
 
 // chunkName generates a descriptive name for a generic chunk
-func chunkName(path string, startLine int) string {
+func chunkName(path string) string {
 	// Extract filename without extension
 	name := path
 	if idx := strings.LastIndex(path, "/"); idx >= 0 {
@@ -96,8 +96,8 @@ func chunkName(path string, startLine int) string {
 	return name
 }
 
-// SupportedExtensions returns the file extensions this chunker handles
-// Note: md, markdown, html, htm are handled by specialized chunkers
+// SupportedExtensions returns the file extensions this chunker handles.
+// Extensions NOT listed here: md, markdown, html, htm (handled by specialized chunkers)
 func (c *GenericChunker) SupportedExtensions() []string {
 	return []string{
 		// Text files

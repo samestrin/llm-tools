@@ -27,7 +27,7 @@ type ListOptions struct {
 
 // SearchOptions configures how vector search is performed
 type SearchOptions struct {
-	TopK       int     // Maximum number of results to return
+	TopK       int     // Maximum number of results to return (0 = unlimited/all results)
 	Threshold  float32 // Minimum similarity score (0.0 - 1.0)
 	Type       string  // Filter by chunk type
 	PathFilter string  // Filter by file path pattern (glob)
@@ -51,7 +51,7 @@ type LexicalSearcher interface {
 // LexicalSearchOptions configures lexical search parameters.
 // This is defined here to avoid circular imports with fts_sqlite.go.
 type LexicalSearchOptions struct {
-	TopK       int     // Maximum results to return (default: 10)
+	TopK       int     // Maximum results to return (0 = unlimited/all results, default: 10)
 	Type       string  // Filter by chunk type
 	PathFilter string  // Filter by file path prefix
 	Threshold  float64 // Minimum BM25 score (more negative = more relevant)
