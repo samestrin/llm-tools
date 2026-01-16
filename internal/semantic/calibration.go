@@ -94,8 +94,8 @@ func runSelfMatchProbes(ctx context.Context, storage Storage, embedder EmbedderI
 	}
 
 	// Shuffle and select probes
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	rng.Shuffle(len(chunks), func(i, j int) {
+	// Note: Since Go 1.20, the global rand is auto-seeded, making this safe
+	rand.Shuffle(len(chunks), func(i, j int) {
 		chunks[i], chunks[j] = chunks[j], chunks[i]
 	})
 

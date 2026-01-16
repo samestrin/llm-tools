@@ -83,7 +83,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 		indexPath = resolveIndexPath(absPath)
 		indexDir := filepath.Dir(indexPath)
 		if err := os.MkdirAll(indexDir, 0755); err != nil {
-			return fmt.Errorf("failed to create index directory: %w", err)
+			return fmt.Errorf("failed to create index directory %q: %w", indexDir, err)
 		}
 	}
 

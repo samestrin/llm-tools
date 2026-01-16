@@ -282,10 +282,11 @@ func (s *SQLiteStorage) Update(ctx context.Context, chunk Chunk, embedding []flo
 		UPDATE chunks SET
 			file_path = ?, type = ?, name = ?, signature = ?, content = ?,
 			start_line = ?, end_line = ?, language = ?, embedding = ?,
-			updated_at = CURRENT_TIMESTAMP
+			file_mtime = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`, chunk.FilePath, chunk.Type.String(), chunk.Name, chunk.Signature,
-		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language, embeddingBytes, chunk.ID)
+		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language, embeddingBytes,
+		chunk.FileMtime, chunk.ID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update chunk: %w", err)
@@ -1054,7 +1055,7 @@ func (s *SQLiteStorage) GetCalibrationMetadata(ctx context.Context) (*Calibratio
 	).Scan(&value)
 
 	if err != nil {
-		if err.Error() == "sql: no rows in result set" {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil // No calibration yet
 		}
 		return nil, fmt.Errorf("failed to get calibration metadata: %w", err)

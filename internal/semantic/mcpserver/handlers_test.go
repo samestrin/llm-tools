@@ -746,8 +746,9 @@ func TestGetInt(t *testing.T) {
 		{"int value", map[string]interface{}{"num": 42}, "num", 42, true},
 		{"float64 value", map[string]interface{}{"num": float64(42)}, "num", 42, true},
 		{"int64 value", map[string]interface{}{"num": int64(42)}, "num", 42, true},
+		{"string numeric", map[string]interface{}{"num": "42"}, "num", 42, true},
 		{"missing key", map[string]interface{}{}, "num", 0, false},
-		{"wrong type", map[string]interface{}{"num": "42"}, "num", 0, false},
+		{"non-numeric string", map[string]interface{}{"num": "not a number"}, "num", 0, false},
 	}
 
 	for _, tt := range tests {
@@ -774,8 +775,9 @@ func TestGetFloat(t *testing.T) {
 		{"float64 value", map[string]interface{}{"num": float64(3.14)}, "num", 3.14, true},
 		{"float32 value", map[string]interface{}{"num": float32(3.14)}, "num", float64(float32(3.14)), true},
 		{"int value", map[string]interface{}{"num": 42}, "num", 42.0, true},
+		{"string numeric", map[string]interface{}{"num": "3.14"}, "num", 3.14, true},
 		{"missing key", map[string]interface{}{}, "num", 0, false},
-		{"wrong type", map[string]interface{}{"num": "3.14"}, "num", 0, false},
+		{"non-numeric string", map[string]interface{}{"num": "not a number"}, "num", 0, false},
 	}
 
 	for _, tt := range tests {

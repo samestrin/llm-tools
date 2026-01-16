@@ -37,12 +37,12 @@ type Config struct {
 func loadConfig(configPath string) (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, fmt.Errorf("failed to read config file %q: %w", configPath, err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, fmt.Errorf("failed to parse config file %q: %w", configPath, err)
 	}
 
 	return &cfg, nil
@@ -326,6 +326,10 @@ func getInt(args map[string]interface{}, key string) (int, bool) {
 		return int(v), true
 	case float32:
 		return int(v), true
+	case string:
+		if i, err := strconv.Atoi(v); err == nil {
+			return i, true
+		}
 	}
 	return 0, false
 }
@@ -338,6 +342,12 @@ func getFloat(args map[string]interface{}, key string) (float64, bool) {
 		return float64(v), true
 	case int:
 		return float64(v), true
+	case int64:
+		return float64(v), true
+	case string:
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f, true
+		}
 	}
 	return 0, false
 }

@@ -72,8 +72,8 @@ func (s *Searcher) HybridSearch(ctx context.Context, query string, opts HybridSe
 		k = 60
 	}
 	alpha := opts.FusionAlpha
-	if alpha <= 0 {
-		alpha = 0.7
+	if alpha == 0 {
+		alpha = 0.7 // Default when not specified; alpha=0 (lexical-only) is still achievable via explicit negative
 	}
 
 	// Perform dense (vector) search
