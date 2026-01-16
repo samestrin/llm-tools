@@ -316,3 +316,168 @@ func TestCalibrationMetadata_Fields(t *testing.T) {
 		t.Errorf("ScoreRange = %v, want 0.75", meta.ScoreRange)
 	}
 }
+
+// TestRunCalibration_SelfMatchVsUnrelated verifies that calibration properly
+// differentiates between self-match (high score) and unrelated (low score) queries.
+func TestRunCalibration_SelfMatchVsUnrelated(t *testing.T) {
+	ctx := context.Background()
+
+	// Create chunks with known content
+	chunks := []Chunk{
+		{ID: "1", Content: "func handleAuth() { validate token }", Name: "auth.go:handleAuth"},
+		{ID: "2", Content: "func processOrder() { submit order }", Name: "order.go:processOrder"},
+		{ID: "3", Content: "func getUserData() { fetch user }", Name: "user.go:getUserData"},
+	}
+
+	// Mock embedder that returns deterministic embeddings based on content
+	embedder := &mockDifferentiatingEmbedder{
+		chunkContents: map[string]bool{
+			chunks[0].Content: true,
+			chunks[1].Content: true,
+			chunks[2].Content: true,
+		},
+	}
+
+	// Mock storage that returns different scores for self-match vs unrelated
+	storage := &mockDifferentiatingStorage{
+		chunks:   chunks,
+		embedder: embedder,
+	}
+
+	meta, err := RunCalibration(ctx, storage, embedder, "test-model")
+	if err != nil {
+		t.Fatalf("RunCalibration() error = %v", err)
+	}
+
+	// Verify that self-match scores are higher than unrelated scores
+	if meta.PerfectMatchScore <= meta.BaselineScore {
+		t.Errorf("PerfectMatchScore (%v) should be > BaselineScore (%v)",
+			meta.PerfectMatchScore, meta.BaselineScore)
+	}
+
+	// Verify thresholds are properly ordered
+	if meta.HighThreshold <= meta.MediumThreshold {
+		t.Errorf("HighThreshold (%v) should be > MediumThreshold (%v)",
+			meta.HighThreshold, meta.MediumThreshold)
+	}
+	if meta.MediumThreshold <= meta.LowThreshold {
+		t.Errorf("MediumThreshold (%v) should be > LowThreshold (%v)",
+			meta.MediumThreshold, meta.LowThreshold)
+	}
+
+	// Verify score range is positive
+	if meta.ScoreRange <= 0 {
+		t.Errorf("ScoreRange (%v) should be positive", meta.ScoreRange)
+	}
+}
+
+// mockDifferentiatingEmbedder returns deterministic embeddings that can be
+// differentiated: chunk content gets one pattern, unrelated text gets another.
+type mockDifferentiatingEmbedder struct {
+	chunkContents map[string]bool // Known chunk contents
+}
+
+func (m *mockDifferentiatingEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	// Return different embedding patterns for known content vs unrelated text
+	if m.chunkContents[text] {
+		// Self-match: return [1, 0, 0, 0] pattern
+		return []float32{1.0, 0.0, 0.0, 0.0}, nil
+	}
+	// Unrelated text: return [0, 0, 0, 1] pattern (orthogonal)
+	return []float32{0.0, 0.0, 0.0, 1.0}, nil
+}
+
+func (m *mockDifferentiatingEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	result := make([][]float32, len(texts))
+	for i, text := range texts {
+		embed, err := m.Embed(ctx, text)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = embed
+	}
+	return result, nil
+}
+
+func (m *mockDifferentiatingEmbedder) Dimensions() int { return 4 }
+func (m *mockDifferentiatingEmbedder) Model() string   { return "mock-diff" }
+
+// mockDifferentiatingStorage returns different scores based on query embedding pattern
+type mockDifferentiatingStorage struct {
+	chunks   []Chunk
+	embedder *mockDifferentiatingEmbedder
+}
+
+func (m *mockDifferentiatingStorage) Create(ctx context.Context, chunk Chunk, embedding []float32) error {
+	return nil
+}
+func (m *mockDifferentiatingStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbedding) error {
+	return nil
+}
+func (m *mockDifferentiatingStorage) Read(ctx context.Context, id string) (*Chunk, error) {
+	return nil, nil
+}
+func (m *mockDifferentiatingStorage) Update(ctx context.Context, chunk Chunk, embedding []float32) error {
+	return nil
+}
+func (m *mockDifferentiatingStorage) Delete(ctx context.Context, id string) error { return nil }
+func (m *mockDifferentiatingStorage) DeleteByFilePath(ctx context.Context, fp string) (int, error) {
+	return 0, nil
+}
+func (m *mockDifferentiatingStorage) List(ctx context.Context, opts ListOptions) ([]Chunk, error) {
+	if opts.Limit > 0 && opts.Limit < len(m.chunks) {
+		return m.chunks[:opts.Limit], nil
+	}
+	return m.chunks, nil
+}
+func (m *mockDifferentiatingStorage) Search(ctx context.Context, queryEmbedding []float32, opts SearchOptions) ([]SearchResult, error) {
+	if len(m.chunks) == 0 {
+		return nil, nil
+	}
+	// Check if query embedding matches self-match pattern [1, 0, 0, 0]
+	// vs unrelated pattern [0, 0, 0, 1]
+	isSelfMatch := len(queryEmbedding) >= 1 && queryEmbedding[0] > 0.5
+	var score float32
+	if isSelfMatch {
+		score = 0.95 // High score for self-match
+	} else {
+		score = 0.25 // Low score for unrelated
+	}
+	return []SearchResult{{Chunk: m.chunks[0], Score: score}}, nil
+}
+func (m *mockDifferentiatingStorage) Stats(ctx context.Context) (*IndexStats, error) {
+	return &IndexStats{ChunksTotal: len(m.chunks)}, nil
+}
+func (m *mockDifferentiatingStorage) Clear(ctx context.Context) error { return nil }
+func (m *mockDifferentiatingStorage) GetFileHash(ctx context.Context, filePath string) (string, error) {
+	return "", nil
+}
+func (m *mockDifferentiatingStorage) SetFileHash(ctx context.Context, filePath string, hash string) error {
+	return nil
+}
+func (m *mockDifferentiatingStorage) Close() error { return nil }
+func (m *mockDifferentiatingStorage) StoreMemory(ctx context.Context, entry MemoryEntry, embedding []float32) error {
+	return nil
+}
+func (m *mockDifferentiatingStorage) StoreMemoryBatch(ctx context.Context, entries []MemoryWithEmbedding) error {
+	return nil
+}
+func (m *mockDifferentiatingStorage) SearchMemory(ctx context.Context, queryEmbedding []float32, opts MemorySearchOptions) ([]MemorySearchResult, error) {
+	return nil, nil
+}
+func (m *mockDifferentiatingStorage) GetMemory(ctx context.Context, id string) (*MemoryEntry, error) {
+	return nil, nil
+}
+func (m *mockDifferentiatingStorage) UpdateMemory(ctx context.Context, entry MemoryEntry) error {
+	return nil
+}
+func (m *mockDifferentiatingStorage) DeleteMemory(ctx context.Context, id string) error { return nil }
+func (m *mockDifferentiatingStorage) ListMemory(ctx context.Context, opts MemoryListOptions) ([]MemoryEntry, error) {
+	return nil, nil
+}
+func (m *mockDifferentiatingStorage) GetCalibrationMetadata(ctx context.Context) (*CalibrationMetadata, error) {
+	return nil, nil
+}
+func (m *mockDifferentiatingStorage) SetCalibrationMetadata(ctx context.Context, meta *CalibrationMetadata) error {
+	return nil
+}

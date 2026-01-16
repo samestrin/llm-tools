@@ -116,13 +116,46 @@ func TestGenericChunker_SupportedExtensions(t *testing.T) {
 		t.Errorf("SupportedExtensions() returned %d extensions, want at least 5", len(exts))
 	}
 
-	// Should include common text extensions
-	expectedExts := map[string]bool{"txt": true, "md": true, "rst": true}
+	// Should include common text extensions (md/html handled by specialized chunkers)
+	expectedExts := map[string]bool{"txt": true, "rst": true, "yaml": true}
 	for _, ext := range exts {
 		delete(expectedExts, ext)
 	}
 	if len(expectedExts) > 0 {
 		t.Errorf("SupportedExtensions() missing: %v", expectedExts)
+	}
+}
+
+func TestGenericChunker_ExcludesSpecializedExtensions(t *testing.T) {
+	chunker := NewGenericChunker(500)
+
+	exts := chunker.SupportedExtensions()
+
+	// Build set for O(1) lookup
+	extSet := make(map[string]bool)
+	for _, ext := range exts {
+		extSet[ext] = true
+	}
+
+	// md/markdown should NOT be in GenericChunker (handled by MarkdownChunker)
+	if extSet["md"] {
+		t.Error("GenericChunker should NOT support 'md' (handled by MarkdownChunker)")
+	}
+	if extSet["markdown"] {
+		t.Error("GenericChunker should NOT support 'markdown' (handled by MarkdownChunker)")
+	}
+
+	// html/htm should NOT be in GenericChunker (handled by HTMLChunker)
+	if extSet["html"] {
+		t.Error("GenericChunker should NOT support 'html' (handled by HTMLChunker)")
+	}
+	if extSet["htm"] {
+		t.Error("GenericChunker should NOT support 'htm' (handled by HTMLChunker)")
+	}
+
+	// go should NOT be in GenericChunker (handled by GoChunker)
+	if extSet["go"] {
+		t.Error("GenericChunker should NOT support 'go' (handled by GoChunker)")
 	}
 }
 
@@ -143,5 +176,40 @@ func TestGenericChunker_LineNumbers(t *testing.T) {
 		if chunk.EndLine < chunk.StartLine {
 			t.Errorf("Chunk.EndLine (%d) < StartLine (%d)", chunk.EndLine, chunk.StartLine)
 		}
+	}
+}
+
+func TestGenericChunker_ExtensionlessFile(t *testing.T) {
+	// Tests that files without extensions (Makefile, README, etc.) use "text" as language.
+	// This exercises the defensive fallback in Chunk() when LanguageFromExtension returns "".
+	chunker := NewGenericChunker(500)
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"Makefile", "Makefile"},
+		{"README", "README"},
+		{"Dockerfile", "Dockerfile"},
+		{"path with extensionless", "/some/path/Makefile"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := []byte("content line 1\ncontent line 2\n")
+			chunks, err := chunker.Chunk(tt.path, content)
+			if err != nil {
+				t.Fatalf("Chunk() error = %v", err)
+			}
+
+			if len(chunks) == 0 {
+				t.Fatal("Expected at least one chunk")
+			}
+
+			// Language should fall back to "text" for extensionless files
+			if chunks[0].Language != "text" {
+				t.Errorf("Language = %q, want %q for extensionless file", chunks[0].Language, "text")
+			}
+		})
 	}
 }

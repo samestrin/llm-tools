@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -10,10 +11,21 @@ import (
 )
 
 // BinaryPath is the path to the llm-clarification binary
-var BinaryPath = "/usr/local/bin/llm-clarification"
+// Defaults to "llm-clarification" (PATH lookup), falls back to /usr/local/bin
+var BinaryPath = "llm-clarification"
 
 // CommandTimeout is the default timeout for command execution
 var CommandTimeout = 120 * time.Second
+
+func init() {
+	// Check if binary is in PATH
+	if _, err := exec.LookPath(BinaryPath); err != nil {
+		// Not in PATH, fallback to standard install location
+		if _, err := os.Stat("/usr/local/bin/llm-clarification"); err == nil {
+			BinaryPath = "/usr/local/bin/llm-clarification"
+		}
+	}
+}
 
 // ExecuteHandler executes the appropriate command for a tool
 func ExecuteHandler(toolName string, args map[string]interface{}) (string, error) {

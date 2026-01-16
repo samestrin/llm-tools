@@ -37,8 +37,9 @@ type QdrantConfig struct {
 
 // Validate checks if the config is valid
 func (c *QdrantConfig) Validate() error {
-	if c.APIKey == "" {
-		return fmt.Errorf("QDRANT_API_KEY is required")
+	// Allow empty APIKey when QDRANT_INSECURE=true (for local/trusted networks)
+	if c.APIKey == "" && os.Getenv("QDRANT_INSECURE") != "true" {
+		return fmt.Errorf("QDRANT_API_KEY is required (set QDRANT_INSECURE=true to skip)")
 	}
 	if c.URL == "" {
 		return fmt.Errorf("QDRANT_API_URL is required")
@@ -354,22 +355,22 @@ func (s *QdrantStorage) DeleteByFilePath(ctx context.Context, filePath string) (
 		return 0, ErrStorageClosed
 	}
 
-	// Count matching points first
-	scrollResult, err := s.client.Scroll(ctx, &qdrant.ScrollPoints{
-		CollectionName: s.collectionName,
-		Filter: &qdrant.Filter{
-			Must: []*qdrant.Condition{
-				qdrant.NewMatch("file_path", filePath),
-			},
+	filter := &qdrant.Filter{
+		Must: []*qdrant.Condition{
+			qdrant.NewMatch("file_path", filePath),
 		},
-		WithPayload: qdrant.NewWithPayload(false),
-		Limit:       qdrant.PtrOf(uint32(10000)),
-	})
-	if err != nil {
-		return 0, fmt.Errorf("failed to scroll points: %w", err)
 	}
 
-	count := len(scrollResult)
+	// Count matching points using Count API (more efficient than Scroll)
+	count, err := s.client.Count(ctx, &qdrant.CountPoints{
+		CollectionName: s.collectionName,
+		Filter:         filter,
+		Exact:          qdrant.PtrOf(true),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to count points: %w", err)
+	}
+
 	if count == 0 {
 		return 0, nil
 	}
@@ -379,11 +380,7 @@ func (s *QdrantStorage) DeleteByFilePath(ctx context.Context, filePath string) (
 		CollectionName: s.collectionName,
 		Points: &qdrant.PointsSelector{
 			PointsSelectorOneOf: &qdrant.PointsSelector_Filter{
-				Filter: &qdrant.Filter{
-					Must: []*qdrant.Condition{
-						qdrant.NewMatch("file_path", filePath),
-					},
-				},
+				Filter: filter,
 			},
 		},
 	})
@@ -396,7 +393,7 @@ func (s *QdrantStorage) DeleteByFilePath(ctx context.Context, filePath string) (
 		s.parallelFTS.DeleteByFilePath(ctx, filePath)
 	}
 
-	return count, nil
+	return int(count), nil
 }
 
 func (s *QdrantStorage) List(ctx context.Context, opts ListOptions) ([]Chunk, error) {
@@ -667,13 +664,11 @@ func (s *QdrantStorage) memoryToPoint(entry MemoryEntry, embedding []float32) *q
 	}
 }
 
-// pointToMemory converts a Qdrant RetrievedPoint to a MemoryEntry
-func (s *QdrantStorage) pointToMemory(point *qdrant.RetrievedPoint) *MemoryEntry {
-	if point == nil || point.Payload == nil {
+// payloadToMemory converts a Qdrant payload to a MemoryEntry (shared logic)
+func payloadToMemory(payload map[string]*qdrant.Value) *MemoryEntry {
+	if payload == nil {
 		return nil
 	}
-
-	payload := point.Payload
 
 	// Verify this is a memory entry
 	if v, ok := payload["entry_type"]; !ok || v.GetStringValue() != "memory" {
@@ -716,53 +711,20 @@ func (s *QdrantStorage) pointToMemory(point *qdrant.RetrievedPoint) *MemoryEntry
 	return entry
 }
 
+// pointToMemory converts a Qdrant RetrievedPoint to a MemoryEntry
+func (s *QdrantStorage) pointToMemory(point *qdrant.RetrievedPoint) *MemoryEntry {
+	if point == nil {
+		return nil
+	}
+	return payloadToMemory(point.Payload)
+}
+
 // scoredPointToMemory converts a Qdrant ScoredPoint to a MemoryEntry
 func (s *QdrantStorage) scoredPointToMemory(point *qdrant.ScoredPoint) *MemoryEntry {
-	if point == nil || point.Payload == nil {
+	if point == nil {
 		return nil
 	}
-
-	payload := point.Payload
-
-	// Verify this is a memory entry
-	if v, ok := payload["entry_type"]; !ok || v.GetStringValue() != "memory" {
-		return nil
-	}
-
-	entry := &MemoryEntry{}
-
-	if v, ok := payload["memory_id"]; ok {
-		entry.ID = v.GetStringValue()
-	}
-	if v, ok := payload["question"]; ok {
-		entry.Question = v.GetStringValue()
-	}
-	if v, ok := payload["answer"]; ok {
-		entry.Answer = v.GetStringValue()
-	}
-	if v, ok := payload["tags"]; ok {
-		tagsStr := v.GetStringValue()
-		if tagsStr != "" {
-			entry.Tags = strings.Split(tagsStr, ",")
-		}
-	}
-	if v, ok := payload["source"]; ok {
-		entry.Source = v.GetStringValue()
-	}
-	if v, ok := payload["status"]; ok {
-		entry.Status = MemoryStatus(v.GetStringValue())
-	}
-	if v, ok := payload["occurrences"]; ok {
-		entry.Occurrences = int(v.GetIntegerValue())
-	}
-	if v, ok := payload["created_at"]; ok {
-		entry.CreatedAt = v.GetStringValue()
-	}
-	if v, ok := payload["updated_at"]; ok {
-		entry.UpdatedAt = v.GetStringValue()
-	}
-
-	return entry
+	return payloadToMemory(point.Payload)
 }
 
 // StoreMemory stores a memory entry with its embedding
@@ -839,9 +801,19 @@ func (s *QdrantStorage) SearchMemory(ctx context.Context, queryEmbedding []float
 
 	filter := &qdrant.Filter{Must: conditions}
 
-	limit := uint64(10)
+	requestedLimit := 10
 	if opts.TopK > 0 {
-		limit = uint64(opts.TopK)
+		requestedLimit = opts.TopK
+	}
+
+	// Over-request when tag filtering is enabled since post-filtering may reduce results
+	// Use 3x multiplier with a reasonable cap to avoid excessive requests
+	queryLimit := uint64(requestedLimit)
+	if len(opts.Tags) > 0 {
+		queryLimit = uint64(requestedLimit * 3)
+		if queryLimit > 1000 {
+			queryLimit = 1000
+		}
 	}
 
 	searchResult, err := s.client.Query(ctx, &qdrant.QueryPoints{
@@ -849,7 +821,7 @@ func (s *QdrantStorage) SearchMemory(ctx context.Context, queryEmbedding []float
 		Query:          qdrant.NewQuery(queryEmbedding...),
 		Filter:         filter,
 		WithPayload:    qdrant.NewWithPayload(true),
-		Limit:          qdrant.PtrOf(limit),
+		Limit:          qdrant.PtrOf(queryLimit),
 		ScoreThreshold: qdrant.PtrOf(opts.Threshold),
 	})
 	if err != nil {
@@ -886,6 +858,11 @@ func (s *QdrantStorage) SearchMemory(ctx context.Context, queryEmbedding []float
 			Entry: *entry,
 			Score: point.Score,
 		})
+
+		// Stop once we have enough results (after filtering)
+		if len(results) >= requestedLimit {
+			break
+		}
 	}
 
 	return results, nil
@@ -982,39 +959,36 @@ func (s *QdrantStorage) ListMemory(ctx context.Context, opts MemoryListOptions) 
 
 	filter := &qdrant.Filter{Must: conditions}
 
-	limit := uint32(10000)
-	if opts.Limit > 0 {
-		// Prevent uint32 overflow when calculating limit
-		sum := opts.Limit + opts.Offset
-		if sum > 0 && sum <= int(^uint32(0)) {
-			limit = uint32(sum)
+	// Calculate query limit with over-request for tag filtering
+	requestedLimit := opts.Limit
+	if requestedLimit <= 0 {
+		requestedLimit = 10000
+	}
+
+	queryLimit := uint32(requestedLimit + opts.Offset)
+	// Over-request when tag filtering is enabled since post-filtering may reduce results
+	if len(opts.Tags) > 0 {
+		overRequest := (requestedLimit + opts.Offset) * 3
+		if overRequest > 10000 {
+			overRequest = 10000
 		}
+		queryLimit = uint32(overRequest)
 	}
 
 	scrollResult, err := s.client.Scroll(ctx, &qdrant.ScrollPoints{
 		CollectionName: s.collectionName,
 		Filter:         filter,
 		WithPayload:    qdrant.NewWithPayload(true),
-		Limit:          qdrant.PtrOf(limit),
+		Limit:          qdrant.PtrOf(queryLimit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list memory: %w", err)
 	}
 
-	// Apply offset
-	start := opts.Offset
-	if start > len(scrollResult) {
-		start = len(scrollResult)
-	}
-
-	// Apply limit
-	end := len(scrollResult)
-	if opts.Limit > 0 && start+opts.Limit < end {
-		end = start + opts.Limit
-	}
-
-	entries := make([]MemoryEntry, 0, end-start)
-	for _, point := range scrollResult[start:end] {
+	// Collect entries with tag filtering, then apply offset/limit
+	// This ensures correct pagination even with post-filtering
+	filteredEntries := make([]MemoryEntry, 0)
+	for _, point := range scrollResult {
 		entry := s.pointToMemory(point)
 		if entry == nil {
 			continue
@@ -1039,10 +1013,27 @@ func (s *QdrantStorage) ListMemory(ctx context.Context, opts MemoryListOptions) 
 			}
 		}
 
-		entries = append(entries, *entry)
+		filteredEntries = append(filteredEntries, *entry)
+
+		// Stop early once we have enough to satisfy offset + limit
+		if len(filteredEntries) >= opts.Offset+requestedLimit {
+			break
+		}
 	}
 
-	return entries, nil
+	// Apply offset
+	start := opts.Offset
+	if start > len(filteredEntries) {
+		start = len(filteredEntries)
+	}
+
+	// Apply limit
+	end := len(filteredEntries)
+	if requestedLimit > 0 && start+requestedLimit < end {
+		end = start + requestedLimit
+	}
+
+	return filteredEntries[start:end], nil
 }
 
 // fileHashID generates a unique ID for file hash storage
@@ -1131,11 +1122,10 @@ func (s *QdrantStorage) chunkToPoint(chunk Chunk, embedding []float32) *qdrant.P
 	}
 }
 
-// pointToChunk converts a Qdrant point to a Chunk
-func (s *QdrantStorage) pointToChunk(point *qdrant.RetrievedPoint) Chunk {
+// payloadToChunk converts a Qdrant payload and point ID to a Chunk (shared logic)
+func payloadToChunk(payload map[string]*qdrant.Value, pointID *qdrant.PointId) Chunk {
 	chunk := Chunk{}
 
-	payload := point.Payload
 	if payload == nil {
 		return chunk
 	}
@@ -1143,11 +1133,11 @@ func (s *QdrantStorage) pointToChunk(point *qdrant.RetrievedPoint) Chunk {
 	// Get original chunk ID from payload (preferred over UUID)
 	if v, ok := payload["chunk_id"]; ok {
 		chunk.ID = v.GetStringValue()
-	} else if point.Id != nil {
+	} else if pointID != nil {
 		// Fallback to UUID if chunk_id not in payload
-		if str := point.Id.GetUuid(); str != "" {
+		if str := pointID.GetUuid(); str != "" {
 			chunk.ID = str
-		} else if num := point.Id.GetNum(); num != 0 {
+		} else if num := pointID.GetNum(); num != 0 {
 			chunk.ID = fmt.Sprintf("%d", num)
 		}
 	}
@@ -1181,54 +1171,14 @@ func (s *QdrantStorage) pointToChunk(point *qdrant.RetrievedPoint) Chunk {
 	return chunk
 }
 
+// pointToChunk converts a Qdrant point to a Chunk
+func (s *QdrantStorage) pointToChunk(point *qdrant.RetrievedPoint) Chunk {
+	return payloadToChunk(point.Payload, point.Id)
+}
+
 // scoredPointToChunk converts a ScoredPoint to a Chunk (for search results)
 func (s *QdrantStorage) scoredPointToChunk(point *qdrant.ScoredPoint) Chunk {
-	chunk := Chunk{}
-
-	payload := point.Payload
-	if payload == nil {
-		return chunk
-	}
-
-	// Get original chunk ID from payload (preferred over UUID)
-	if v, ok := payload["chunk_id"]; ok {
-		chunk.ID = v.GetStringValue()
-	} else if point.Id != nil {
-		// Fallback to UUID if chunk_id not in payload
-		if str := point.Id.GetUuid(); str != "" {
-			chunk.ID = str
-		} else if num := point.Id.GetNum(); num != 0 {
-			chunk.ID = fmt.Sprintf("%d", num)
-		}
-	}
-
-	if v, ok := payload["file_path"]; ok {
-		chunk.FilePath = v.GetStringValue()
-	}
-	if v, ok := payload["type"]; ok {
-		chunkType, _ := ParseChunkType(v.GetStringValue())
-		chunk.Type = chunkType
-	}
-	if v, ok := payload["name"]; ok {
-		chunk.Name = v.GetStringValue()
-	}
-	if v, ok := payload["signature"]; ok {
-		chunk.Signature = v.GetStringValue()
-	}
-	if v, ok := payload["content"]; ok {
-		chunk.Content = v.GetStringValue()
-	}
-	if v, ok := payload["start_line"]; ok {
-		chunk.StartLine = int(v.GetIntegerValue())
-	}
-	if v, ok := payload["end_line"]; ok {
-		chunk.EndLine = int(v.GetIntegerValue())
-	}
-	if v, ok := payload["language"]; ok {
-		chunk.Language = v.GetStringValue()
-	}
-
-	return chunk
+	return payloadToChunk(point.Payload, point.Id)
 }
 
 // NewQdrantStorageFromEnv creates a QdrantStorage from environment variables

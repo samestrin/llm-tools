@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 )
 
 // EmbedderInterface defines the interface for embedding generation
@@ -156,22 +157,46 @@ func (s *Searcher) SearchMultiple(ctx context.Context, queries []string, opts Se
 		return nil, err
 	}
 
-	// Collect all results
+	// Collect all results using parallel search
 	resultMap := make(map[string]SearchResult)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(embeddings))
 
 	for _, embedding := range embeddings {
-		results, err := s.storage.Search(ctx, embedding, opts)
+		wg.Add(1)
+		go func(emb []float32) {
+			defer wg.Done()
+
+			results, err := s.storage.Search(ctx, emb, opts)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			// Merge results under lock, keeping highest score for each chunk
+			mu.Lock()
+			for _, result := range results {
+				existing, ok := resultMap[result.Chunk.ID]
+				if !ok || result.Score > existing.Score {
+					resultMap[result.Chunk.ID] = result
+				}
+			}
+			mu.Unlock()
+		}(embedding)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Return first error if any
+	select {
+	case err := <-errChan:
 		if err != nil {
 			return nil, err
 		}
-
-		// Merge results, keeping highest score for each chunk
-		for _, result := range results {
-			existing, ok := resultMap[result.Chunk.ID]
-			if !ok || result.Score > existing.Score {
-				resultMap[result.Chunk.ID] = result
-			}
-		}
+	default:
+		// No errors
 	}
 
 	// Convert map to slice
