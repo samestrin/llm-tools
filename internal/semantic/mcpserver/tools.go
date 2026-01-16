@@ -34,6 +34,8 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"threshold": {
 						"type": "number",
+						"minimum": 0.0,
+						"maximum": 1.0,
 						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
 					},
 					"type": {
@@ -305,6 +307,8 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"threshold": {
 						"type": "number",
+						"minimum": 0.0,
+						"maximum": 1.0,
 						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
 					},
 					"tags": {

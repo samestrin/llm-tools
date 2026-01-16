@@ -118,6 +118,18 @@ func TestCalculateThresholds_EdgeCases(t *testing.T) {
 			if medium < low {
 				t.Errorf("medium (%v) should be >= low (%v)", medium, low)
 			}
+
+			// Edge cases should return fallback defaults (0.70, 0.40, 0.15)
+			const epsilon = 0.001
+			if math.Abs(float64(high-0.70)) > epsilon {
+				t.Errorf("high: got %v, want fallback 0.70", high)
+			}
+			if math.Abs(float64(medium-0.40)) > epsilon {
+				t.Errorf("medium: got %v, want fallback 0.40", medium)
+			}
+			if math.Abs(float64(low-0.15)) > epsilon {
+				t.Errorf("low: got %v, want fallback 0.15", low)
+			}
 		})
 	}
 }

@@ -189,8 +189,8 @@ func (o *OfflineEmbedder) keywordEmbedding(text string) []float32 {
 // hashString creates a simple hash of a string
 func hashString(s string) uint32 {
 	hash := uint32(2166136261) // FNV-1a offset basis
-	for _, b := range []byte(s) {
-		hash ^= uint32(b)
+	for i := 0; i < len(s); i++ {
+		hash ^= uint32(s[i])
 		hash *= 16777619 // FNV-1a prime
 	}
 	return hash
