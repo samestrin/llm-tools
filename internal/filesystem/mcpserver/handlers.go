@@ -113,47 +113,40 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 }
 
 // buildArgs builds CLI arguments for the given tool
+// NOTE: This MCP exposes 15 batch/specialized tools. Single-file operations
+// should use Claude's native Read, Write, and Edit tools for better performance.
 func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 	// Normalize parameter aliases before processing
 	args = normalizeArgs(args)
 
 	switch cmdName {
-	case "read_file":
-		return buildReadFileArgs(args), nil
+	// Batch Reading
 	case "read_multiple_files":
 		return buildReadMultipleFilesArgs(args), nil
-	case "write_file":
-		return buildWriteFileArgs(args), nil
-	case "large_write_file":
-		return buildLargeWriteFileArgs(args), nil
-	case "get_file_info":
-		return buildGetFileInfoArgs(args), nil
-	case "create_directory":
-		return buildCreateDirectoryArgs(args), nil
-	case "create_directories":
-		return buildCreateDirectoriesArgs(args), nil
+	case "extract_lines":
+		return buildExtractLinesArgs(args), nil
+
+	// Batch Editing
+	case "edit_blocks":
+		return buildEditBlocksArgs(args), nil
+	case "search_and_replace":
+		return buildSearchAndReplaceArgs(args), nil
+
+	// Directory Operations
 	case "list_directory":
 		return buildListDirectoryArgs(args), nil
 	case "get_directory_tree":
 		return buildGetDirectoryTreeArgs(args), nil
+	case "create_directories":
+		return buildCreateDirectoriesArgs(args), nil
+
+	// Search Operations
 	case "search_files":
 		return buildSearchFilesArgs(args), nil
 	case "search_code":
 		return buildSearchCodeArgs(args), nil
-	case "edit_block":
-		return buildEditBlockArgs(args), nil
-	case "edit_blocks":
-		return buildEditBlocksArgs(args), nil
-	case "edit_multiple_blocks":
-		return buildEditMultipleBlocksArgs(args), nil
-	case "safe_edit":
-		return buildSafeEditArgs(args), nil
-	case "edit_file":
-		return buildEditFileArgs(args), nil
-	case "search_and_replace":
-		return buildSearchAndReplaceArgs(args), nil
-	case "extract_lines":
-		return buildExtractLinesArgs(args), nil
+
+	// File Operations
 	case "copy_file":
 		return buildCopyFileArgs(args), nil
 	case "move_file":
@@ -162,42 +155,16 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildDeleteFileArgs(args), nil
 	case "batch_file_operations":
 		return buildBatchFileOperationsArgs(args), nil
-	case "get_disk_usage":
-		return buildGetDiskUsageArgs(args), nil
-	case "find_large_files":
-		return buildFindLargeFilesArgs(args), nil
+
+	// Archive Operations
 	case "compress_files":
 		return buildCompressFilesArgs(args), nil
 	case "extract_archive":
 		return buildExtractArchiveArgs(args), nil
-	case "sync_directories":
-		return buildSyncDirectoriesArgs(args), nil
-	case "list_allowed_directories":
-		return []string{"list-allowed-directories"}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
-}
-
-func buildReadFileArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"read-file"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	if offset, ok := getInt(args, "start_offset"); ok {
-		cmdArgs = append(cmdArgs, "--offset", strconv.Itoa(offset))
-	}
-	// max_size is the size limit (default 70000, 0 = no limit)
-	if maxSize, ok := getInt(args, "max_size"); ok {
-		cmdArgs = append(cmdArgs, "--max-size", strconv.Itoa(maxSize))
-	}
-	if lineStart, ok := getInt(args, "line_start"); ok {
-		cmdArgs = append(cmdArgs, "--line-start", strconv.Itoa(lineStart))
-	}
-	if lineCount, ok := getInt(args, "line_count"); ok {
-		cmdArgs = append(cmdArgs, "--line-count", strconv.Itoa(lineCount))
-	}
-	return cmdArgs
 }
 
 func buildReadMultipleFilesArgs(args map[string]interface{}) []string {
@@ -216,67 +183,62 @@ func buildReadMultipleFilesArgs(args map[string]interface{}) []string {
 	return cmdArgs
 }
 
-func buildWriteFileArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"write-file"}
+func buildExtractLinesArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"extract-lines"}
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
-	if content, ok := args["content"].(string); ok {
-		cmdArgs = append(cmdArgs, "--content", content)
+	if start, ok := getInt(args, "start"); ok {
+		cmdArgs = append(cmdArgs, "--start", strconv.Itoa(start))
 	}
-	if getBool(args, "append") {
-		cmdArgs = append(cmdArgs, "--append")
+	if end, ok := getInt(args, "end"); ok {
+		cmdArgs = append(cmdArgs, "--end", strconv.Itoa(end))
 	}
-	return cmdArgs
-}
-
-func buildLargeWriteFileArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"large-write-file"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	if content, ok := args["content"].(string); ok {
-		cmdArgs = append(cmdArgs, "--content", content)
-	}
-	if !getBoolDefault(args, "backup", true) {
-		cmdArgs = append(cmdArgs, "--backup=false")
-	}
-	if !getBoolDefault(args, "verify", true) {
-		cmdArgs = append(cmdArgs, "--verify=false")
-	}
-	return cmdArgs
-}
-
-func buildGetFileInfoArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"get-file-info"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	return cmdArgs
-}
-
-func buildCreateDirectoryArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"create-directory"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	if !getBoolDefault(args, "recursive", true) {
-		cmdArgs = append(cmdArgs, "--recursive=false")
-	}
-	return cmdArgs
-}
-
-func buildCreateDirectoriesArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"create-directories"}
-	if paths, ok := args["paths"].([]interface{}); ok {
-		for _, p := range paths {
-			if s, ok := p.(string); ok {
-				cmdArgs = append(cmdArgs, "--paths", s)
+	if lines, ok := args["lines"].([]interface{}); ok {
+		for _, l := range lines {
+			if n, ok := l.(float64); ok {
+				cmdArgs = append(cmdArgs, "--lines", strconv.Itoa(int(n)))
 			}
 		}
 	}
-	if !getBoolDefault(args, "recursive", true) {
-		cmdArgs = append(cmdArgs, "--recursive=false")
+	return cmdArgs
+}
+
+func buildEditBlocksArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"edit-blocks"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	if edits, ok := args["edits"].([]interface{}); ok {
+		editsJSON, _ := json.Marshal(edits)
+		cmdArgs = append(cmdArgs, "--edits", string(editsJSON))
+	}
+	return cmdArgs
+}
+
+func buildSearchAndReplaceArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"search-and-replace"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	if pattern, ok := args["pattern"].(string); ok {
+		cmdArgs = append(cmdArgs, "--pattern", pattern)
+	}
+	if replacement, ok := args["replacement"].(string); ok {
+		cmdArgs = append(cmdArgs, "--replacement", replacement)
+	}
+	if getBool(args, "regex") {
+		cmdArgs = append(cmdArgs, "--regex")
+	}
+	if getBool(args, "dry_run") {
+		cmdArgs = append(cmdArgs, "--dry-run")
+	}
+	if fileTypes, ok := args["file_types"].([]interface{}); ok {
+		for _, ft := range fileTypes {
+			if s, ok := ft.(string); ok {
+				cmdArgs = append(cmdArgs, "--file-types", s)
+			}
+		}
 	}
 	return cmdArgs
 }
@@ -323,6 +285,21 @@ func buildGetDirectoryTreeArgs(args map[string]interface{}) []string {
 	}
 	if pattern, ok := args["pattern"].(string); ok {
 		cmdArgs = append(cmdArgs, "--pattern", pattern)
+	}
+	return cmdArgs
+}
+
+func buildCreateDirectoriesArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"create-directories"}
+	if paths, ok := args["paths"].([]interface{}); ok {
+		for _, p := range paths {
+			if s, ok := p.(string); ok {
+				cmdArgs = append(cmdArgs, "--paths", s)
+			}
+		}
+	}
+	if !getBoolDefault(args, "recursive", true) {
+		cmdArgs = append(cmdArgs, "--recursive=false")
 	}
 	return cmdArgs
 }
@@ -380,132 +357,6 @@ func buildSearchCodeArgs(args map[string]interface{}) []string {
 	return cmdArgs
 }
 
-func buildEditBlockArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"edit-block"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	if old, ok := args["old_string"].(string); ok {
-		cmdArgs = append(cmdArgs, "--old", old)
-	}
-	if new, ok := args["new_string"].(string); ok {
-		cmdArgs = append(cmdArgs, "--new", new)
-	}
-	return cmdArgs
-}
-
-func buildEditBlocksArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"edit-blocks"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	if edits, ok := args["edits"].([]interface{}); ok {
-		editsJSON, _ := json.Marshal(edits)
-		cmdArgs = append(cmdArgs, "--edits", string(editsJSON))
-	}
-	return cmdArgs
-}
-
-func buildEditMultipleBlocksArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"edit-multiple-blocks"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	if edits, ok := args["edits"].([]interface{}); ok {
-		editsJSON, _ := json.Marshal(edits)
-		cmdArgs = append(cmdArgs, "--edits", string(editsJSON))
-	}
-	if !getBoolDefault(args, "backup", true) {
-		cmdArgs = append(cmdArgs, "--backup=false")
-	}
-	return cmdArgs
-}
-
-func buildSafeEditArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"safe-edit"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	if old, ok := args["old_string"].(string); ok {
-		cmdArgs = append(cmdArgs, "--old", old)
-	}
-	if new, ok := args["new_string"].(string); ok {
-		cmdArgs = append(cmdArgs, "--new", new)
-	}
-	if !getBoolDefault(args, "backup", true) {
-		cmdArgs = append(cmdArgs, "--backup=false")
-	}
-	if getBool(args, "dry_run") {
-		cmdArgs = append(cmdArgs, "--dry-run")
-	}
-	return cmdArgs
-}
-
-func buildEditFileArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"edit-file"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	if op, ok := args["operation"].(string); ok {
-		cmdArgs = append(cmdArgs, "--operation", op)
-	}
-	if line, ok := getInt(args, "line"); ok {
-		cmdArgs = append(cmdArgs, "--line", strconv.Itoa(line))
-	}
-	if content, ok := args["content"].(string); ok {
-		cmdArgs = append(cmdArgs, "--content", content)
-	}
-	return cmdArgs
-}
-
-func buildSearchAndReplaceArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"search-and-replace"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	if pattern, ok := args["pattern"].(string); ok {
-		cmdArgs = append(cmdArgs, "--pattern", pattern)
-	}
-	if replacement, ok := args["replacement"].(string); ok {
-		cmdArgs = append(cmdArgs, "--replacement", replacement)
-	}
-	if getBool(args, "regex") {
-		cmdArgs = append(cmdArgs, "--regex")
-	}
-	if getBool(args, "dry_run") {
-		cmdArgs = append(cmdArgs, "--dry-run")
-	}
-	if fileTypes, ok := args["file_types"].([]interface{}); ok {
-		for _, ft := range fileTypes {
-			if s, ok := ft.(string); ok {
-				cmdArgs = append(cmdArgs, "--file-types", s)
-			}
-		}
-	}
-	return cmdArgs
-}
-
-func buildExtractLinesArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"extract-lines"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	if start, ok := getInt(args, "start"); ok {
-		cmdArgs = append(cmdArgs, "--start", strconv.Itoa(start))
-	}
-	if end, ok := getInt(args, "end"); ok {
-		cmdArgs = append(cmdArgs, "--end", strconv.Itoa(end))
-	}
-	if lines, ok := args["lines"].([]interface{}); ok {
-		for _, l := range lines {
-			if n, ok := l.(float64); ok {
-				cmdArgs = append(cmdArgs, "--lines", strconv.Itoa(int(n)))
-			}
-		}
-	}
-	return cmdArgs
-}
-
 func buildCopyFileArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"copy-file"}
 	if source, ok := args["source"].(string); ok {
@@ -548,28 +399,6 @@ func buildBatchFileOperationsArgs(args map[string]interface{}) []string {
 	return cmdArgs
 }
 
-func buildGetDiskUsageArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"get-disk-usage"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	return cmdArgs
-}
-
-func buildFindLargeFilesArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"find-large-files"}
-	if path, ok := args["path"].(string); ok {
-		cmdArgs = append(cmdArgs, "--path", path)
-	}
-	if minSize, ok := args["min_size"].(string); ok {
-		cmdArgs = append(cmdArgs, "--min-size", minSize)
-	}
-	if maxResults, ok := getInt(args, "max_results"); ok {
-		cmdArgs = append(cmdArgs, "--limit", strconv.Itoa(maxResults))
-	}
-	return cmdArgs
-}
-
 func buildCompressFilesArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"compress-files"}
 	if paths, ok := args["paths"].([]interface{}); ok {
@@ -592,17 +421,6 @@ func buildExtractArchiveArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"extract-archive"}
 	if archive, ok := args["archive"].(string); ok {
 		cmdArgs = append(cmdArgs, "--archive", archive)
-	}
-	if dest, ok := args["destination"].(string); ok {
-		cmdArgs = append(cmdArgs, "--dest", dest)
-	}
-	return cmdArgs
-}
-
-func buildSyncDirectoriesArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"sync-directories"}
-	if source, ok := args["source"].(string); ok {
-		cmdArgs = append(cmdArgs, "--source", source)
 	}
 	if dest, ok := args["destination"].(string); ok {
 		cmdArgs = append(cmdArgs, "--dest", dest)

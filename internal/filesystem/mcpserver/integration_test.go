@@ -16,6 +16,12 @@ func TestMCPToolDefinitions(t *testing.T) {
 		t.Fatal("Expected tool definitions, got none")
 	}
 
+	// Verify we have exactly 15 MCP tools (batch/specialized operations only)
+	expectedCount := 15
+	if len(tools) != expectedCount {
+		t.Errorf("Expected %d tools, got %d", expectedCount, len(tools))
+	}
+
 	for _, tool := range tools {
 		// Verify tool has required fields
 		if tool.Name == "" {
@@ -75,22 +81,6 @@ func TestBuildArgsListDirectory(t *testing.T) {
 	}
 }
 
-// TestBuildArgsGetFileInfo verifies get_file_info args are built correctly
-func TestBuildArgsGetFileInfo(t *testing.T) {
-	args := map[string]interface{}{
-		"path": "/tmp/test.txt",
-	}
-
-	cmdArgs, err := buildArgs("get_file_info", args)
-	if err != nil {
-		t.Fatalf("buildArgs failed: %v", err)
-	}
-
-	if cmdArgs[0] != "get-file-info" {
-		t.Errorf("Expected 'get-file-info', got %s", cmdArgs[0])
-	}
-}
-
 // TestBuildArgsSearchCode verifies search_code args are built correctly
 func TestBuildArgsSearchCode(t *testing.T) {
 	args := map[string]interface{}{
@@ -119,36 +109,6 @@ func TestBuildArgsSearchCode(t *testing.T) {
 	}
 	if !ignoreCaseFound {
 		t.Error("Expected --ignore-case in args")
-	}
-}
-
-// TestBuildArgsFindLargeFiles verifies find_large_files args with string min_size
-func TestBuildArgsFindLargeFiles(t *testing.T) {
-	args := map[string]interface{}{
-		"path":        "/tmp",
-		"min_size":    "100MB",
-		"max_results": float64(10),
-	}
-
-	cmdArgs, err := buildArgs("find_large_files", args)
-	if err != nil {
-		t.Fatalf("buildArgs failed: %v", err)
-	}
-
-	if cmdArgs[0] != "find-large-files" {
-		t.Errorf("Expected 'find-large-files', got %s", cmdArgs[0])
-	}
-
-	// Verify min-size is string
-	minSizeFound := false
-	for i, arg := range cmdArgs {
-		if arg == "--min-size" && i+1 < len(cmdArgs) && cmdArgs[i+1] == "100MB" {
-			minSizeFound = true
-			break
-		}
-	}
-	if !minSizeFound {
-		t.Error("Expected --min-size 100MB in args")
 	}
 }
 
@@ -327,13 +287,14 @@ func TestExecuteHandlerWithMockBinary(t *testing.T) {
 	originalBinary := BinaryPath
 	defer func() { BinaryPath = originalBinary }()
 
-	// Set binary to a simple echo-like command for testing
-	// This just tests that the handler calls buildArgs correctly
+	// Test with extract_lines (a remaining MCP tool)
 	args := map[string]interface{}{
-		"path": testFile,
+		"path":  testFile,
+		"start": float64(1),
+		"end":   float64(10),
 	}
 
-	cmdArgs, err := buildArgs("get_file_info", args)
+	cmdArgs, err := buildArgs("extract_lines", args)
 	if err != nil {
 		t.Fatalf("buildArgs failed: %v", err)
 	}
@@ -420,30 +381,18 @@ func TestAllToolsHaveBuilders(t *testing.T) {
 
 		// Add minimal required args based on tool
 		switch cmdName {
-		case "read_file", "get_file_info", "create_directory", "list_directory",
-			"get_directory_tree", "delete_file", "get_disk_usage", "find_large_files":
+		case "list_directory", "get_directory_tree", "delete_file":
 			args["path"] = "/tmp"
 		case "create_directories":
 			args["paths"] = []interface{}{"/tmp/dir1", "/tmp/dir2"}
 		case "read_multiple_files":
 			args["paths"] = []interface{}{"/tmp/a.txt"}
-		case "write_file", "large_write_file":
-			args["path"] = "/tmp"
-			args["content"] = "test"
 		case "search_files", "search_code":
 			args["path"] = "/tmp"
 			args["pattern"] = "test"
-		case "edit_block", "safe_edit":
-			args["path"] = "/tmp"
-			args["old_string"] = "old"
-			args["new_string"] = "new"
 		case "edit_blocks":
 			args["path"] = "/tmp"
 			args["edits"] = []interface{}{}
-		case "edit_file":
-			args["path"] = "/tmp"
-			args["operation"] = "insert"
-			args["line"] = float64(1)
 		case "search_and_replace":
 			args["path"] = "/tmp"
 			args["pattern"] = "old"
@@ -461,11 +410,6 @@ func TestAllToolsHaveBuilders(t *testing.T) {
 		case "extract_archive":
 			args["archive"] = "/tmp/a.zip"
 			args["destination"] = "/tmp"
-		case "sync_directories":
-			args["source"] = "/tmp/a"
-			args["destination"] = "/tmp/b"
-		case "list_allowed_directories":
-			// No args needed
 		}
 
 		_, err := buildArgs(cmdName, args)
@@ -489,8 +433,7 @@ func TestToolSchemaRequiredFields(t *testing.T) {
 		// Tools that require path should have it in required array
 		cmdName := strings.TrimPrefix(tool.Name, ToolPrefix)
 		switch cmdName {
-		case "read_file", "get_file_info", "list_directory", "get_directory_tree",
-			"delete_file", "get_disk_usage", "find_large_files":
+		case "list_directory", "get_directory_tree", "delete_file":
 			required, ok := schema["required"].([]interface{})
 			if !ok {
 				// Required may not be present for optional-only tools
@@ -507,6 +450,76 @@ func TestToolSchemaRequiredFields(t *testing.T) {
 				// Some tools may have defaults for path
 				continue
 			}
+		}
+	}
+}
+
+// TestRemovedToolsAreGone verifies that deprecated tools are no longer exposed
+func TestRemovedToolsAreGone(t *testing.T) {
+	tools := GetToolDefinitions()
+
+	// These tools should NOT be in the MCP server (use Claude's native tools instead)
+	deprecatedTools := []string{
+		"read_file",
+		"write_file",
+		"large_write_file",
+		"edit_block",
+		"edit_file",
+		"edit_multiple_blocks",
+		"safe_edit",
+		"create_directory",
+		"get_file_info",
+		"get_disk_usage",
+		"find_large_files",
+		"sync_directories",
+		"list_allowed_directories",
+	}
+
+	toolNames := make(map[string]bool)
+	for _, tool := range tools {
+		cmdName := strings.TrimPrefix(tool.Name, ToolPrefix)
+		toolNames[cmdName] = true
+	}
+
+	for _, deprecated := range deprecatedTools {
+		if toolNames[deprecated] {
+			t.Errorf("Deprecated tool %s should have been removed from MCP server", deprecated)
+		}
+	}
+}
+
+// TestExpectedToolsArePresent verifies all expected batch/specialized tools exist
+func TestExpectedToolsArePresent(t *testing.T) {
+	tools := GetToolDefinitions()
+
+	// These are the 15 batch/specialized tools that should remain
+	expectedTools := []string{
+		"read_multiple_files",
+		"extract_lines",
+		"edit_blocks",
+		"search_and_replace",
+		"list_directory",
+		"get_directory_tree",
+		"create_directories",
+		"search_files",
+		"search_code",
+		"copy_file",
+		"move_file",
+		"delete_file",
+		"batch_file_operations",
+		"compress_files",
+		"extract_archive",
+	}
+
+	toolNames := make(map[string]bool)
+	for _, tool := range tools {
+		cmdName := strings.TrimPrefix(tool.Name, ToolPrefix)
+		toolNames[cmdName] = true
+	}
+
+	for _, expected := range expectedTools {
+		if !toolNames[expected] {
+			t.Errorf("Expected tool %s should be present in MCP server", expected)
 		}
 	}
 }
