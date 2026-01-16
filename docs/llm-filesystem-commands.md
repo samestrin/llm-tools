@@ -80,14 +80,36 @@ go install github.com/samestrin/llm-tools/cmd/llm-filesystem@latest
 
 ## MCP Integration
 
-The MCP wrapper (`llm-filesystem-mcp`) exposes all 26 commands as MCP tools with the `llm_filesystem_` prefix:
+The MCP wrapper (`llm-filesystem-mcp`) exposes **15 batch/specialized tools** with the `llm_filesystem_` prefix. Single-file operations should use Claude's native Read, Write, and Edit tools for better performance.
 
-- `llm_filesystem_read_file`
-- `llm_filesystem_write_file`
-- `llm_filesystem_list_directory`
-- `llm_filesystem_get_directory_tree`
-- `llm_filesystem_search_code`
-- etc.
+**Batch Reading:**
+- `llm_filesystem_read_multiple_files` - Read multiple files simultaneously
+- `llm_filesystem_extract_lines` - Extract specific line ranges
+
+**Batch Editing:**
+- `llm_filesystem_edit_blocks` - Multiple replacements in one file
+- `llm_filesystem_search_and_replace` - Regex replace across files
+
+**Directory Operations:**
+- `llm_filesystem_list_directory` - List with filtering/pagination
+- `llm_filesystem_get_directory_tree` - Get directory tree structure
+- `llm_filesystem_create_directories` - Create multiple directories
+
+**Search Operations:**
+- `llm_filesystem_search_files` - Search files by name pattern
+- `llm_filesystem_search_code` - Search patterns in file contents
+
+**File Management:**
+- `llm_filesystem_copy_file` - Copy file or directory
+- `llm_filesystem_move_file` - Move or rename file/directory
+- `llm_filesystem_delete_file` - Delete file or directory
+- `llm_filesystem_batch_file_operations` - Batch copy/move/delete
+
+**Archive Operations:**
+- `llm_filesystem_compress_files` - Compress files into archive
+- `llm_filesystem_extract_archive` - Extract an archive
+
+**Note:** The CLI still exposes all 26 commands. The MCP reduction removes tools that duplicate Claude's native capabilities.
 
 See [MCP Setup Guide](MCP_SETUP.md) for integration instructions.
 
