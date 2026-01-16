@@ -140,6 +140,14 @@ func (sr SearchResult) MinimalJSON() string {
 		"l": sr.Chunk.StartLine,
 		"s": sr.Score,
 	}
+	// Include relevance if set
+	if sr.Relevance != "" {
+		minimal["r"] = sr.Relevance
+	}
+	// Include preview if set
+	if sr.Preview != "" {
+		minimal["pr"] = sr.Preview
+	}
 	data, _ := json.Marshal(minimal)
 	return string(data)
 }

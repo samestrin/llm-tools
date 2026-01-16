@@ -171,6 +171,66 @@ func TestSearchResult_MinimalJSON(t *testing.T) {
 	}
 }
 
+func TestSearchResult_MinimalJSON_WithRelevanceAndPreview(t *testing.T) {
+	result := SearchResult{
+		Chunk: Chunk{
+			FilePath:  "/path/to/file.go",
+			Name:      "TestFunction",
+			StartLine: 10,
+		},
+		Score:     0.92,
+		Relevance: "high",
+		Preview:   "func TestFunction()",
+	}
+
+	minimal := result.MinimalJSON()
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(minimal), &parsed); err != nil {
+		t.Fatalf("MinimalJSON() produced invalid JSON: %v", err)
+	}
+
+	// Check relevance field
+	if r, ok := parsed["r"]; !ok {
+		t.Error("MinimalJSON() missing 'r' (relevance) when Relevance is set")
+	} else if r != "high" {
+		t.Errorf("MinimalJSON() 'r' = %v, want 'high'", r)
+	}
+
+	// Check preview field
+	if pr, ok := parsed["pr"]; !ok {
+		t.Error("MinimalJSON() missing 'pr' (preview) when Preview is set")
+	} else if pr != "func TestFunction()" {
+		t.Errorf("MinimalJSON() 'pr' = %v, want 'func TestFunction()'", pr)
+	}
+}
+
+func TestSearchResult_MinimalJSON_OmitsEmptyRelevanceAndPreview(t *testing.T) {
+	result := SearchResult{
+		Chunk: Chunk{
+			FilePath:  "/path/to/file.go",
+			Name:      "TestFunction",
+			StartLine: 10,
+		},
+		Score:     0.92,
+		Relevance: "", // Empty
+		Preview:   "", // Empty
+	}
+
+	minimal := result.MinimalJSON()
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(minimal), &parsed); err != nil {
+		t.Fatalf("MinimalJSON() produced invalid JSON: %v", err)
+	}
+
+	// Should NOT contain relevance or preview when empty
+	if _, ok := parsed["r"]; ok {
+		t.Error("MinimalJSON() should not include 'r' when Relevance is empty")
+	}
+	if _, ok := parsed["pr"]; ok {
+		t.Error("MinimalJSON() should not include 'pr' when Preview is empty")
+	}
+}
+
 func TestChunkType_Parse(t *testing.T) {
 	tests := []struct {
 		input string
