@@ -84,6 +84,7 @@ type Chunk struct {
 	StartLine int       `json:"start_line"`
 	EndLine   int       `json:"end_line"`
 	Language  string    `json:"language"`
+	Domain    string    `json:"domain,omitempty"`     // "code" or "docs" (for future multi-domain search)
 	FileMtime int64     `json:"file_mtime,omitempty"` // Unix timestamp of file modification time
 }
 

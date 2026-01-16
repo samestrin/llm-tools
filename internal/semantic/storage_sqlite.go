@@ -76,6 +76,7 @@ func (s *SQLiteStorage) initSchema() error {
 		start_line INTEGER,
 		end_line INTEGER,
 		language TEXT,
+		domain TEXT DEFAULT 'code',
 		embedding BLOB,
 		file_mtime INTEGER,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -125,6 +126,11 @@ func (s *SQLiteStorage) initSchema() error {
 		return err
 	}
 
+	// Migrate existing databases: add domain column if missing
+	if err := s.migrateDomainColumn(); err != nil {
+		return err
+	}
+
 	// Initialize FTS5 for lexical search
 	if err := s.initFTS5Schema(); err != nil {
 		return err
@@ -161,6 +167,29 @@ func (s *SQLiteStorage) migrateMtimeColumn() error {
 	return nil
 }
 
+// migrateDomainColumn adds domain column to existing databases if missing.
+func (s *SQLiteStorage) migrateDomainColumn() error {
+	// Check if column exists
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('chunks')
+		WHERE name = 'domain'
+	`).Scan(&count)
+	if err != nil {
+		return err
+	}
+
+	if count == 0 {
+		// Column doesn't exist, add it with default 'code' for existing rows
+		_, err = s.db.Exec(`ALTER TABLE chunks ADD COLUMN domain TEXT DEFAULT 'code'`)
+		if err != nil {
+			return fmt.Errorf("failed to add domain column: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func (s *SQLiteStorage) Create(ctx context.Context, chunk Chunk, embedding []float32) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -174,11 +203,17 @@ func (s *SQLiteStorage) Create(ctx context.Context, chunk Chunk, embedding []flo
 		return fmt.Errorf("failed to encode embedding: %w", err)
 	}
 
+	// Default domain to "code" if not set
+	domain := chunk.Domain
+	if domain == "" {
+		domain = "code"
+	}
+
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, embedding, file_mtime)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, domain, embedding, file_mtime)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, chunk.ID, chunk.FilePath, chunk.Type.String(), chunk.Name, chunk.Signature,
-		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language, embeddingBytes,
+		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language, domain, embeddingBytes,
 		nullableInt64(chunk.FileMtime))
 
 	if err != nil {
@@ -207,8 +242,8 @@ func (s *SQLiteStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbed
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, embedding, file_mtime)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, domain, embedding, file_mtime)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -221,10 +256,16 @@ func (s *SQLiteStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbed
 			return fmt.Errorf("failed to encode embedding: %w", err)
 		}
 
+		// Default domain to "code" if not set
+		domain := cwe.Chunk.Domain
+		if domain == "" {
+			domain = "code"
+		}
+
 		_, err = stmt.ExecContext(ctx,
 			cwe.Chunk.ID, cwe.Chunk.FilePath, cwe.Chunk.Type.String(), cwe.Chunk.Name,
 			cwe.Chunk.Signature, cwe.Chunk.Content, cwe.Chunk.StartLine, cwe.Chunk.EndLine,
-			cwe.Chunk.Language, embeddingBytes, nullableInt64(cwe.Chunk.FileMtime))
+			cwe.Chunk.Language, domain, embeddingBytes, nullableInt64(cwe.Chunk.FileMtime))
 		if err != nil {
 			return fmt.Errorf("failed to insert chunk: %w", err)
 		}
@@ -357,7 +398,7 @@ func (s *SQLiteStorage) List(ctx context.Context, opts ListOptions) ([]Chunk, er
 		return nil, ErrStorageClosed
 	}
 
-	query := `SELECT id, file_path, type, name, signature, content, start_line, end_line, language FROM chunks WHERE 1=1`
+	query := `SELECT id, file_path, type, name, signature, content, start_line, end_line, language, COALESCE(domain, 'code') FROM chunks WHERE 1=1`
 	args := []interface{}{}
 
 	if opts.FilePath != "" {
@@ -394,7 +435,7 @@ func (s *SQLiteStorage) List(ctx context.Context, opts ListOptions) ([]Chunk, er
 		var typeStr string
 
 		if err := rows.Scan(&chunk.ID, &chunk.FilePath, &typeStr, &chunk.Name,
-			&chunk.Signature, &chunk.Content, &chunk.StartLine, &chunk.EndLine, &chunk.Language); err != nil {
+			&chunk.Signature, &chunk.Content, &chunk.StartLine, &chunk.EndLine, &chunk.Language, &chunk.Domain); err != nil {
 			return nil, fmt.Errorf("failed to scan chunk: %w", err)
 		}
 
@@ -416,7 +457,7 @@ func (s *SQLiteStorage) Search(ctx context.Context, queryEmbedding []float32, op
 
 	// For now, we do brute-force cosine similarity search
 	// In production, consider using sqlite-vss or FAISS
-	query := `SELECT id, file_path, type, name, signature, content, start_line, end_line, language, embedding, file_mtime FROM chunks WHERE 1=1`
+	query := `SELECT id, file_path, type, name, signature, content, start_line, end_line, language, COALESCE(domain, 'code'), embedding, file_mtime FROM chunks WHERE 1=1`
 	args := []interface{}{}
 
 	if opts.Type != "" {
@@ -444,7 +485,7 @@ func (s *SQLiteStorage) Search(ctx context.Context, queryEmbedding []float32, op
 
 		if err := rows.Scan(&chunk.ID, &chunk.FilePath, &typeStr, &chunk.Name,
 			&chunk.Signature, &chunk.Content, &chunk.StartLine, &chunk.EndLine,
-			&chunk.Language, &embeddingBytes, &fileMtime); err != nil {
+			&chunk.Language, &chunk.Domain, &embeddingBytes, &fileMtime); err != nil {
 			return nil, fmt.Errorf("failed to scan chunk: %w", err)
 		}
 

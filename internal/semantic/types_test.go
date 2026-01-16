@@ -323,3 +323,40 @@ func TestSearchResult_PreviewField(t *testing.T) {
 		t.Errorf("SearchResult.Preview = %q, want 'func Test() {}'", result.Preview)
 	}
 }
+
+func TestChunk_DomainField(t *testing.T) {
+	chunk := Chunk{
+		ID:       "test-1",
+		FilePath: "/test/file.go",
+		Domain:   "code",
+	}
+
+	if chunk.Domain != "code" {
+		t.Errorf("Chunk.Domain = %q, want 'code'", chunk.Domain)
+	}
+
+	// Test JSON serialization includes domain
+	data, err := json.Marshal(chunk)
+	if err != nil {
+		t.Fatalf("Failed to marshal Chunk: %v", err)
+	}
+	if !strings.Contains(string(data), `"domain":"code"`) {
+		t.Errorf("JSON should contain domain field, got: %s", string(data))
+	}
+}
+
+func TestChunk_DomainOmitEmpty(t *testing.T) {
+	chunk := Chunk{
+		ID:       "test-2",
+		FilePath: "/test/file.go",
+		// Domain not set
+	}
+
+	data, err := json.Marshal(chunk)
+	if err != nil {
+		t.Fatalf("Failed to marshal Chunk: %v", err)
+	}
+	if strings.Contains(string(data), "domain") {
+		t.Errorf("JSON should omit empty domain field, got: %s", string(data))
+	}
+}

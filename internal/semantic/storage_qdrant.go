@@ -1105,6 +1105,12 @@ func (s *QdrantStorage) SetFileHash(ctx context.Context, filePath string, hash s
 
 // chunkToPoint converts a Chunk to a Qdrant point
 func (s *QdrantStorage) chunkToPoint(chunk Chunk, embedding []float32) *qdrant.PointStruct {
+	// Default domain to "code" if not set
+	domain := chunk.Domain
+	if domain == "" {
+		domain = "code"
+	}
+
 	return &qdrant.PointStruct{
 		Id:      qdrant.NewID(stringToUUID(chunk.ID)),
 		Vectors: qdrant.NewVectors(embedding...),
@@ -1118,6 +1124,7 @@ func (s *QdrantStorage) chunkToPoint(chunk Chunk, embedding []float32) *qdrant.P
 			"start_line": qdrant.NewValueInt(int64(chunk.StartLine)),
 			"end_line":   qdrant.NewValueInt(int64(chunk.EndLine)),
 			"language":   qdrant.NewValueString(chunk.Language),
+			"domain":     qdrant.NewValueString(domain),
 		},
 	}
 }
@@ -1166,6 +1173,13 @@ func payloadToChunk(payload map[string]*qdrant.Value, pointID *qdrant.PointId) C
 	}
 	if v, ok := payload["language"]; ok {
 		chunk.Language = v.GetStringValue()
+	}
+	if v, ok := payload["domain"]; ok {
+		chunk.Domain = v.GetStringValue()
+	}
+	// Default domain to "code" if not present (backward compatibility)
+	if chunk.Domain == "" {
+		chunk.Domain = "code"
 	}
 
 	return chunk
