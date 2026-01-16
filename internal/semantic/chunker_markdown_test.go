@@ -291,6 +291,137 @@ func TestMarkdownChunker_FencedCodeBlockPreservation(t *testing.T) {
 	}
 }
 
+func TestMarkdownChunker_YAMLFrontmatter(t *testing.T) {
+	chunker := NewMarkdownChunker(4000)
+
+	tests := []struct {
+		name         string
+		content      string
+		wantChunks   int
+		wantNames    []string
+		wantContains map[int][]string // chunk index -> content that should be there
+	}{
+		{
+			name: "basic frontmatter",
+			content: `---
+title: My Document
+date: 2026-01-16
+---
+
+# Introduction
+
+Content here.`,
+			wantChunks: 2,
+			wantNames:  []string{"test:frontmatter", "test > Introduction"},
+			wantContains: map[int][]string{
+				0: {"title: My Document", "date: 2026-01-16"},
+				1: {"# Introduction", "Content here"},
+			},
+		},
+		{
+			name: "frontmatter only",
+			content: `---
+key: value
+---`,
+			wantChunks: 1,
+			wantNames:  []string{"test:frontmatter"},
+			wantContains: map[int][]string{
+				0: {"key: value"},
+			},
+		},
+		{
+			name: "no frontmatter",
+			content: `# Header
+
+Content without frontmatter.`,
+			wantChunks: 1,
+			wantNames:  []string{"test > Header"},
+		},
+		{
+			name: "frontmatter-like content not at start",
+			content: `# Header
+
+---
+not: frontmatter
+---
+
+More content.`,
+			wantChunks: 1, // The --- in middle is NOT frontmatter
+			wantNames:  []string{"test > Header"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunks, err := chunker.Chunk("test.md", []byte(tt.content))
+			if err != nil {
+				t.Fatalf("Chunk() error = %v", err)
+			}
+
+			if len(chunks) != tt.wantChunks {
+				t.Errorf("got %d chunks, want %d", len(chunks), tt.wantChunks)
+				for i, c := range chunks {
+					t.Logf("  chunk[%d]: name=%q", i, c.Name)
+				}
+			}
+
+			for i, wantName := range tt.wantNames {
+				if i >= len(chunks) {
+					continue
+				}
+				if chunks[i].Name != wantName {
+					t.Errorf("chunk[%d].Name = %q, want %q", i, chunks[i].Name, wantName)
+				}
+			}
+
+			for idx, contents := range tt.wantContains {
+				if idx >= len(chunks) {
+					continue
+				}
+				for _, want := range contents {
+					if !strings.Contains(chunks[idx].Content, want) {
+						t.Errorf("chunk[%d] should contain %q", idx, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestMarkdownChunker_Preamble(t *testing.T) {
+	chunker := NewMarkdownChunker(4000)
+
+	content := `This is content before any header.
+
+It has multiple paragraphs.
+
+# First Header
+
+Content after header.`
+
+	chunks, err := chunker.Chunk("test.md", []byte(content))
+	if err != nil {
+		t.Fatalf("Chunk() error = %v", err)
+	}
+
+	if len(chunks) != 2 {
+		t.Fatalf("got %d chunks, want 2", len(chunks))
+	}
+
+	// First chunk is preamble
+	if !strings.HasPrefix(chunks[0].Name, "test:") {
+		t.Errorf("preamble chunk should have name like 'test:1-N', got %q", chunks[0].Name)
+	}
+	if !strings.Contains(chunks[0].Content, "content before any header") {
+		t.Error("preamble should contain content before header")
+	}
+
+	// Second chunk is header section
+	if chunks[1].Name != "test > First Header" {
+		t.Errorf("chunk[1].Name = %q, want %q", chunks[1].Name, "test > First Header")
+	}
+}
+
 func TestMarkdownChunker_IndentedCodeBlockPreservation(t *testing.T) {
 	chunker := NewMarkdownChunker(4000)
 

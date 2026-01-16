@@ -57,7 +57,28 @@ func (c *MarkdownChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 	var fenceChar byte
 	var fenceLength int
 
-	for i, lineBytes := range lines {
+	// Check for YAML frontmatter at start of file
+	startLine := 0
+	if len(lines) > 0 && strings.TrimSpace(string(lines[0])) == "---" {
+		frontmatter, endLine := extractFrontmatter(lines)
+		if frontmatter != "" {
+			chunk := &Chunk{
+				FilePath:  path,
+				Type:      ChunkFile,
+				Name:      filename + ":frontmatter",
+				Content:   frontmatter,
+				StartLine: 1,
+				EndLine:   endLine,
+				Language:  "yaml",
+			}
+			chunk.ID = chunk.GenerateID()
+			chunks = append(chunks, *chunk)
+			startLine = endLine // Skip frontmatter lines
+		}
+	}
+
+	for i := startLine; i < len(lines); i++ {
+		lineBytes := lines[i]
 		line := string(lineBytes)
 		lineNum := i + 1
 
@@ -161,6 +182,35 @@ func (c *MarkdownChunker) buildChunkName(filename string, section *markdownSecti
 	parts := []string{filename}
 	parts = append(parts, section.hierarchy...)
 	return strings.Join(parts, " > ")
+}
+
+// extractFrontmatter extracts YAML frontmatter from the beginning of a file.
+// Returns the frontmatter content (excluding delimiters) and the line number after the closing ---.
+// Returns empty string and 0 if no valid frontmatter found.
+func extractFrontmatter(lines [][]byte) (string, int) {
+	if len(lines) < 2 {
+		return "", 0
+	}
+
+	// First line must be ---
+	if strings.TrimSpace(string(lines[0])) != "---" {
+		return "", 0
+	}
+
+	// Find closing ---
+	var content strings.Builder
+	for i := 1; i < len(lines); i++ {
+		line := string(lines[i])
+		if strings.TrimSpace(line) == "---" {
+			// Found closing delimiter
+			return strings.TrimRight(content.String(), "\n"), i + 1
+		}
+		content.WriteString(line)
+		content.WriteString("\n")
+	}
+
+	// No closing --- found
+	return "", 0
 }
 
 // updateHeaderStack maintains the header hierarchy stack
