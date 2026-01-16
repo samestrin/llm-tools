@@ -14,6 +14,11 @@ import (
 	"golang.org/x/term"
 )
 
+const (
+	// progressReportInterval is the number of files between progress reports
+	progressReportInterval = 100
+)
+
 func indexCmd() *cobra.Command {
 	var (
 		includes        []string
@@ -208,8 +213,8 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 					}
 				}
 			} else {
-				// Default mode: periodic summary every 100 files
-				if event.Current-lastReported >= 100 || event.Current == event.Total {
+				// Default mode: periodic summary
+				if event.Current-lastReported >= progressReportInterval || event.Current == event.Total {
 					fmt.Printf("  [%d/%d files] %d chunks...\n", event.Current, event.Total, event.ChunksTotal)
 					lastReported = event.Current
 				}
