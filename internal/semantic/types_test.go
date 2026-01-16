@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -196,5 +197,129 @@ func TestChunkType_Parse(t *testing.T) {
 				t.Errorf("ParseChunkType(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestChunk_Preview_PreferSignature(t *testing.T) {
+	chunk := Chunk{
+		Signature: "func ValidateToken(token string) (*Claims, error)",
+		Content:   "func ValidateToken(token string) (*Claims, error) {\n\tif token == \"\" {\n\t\treturn nil, ErrEmptyToken\n\t}\n\t// ... more code ...\n}",
+	}
+
+	preview := chunk.Preview()
+	if preview != "func ValidateToken(token string) (*Claims, error)" {
+		t.Errorf("Preview() = %q, want signature", preview)
+	}
+}
+
+func TestChunk_Preview_FallbackToContent(t *testing.T) {
+	chunk := Chunk{
+		Signature: "", // Empty signature
+		Content:   "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"Hello\")\n}",
+	}
+
+	preview := chunk.Preview()
+	// Should fall back to content, with newlines replaced by spaces
+	if !strings.HasPrefix(preview, "package main") {
+		t.Errorf("Preview() = %q, want content fallback starting with 'package main'", preview)
+	}
+	if strings.Contains(preview, "\n") {
+		t.Errorf("Preview() should not contain newlines, got %q", preview)
+	}
+}
+
+func TestChunk_Preview_TruncateAt150Chars(t *testing.T) {
+	// Create content longer than 150 chars
+	longContent := strings.Repeat("a", 200)
+	chunk := Chunk{
+		Signature: "",
+		Content:   longContent,
+	}
+
+	preview := chunk.Preview()
+	if len(preview) > 153 { // 150 + "..."
+		t.Errorf("Preview() length = %d, want <= 153 (150 + ...)", len(preview))
+	}
+	if !strings.HasSuffix(preview, "...") {
+		t.Errorf("Preview() should end with '...' when truncated, got %q", preview)
+	}
+}
+
+func TestChunk_Preview_ExactlyAt150Chars(t *testing.T) {
+	// Content exactly 150 chars should NOT have ellipsis
+	exactContent := strings.Repeat("b", 150)
+	chunk := Chunk{
+		Signature: "",
+		Content:   exactContent,
+	}
+
+	preview := chunk.Preview()
+	if len(preview) != 150 {
+		t.Errorf("Preview() length = %d, want 150", len(preview))
+	}
+	if strings.HasSuffix(preview, "...") {
+		t.Errorf("Preview() should NOT end with '...' when exactly 150 chars")
+	}
+}
+
+func TestChunk_Preview_EmptyContent(t *testing.T) {
+	chunk := Chunk{
+		Signature: "",
+		Content:   "",
+	}
+
+	preview := chunk.Preview()
+	if preview != "" {
+		t.Errorf("Preview() = %q, want empty string for empty content", preview)
+	}
+}
+
+func TestChunk_Preview_NewlinesReplacedWithSpaces(t *testing.T) {
+	chunk := Chunk{
+		Signature: "",
+		Content:   "line1\nline2\nline3",
+	}
+
+	preview := chunk.Preview()
+	expected := "line1 line2 line3"
+	if preview != expected {
+		t.Errorf("Preview() = %q, want %q", preview, expected)
+	}
+}
+
+func TestChunk_Preview_SignatureWithNewlines(t *testing.T) {
+	// Some signatures might have newlines (e.g., multi-line function signatures)
+	chunk := Chunk{
+		Signature: "func LongFunction(\n\tparam1 string,\n\tparam2 int,\n) error",
+		Content:   "ignored",
+	}
+
+	preview := chunk.Preview()
+	if strings.Contains(preview, "\n") {
+		t.Errorf("Preview() should not contain newlines even in signature, got %q", preview)
+	}
+	if strings.Contains(preview, "\t") {
+		t.Errorf("Preview() should not contain tabs even in signature, got %q", preview)
+	}
+	// \n\t becomes "  " (space+space) since both are replaced independently
+	expected := "func LongFunction(  param1 string,  param2 int, ) error"
+	if preview != expected {
+		t.Errorf("Preview() = %q, want %q", preview, expected)
+	}
+}
+
+func TestSearchResult_PreviewField(t *testing.T) {
+	result := SearchResult{
+		Chunk: Chunk{
+			ID:       "test-1",
+			FilePath: "/test/file.go",
+		},
+		Score:     0.75,
+		Relevance: "high",
+		Preview:   "func Test() {}",
+	}
+
+	if result.Preview != "func Test() {}" {
+		t.Errorf("SearchResult.Preview = %q, want 'func Test() {}'", result.Preview)
 	}
 }

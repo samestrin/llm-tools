@@ -94,11 +94,40 @@ func (c *Chunk) GenerateID() string {
 	return fmt.Sprintf("%x", hash[:8])
 }
 
+// Preview returns a short preview of the chunk content for display purposes.
+// Prefers Signature if available, otherwise uses truncated Content.
+// Replaces newlines with spaces and truncates to 150 characters with "..." suffix.
+func (c *Chunk) Preview() string {
+	const maxLen = 150
+
+	// Prefer signature if available
+	text := c.Signature
+	if text == "" {
+		text = c.Content
+	}
+
+	if text == "" {
+		return ""
+	}
+
+	// Replace newlines with spaces
+	text = strings.ReplaceAll(text, "\n", " ")
+	text = strings.ReplaceAll(text, "\t", " ")
+
+	// Truncate if necessary
+	if len(text) > maxLen {
+		return text[:maxLen] + "..."
+	}
+
+	return text
+}
+
 // SearchResult represents a chunk with its similarity score
 type SearchResult struct {
 	Chunk     Chunk     `json:"chunk"`
 	Score     float32   `json:"score"`
 	Relevance string    `json:"relevance,omitempty"` // "high", "medium", or "low"
+	Preview   string    `json:"preview,omitempty"`   // Short preview of chunk content
 	Embedding []float32 `json:"-"`                   // Not included in JSON output
 }
 

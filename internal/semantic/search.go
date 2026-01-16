@@ -230,7 +230,7 @@ func (s *Searcher) SearchMultiple(ctx context.Context, queries []string, opts Se
 	return results, nil
 }
 
-// applyRelevanceLabels applies relevance labels to search results.
+// applyRelevanceLabels applies relevance labels and previews to search results.
 // Uses calibration thresholds if available, otherwise falls back to percentile-based labeling.
 func (s *Searcher) applyRelevanceLabels(ctx context.Context, results []SearchResult) {
 	if len(results) == 0 {
@@ -249,6 +249,7 @@ func (s *Searcher) applyRelevanceLabels(ctx context.Context, results []SearchRes
 		// Use calibration-based labeling
 		for i := range results {
 			results[i].Relevance = LabelRelevance(results[i].Score, cal)
+			results[i].Preview = results[i].Chunk.Preview()
 		}
 	} else {
 		// Fallback to percentile-based labeling
@@ -259,6 +260,7 @@ func (s *Searcher) applyRelevanceLabels(ctx context.Context, results []SearchRes
 		}
 		for i := range results {
 			results[i].Relevance = LabelByPercentile(results[i].Score, allScores)
+			results[i].Preview = results[i].Chunk.Preview()
 		}
 	}
 }
