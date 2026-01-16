@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -150,6 +151,10 @@ func stripPrefix(toolName string) string {
 func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 	switch cmdName {
 	case "search":
+		query, ok := args["query"].(string)
+		if !ok || strings.TrimSpace(query) == "" {
+			return nil, fmt.Errorf("search requires a non-empty query")
+		}
 		return buildSearchArgs(args), nil
 	case "index":
 		return buildIndexArgs(args), nil
@@ -160,6 +165,10 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 	case "memory_store":
 		return buildMemoryStoreArgs(args), nil
 	case "memory_search":
+		query, ok := args["query"].(string)
+		if !ok || strings.TrimSpace(query) == "" {
+			return nil, fmt.Errorf("memory_search requires a non-empty query")
+		}
 		return buildMemorySearchArgs(args), nil
 	case "memory_promote":
 		return buildMemoryPromoteArgs(args), nil
@@ -175,7 +184,7 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 func buildSearchArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"search"}
 
-	if query, ok := args["query"].(string); ok {
+	if query, ok := args["query"].(string); ok && query != "" {
 		cmdArgs = append(cmdArgs, query)
 	}
 	if topK, ok := getInt(args, "top_k"); ok {

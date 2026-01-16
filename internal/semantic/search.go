@@ -3,6 +3,7 @@ package semantic
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 // EmbedderInterface defines the interface for embedding generation
@@ -33,6 +34,12 @@ func (s *Searcher) Search(ctx context.Context, query string, opts SearchOptions)
 	if query == "" {
 		return nil, errors.New("query cannot be empty")
 	}
+	if opts.Threshold < 0 || opts.Threshold > 1 {
+		return nil, errors.New("threshold must be between 0.0 and 1.0")
+	}
+	if opts.TopK < 0 {
+		return nil, errors.New("topK must be non-negative")
+	}
 
 	// Generate embedding for query
 	queryEmbedding, err := s.embedder.Embed(ctx, query)
@@ -58,6 +65,12 @@ type HybridSearchOptions struct {
 func (s *Searcher) HybridSearch(ctx context.Context, query string, opts HybridSearchOptions) ([]SearchResult, error) {
 	if query == "" {
 		return nil, errors.New("query cannot be empty")
+	}
+	if opts.Threshold < 0 || opts.Threshold > 1 {
+		return nil, errors.New("threshold must be between 0.0 and 1.0")
+	}
+	if opts.TopK < 0 {
+		return nil, errors.New("topK must be non-negative")
 	}
 
 	// Check if storage supports lexical search
@@ -123,6 +136,17 @@ func (s *Searcher) HybridSearch(ctx context.Context, query string, opts HybridSe
 func (s *Searcher) SearchMultiple(ctx context.Context, queries []string, opts SearchOptions) ([]SearchResult, error) {
 	if len(queries) == 0 {
 		return nil, errors.New("queries cannot be empty")
+	}
+	for i, q := range queries {
+		if q == "" {
+			return nil, fmt.Errorf("query at index %d cannot be empty", i)
+		}
+	}
+	if opts.Threshold < 0 || opts.Threshold > 1 {
+		return nil, errors.New("threshold must be between 0.0 and 1.0")
+	}
+	if opts.TopK < 0 {
+		return nil, errors.New("topK must be non-negative")
 	}
 
 	// Generate embeddings for all queries

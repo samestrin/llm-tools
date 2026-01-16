@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -455,7 +456,8 @@ func (s *SQLiteStorage) Search(ctx context.Context, queryEmbedding []float32, op
 
 		embedding, err := decodeEmbedding(embeddingBytes)
 		if err != nil {
-			continue // Skip chunks with invalid embeddings
+			slog.Debug("skipping chunk with invalid embedding", "chunk_id", chunk.ID, "file", chunk.FilePath, "error", err)
+			continue
 		}
 
 		score := cosineSimilarity(queryEmbedding, embedding)
@@ -739,7 +741,8 @@ func (s *SQLiteStorage) SearchMemory(ctx context.Context, queryEmbedding []float
 		// Decode embedding
 		embedding, err := decodeEmbedding(embeddingBytes)
 		if err != nil {
-			continue // Skip entries with invalid embeddings
+			slog.Debug("skipping memory entry with invalid embedding", "entry_id", entry.ID, "error", err)
+			continue
 		}
 
 		// Calculate cosine similarity
@@ -1016,15 +1019,11 @@ func cosineSimilarity(a, b []float32) float32 {
 	return float32(dotProduct / (math.Sqrt(normA) * math.Sqrt(normB)))
 }
 
-// sortResultsByScore sorts results by score in descending order
+// sortResultsByScore sorts results by score in descending order using O(n log n) sort
 func sortResultsByScore(results []SearchResult) {
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].Score > results[i].Score {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
 }
 
 // IndexPath returns the default index path for a repository
