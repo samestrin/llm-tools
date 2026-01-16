@@ -23,31 +23,6 @@ func TestExecuteHandler(t *testing.T) {
 		wantErr      bool
 	}{
 		{
-			name:         "llm_filesystem_list_allowed_directories",
-			toolName:     "llm_filesystem_list_allowed_directories",
-			args:         map[string]interface{}{},
-			wantContains: "allowed_directories",
-			wantErr:      false,
-		},
-		{
-			name:     "llm_filesystem_read_file",
-			toolName: "llm_filesystem_read_file",
-			args: map[string]interface{}{
-				"path": testFile,
-			},
-			wantContains: "test content",
-			wantErr:      false,
-		},
-		{
-			name:     "llm_filesystem_get_file_info",
-			toolName: "llm_filesystem_get_file_info",
-			args: map[string]interface{}{
-				"path": testFile,
-			},
-			wantContains: "handler_test.txt",
-			wantErr:      false,
-		},
-		{
 			name:     "llm_filesystem_list_directory",
 			toolName: "llm_filesystem_list_directory",
 			args: map[string]interface{}{
@@ -63,15 +38,6 @@ func TestExecuteHandler(t *testing.T) {
 				"path": tmpDir,
 			},
 			wantContains: "tree",
-			wantErr:      false,
-		},
-		{
-			name:     "llm_filesystem_get_disk_usage",
-			toolName: "llm_filesystem_get_disk_usage",
-			args: map[string]interface{}{
-				"path": tmpDir,
-			},
-			wantContains: "total_size",
 			wantErr:      false,
 		},
 		{
@@ -107,17 +73,14 @@ func TestExecuteHandlerAllTools(t *testing.T) {
 	testFile := filepath.Join(tmpDir, "all_tools_test.txt")
 	os.WriteFile(testFile, []byte("original content"), 0644)
 
-	// Test each tool to ensure dispatch works
+	// Test remaining batch/specialized tools
 	toolTests := []struct {
 		toolName string
 		args     map[string]interface{}
 	}{
-		{"llm_filesystem_write_file", map[string]interface{}{"path": filepath.Join(tmpDir, "write_test.txt"), "content": "test"}},
-		{"llm_filesystem_create_directory", map[string]interface{}{"path": filepath.Join(tmpDir, "test_dir")}},
 		{"llm_filesystem_create_directories", map[string]interface{}{"paths": []interface{}{filepath.Join(tmpDir, "test_dir1"), filepath.Join(tmpDir, "test_dir2")}}},
 		{"llm_filesystem_search_files", map[string]interface{}{"path": tmpDir, "pattern": "*.txt"}},
 		{"llm_filesystem_search_code", map[string]interface{}{"path": tmpDir, "pattern": "content"}},
-		{"llm_filesystem_find_large_files", map[string]interface{}{"path": tmpDir}},
 		{"llm_filesystem_extract_lines", map[string]interface{}{"path": testFile, "start_line": float64(1), "end_line": float64(1)}},
 	}
 
@@ -126,53 +89,6 @@ func TestExecuteHandlerAllTools(t *testing.T) {
 			_, err := server.ExecuteHandler(tt.toolName, tt.args)
 			if err != nil {
 				t.Errorf("ExecuteHandler(%s) error = %v", tt.toolName, err)
-			}
-		})
-	}
-}
-
-func TestExecuteHandlerEditTools(t *testing.T) {
-	tmpDir := t.TempDir()
-	server, _ := NewServer([]string{tmpDir})
-
-	// Create test file for edit operations
-	testFile := filepath.Join(tmpDir, "edit_dispatch_test.txt")
-	os.WriteFile(testFile, []byte("Hello World"), 0644)
-
-	tests := []struct {
-		toolName string
-		args     map[string]interface{}
-		wantErr  bool
-	}{
-		{
-			toolName: "llm_filesystem_edit_block",
-			args: map[string]interface{}{
-				"path":       testFile,
-				"old_string": "World",
-				"new_string": "Go",
-			},
-			wantErr: false,
-		},
-		{
-			toolName: "llm_filesystem_edit_file",
-			args: map[string]interface{}{
-				"path":      testFile,
-				"operation": "replace",
-				"line":      float64(1),
-				"content":   "Replaced line",
-			},
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.toolName, func(t *testing.T) {
-			// Recreate file for each test
-			os.WriteFile(testFile, []byte("Hello World"), 0644)
-
-			_, err := server.ExecuteHandler(tt.toolName, tt.args)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ExecuteHandler(%s) error = %v, wantErr %v", tt.toolName, err, tt.wantErr)
 			}
 		})
 	}
@@ -247,41 +163,6 @@ func TestExecuteHandlerAdvanced(t *testing.T) {
 	if err != nil {
 		t.Errorf("llm_filesystem_extract_archive error = %v", err)
 	}
-
-	// Test sync directories
-	os.MkdirAll(filepath.Join(tmpDir, "src_dir"), 0755)
-	os.WriteFile(filepath.Join(tmpDir, "src_dir", "sync.txt"), []byte("sync"), 0644)
-	_, err = server.ExecuteHandler("llm_filesystem_sync_directories", map[string]interface{}{
-		"source":      filepath.Join(tmpDir, "src_dir"),
-		"destination": filepath.Join(tmpDir, "dst_dir"),
-	})
-	if err != nil {
-		t.Errorf("llm_filesystem_sync_directories error = %v", err)
-	}
-}
-
-func TestExecuteHandlerSafeEdit(t *testing.T) {
-	tmpDir := t.TempDir()
-	server, _ := NewServer([]string{tmpDir})
-
-	testFile := filepath.Join(tmpDir, "safe_edit_test.txt")
-	os.WriteFile(testFile, []byte("Original content here"), 0644)
-
-	// Test safe_edit via handler
-	_, err := server.ExecuteHandler("llm_filesystem_safe_edit", map[string]interface{}{
-		"path":       testFile,
-		"old_string": "Original",
-		"new_string": "Modified",
-	})
-	if err != nil {
-		t.Errorf("llm_filesystem_safe_edit error = %v", err)
-	}
-
-	// Verify file content changed
-	content, _ := os.ReadFile(testFile)
-	if !strings.Contains(string(content), "Modified") {
-		t.Errorf("File should contain 'Modified', got: %s", string(content))
-	}
 }
 
 func TestExecuteHandlerEditBlocks(t *testing.T) {
@@ -311,27 +192,6 @@ func TestExecuteHandlerEditBlocks(t *testing.T) {
 	content, _ := os.ReadFile(testFile)
 	if !strings.Contains(string(content), "Hi") || !strings.Contains(string(content), "Bye") {
 		t.Errorf("File content = %s, want to contain 'Hi' and 'Bye'", string(content))
-	}
-}
-
-func TestExecuteHandlerMultipleBlocks(t *testing.T) {
-	tmpDir := t.TempDir()
-	server, _ := NewServer([]string{tmpDir})
-
-	testFile := filepath.Join(tmpDir, "multi_blocks_test.txt")
-	os.WriteFile(testFile, []byte("Test content"), 0644)
-
-	_, err := server.ExecuteHandler("llm_filesystem_edit_multiple_blocks", map[string]interface{}{
-		"path": testFile,
-		"edits": []interface{}{
-			map[string]interface{}{
-				"old_string": "Test",
-				"new_string": "Demo",
-			},
-		},
-	})
-	if err != nil {
-		t.Errorf("llm_filesystem_edit_multiple_blocks error = %v", err)
 	}
 }
 
@@ -392,4 +252,39 @@ func TestExecuteHandlerSearchAndReplace(t *testing.T) {
 	}
 
 	_ = result
+}
+
+// TestRemovedToolsAreGone verifies that deprecated tools are no longer in handlers
+func TestRemovedToolsAreGone(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	// These tools should return "unknown tool" errors (they've been removed)
+	deprecatedTools := []string{
+		"llm_filesystem_read_file",
+		"llm_filesystem_write_file",
+		"llm_filesystem_large_write_file",
+		"llm_filesystem_edit_block",
+		"llm_filesystem_edit_file",
+		"llm_filesystem_edit_multiple_blocks",
+		"llm_filesystem_safe_edit",
+		"llm_filesystem_create_directory",
+		"llm_filesystem_get_file_info",
+		"llm_filesystem_get_disk_usage",
+		"llm_filesystem_find_large_files",
+		"llm_filesystem_sync_directories",
+		"llm_filesystem_list_allowed_directories",
+	}
+
+	for _, toolName := range deprecatedTools {
+		t.Run(toolName, func(t *testing.T) {
+			_, err := server.ExecuteHandler(toolName, map[string]interface{}{})
+			if err == nil {
+				t.Errorf("Expected error for deprecated tool %s, got nil", toolName)
+			}
+			if !strings.Contains(err.Error(), "unknown tool") {
+				t.Errorf("Expected 'unknown tool' error for %s, got: %v", toolName, err)
+			}
+		})
+	}
 }
