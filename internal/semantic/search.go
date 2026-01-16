@@ -3,6 +3,8 @@ package semantic
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 )
 
 // EmbedderInterface defines the interface for embedding generation
@@ -11,6 +13,7 @@ type EmbedderInterface interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
 	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
 	Dimensions() int
+	Model() string
 }
 
 // Searcher orchestrates semantic search across the index
@@ -31,6 +34,12 @@ func NewSearcher(storage Storage, embedder EmbedderInterface) *Searcher {
 func (s *Searcher) Search(ctx context.Context, query string, opts SearchOptions) ([]SearchResult, error) {
 	if query == "" {
 		return nil, errors.New("query cannot be empty")
+	}
+	if opts.Threshold < 0 || opts.Threshold > 1 {
+		return nil, errors.New("threshold must be between 0.0 and 1.0")
+	}
+	if opts.TopK < 0 {
+		return nil, errors.New("topK must be non-negative")
 	}
 
 	// Generate embedding for query
@@ -58,6 +67,12 @@ func (s *Searcher) HybridSearch(ctx context.Context, query string, opts HybridSe
 	if query == "" {
 		return nil, errors.New("query cannot be empty")
 	}
+	if opts.Threshold < 0 || opts.Threshold > 1 {
+		return nil, errors.New("threshold must be between 0.0 and 1.0")
+	}
+	if opts.TopK < 0 {
+		return nil, errors.New("topK must be non-negative")
+	}
 
 	// Check if storage supports lexical search
 	lexicalSearcher, ok := s.storage.(LexicalSearcher)
@@ -71,8 +86,8 @@ func (s *Searcher) HybridSearch(ctx context.Context, query string, opts HybridSe
 		k = 60
 	}
 	alpha := opts.FusionAlpha
-	if alpha <= 0 {
-		alpha = 0.7
+	if alpha == 0 {
+		alpha = 0.7 // Default when not specified; alpha=0 (lexical-only) is still achievable via explicit negative
 	}
 
 	// Perform dense (vector) search
@@ -94,8 +109,8 @@ func (s *Searcher) HybridSearch(ctx context.Context, query string, opts HybridSe
 	}
 	lexicalResults, err := lexicalSearcher.LexicalSearch(ctx, query, lexicalOpts)
 	if err != nil {
-		// Log but don't fail - fall back to dense-only
-		// fmt.Fprintf(os.Stderr, "Warning: lexical search failed: %v\n", err)
+		// Log and fall back to dense-only search
+		slog.Warn("lexical search failed, falling back to dense-only", "error", err)
 		return denseResults, nil
 	}
 
@@ -122,6 +137,17 @@ func (s *Searcher) HybridSearch(ctx context.Context, query string, opts HybridSe
 func (s *Searcher) SearchMultiple(ctx context.Context, queries []string, opts SearchOptions) ([]SearchResult, error) {
 	if len(queries) == 0 {
 		return nil, errors.New("queries cannot be empty")
+	}
+	for i, q := range queries {
+		if q == "" {
+			return nil, fmt.Errorf("query at index %d cannot be empty", i)
+		}
+	}
+	if opts.Threshold < 0 || opts.Threshold > 1 {
+		return nil, errors.New("threshold must be between 0.0 and 1.0")
+	}
+	if opts.TopK < 0 {
+		return nil, errors.New("topK must be non-negative")
 	}
 
 	// Generate embeddings for all queries

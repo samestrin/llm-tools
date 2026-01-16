@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -67,6 +68,12 @@ func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 		return fmt.Errorf("failed to get stats: %w", err)
 	}
 
+	// Get calibration metadata (optional - may not exist)
+	calibration, calErr := storage.GetCalibrationMetadata(ctx)
+	if calErr != nil {
+		slog.Debug("calibration metadata not available", "error", calErr)
+	}
+
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -82,6 +89,9 @@ func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 		} else {
 			result["path"] = indexPath
 		}
+		if calibration != nil {
+			result["calibration"] = calibration
+		}
 		return enc.Encode(result)
 	}
 
@@ -96,6 +106,22 @@ func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 	fmt.Printf("Files indexed: %d\n", stats.FilesIndexed)
 	fmt.Printf("Total chunks:  %d\n", stats.ChunksTotal)
 	fmt.Printf("Last updated:  %s\n", stats.LastUpdated)
+
+	// Display calibration info
+	fmt.Printf("\nCalibration\n")
+	fmt.Printf("-----------\n")
+	if calibration != nil {
+		fmt.Printf("Model:         %s\n", calibration.EmbeddingModel)
+		fmt.Printf("Calibrated:    %s\n", calibration.CalibrationDate.Format("2006-01-02 15:04:05"))
+		fmt.Printf("Perfect match: %.4f\n", calibration.PerfectMatchScore)
+		fmt.Printf("Baseline:      %.4f\n", calibration.BaselineScore)
+		fmt.Printf("Score range:   %.4f\n", calibration.ScoreRange)
+		fmt.Printf("Thresholds:    high=%.4f, medium=%.4f, low=%.4f\n",
+			calibration.HighThreshold, calibration.MediumThreshold, calibration.LowThreshold)
+	} else {
+		fmt.Printf("Status:        Not performed\n")
+		fmt.Printf("Run 'llm-semantic index' to calibrate\n")
+	}
 
 	return nil
 }

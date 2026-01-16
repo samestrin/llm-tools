@@ -34,6 +34,8 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"threshold": {
 						"type": "number",
+						"minimum": 0.0,
+						"maximum": 1.0,
 						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
 					},
 					"type": {
@@ -91,7 +93,7 @@ func GetToolDefinitions() []ToolDefinition {
 						"description": "Recency boost factor, max boost = 1+factor (default: 0.5)"
 					},
 					"recency_decay": {
-						"type": "number",
+						"type": "integer",
 						"description": "Recency half-life in days (default: 7)"
 					}
 				},
@@ -176,6 +178,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"config": {
 						"type": "string",
 						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+					},
+					"recalibrate": {
+						"type": "boolean",
+						"description": "Force recalibration of score thresholds even if calibration exists"
+					},
+					"skip_calibration": {
+						"type": "boolean",
+						"description": "Skip the calibration step during indexing"
 					}
 				}
 			}`),
@@ -297,6 +307,8 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"threshold": {
 						"type": "number",
+						"minimum": 0.0,
+						"maximum": 1.0,
 						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
 					},
 					"tags": {

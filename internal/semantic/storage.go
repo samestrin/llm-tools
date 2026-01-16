@@ -119,4 +119,15 @@ type Storage interface {
 
 	// ListMemory retrieves memory entries based on filter options
 	ListMemory(ctx context.Context, opts MemoryListOptions) ([]MemoryEntry, error)
+
+	// ===== Calibration Metadata Methods =====
+
+	// GetCalibrationMetadata retrieves stored calibration data.
+	// Returns (nil, nil) if no calibration has been performed yet.
+	// Returns (nil, error) on storage errors.
+	GetCalibrationMetadata(ctx context.Context) (*CalibrationMetadata, error)
+
+	// SetCalibrationMetadata stores calibration data.
+	// Overwrites any existing calibration data.
+	SetCalibrationMetadata(ctx context.Context, meta *CalibrationMetadata) error
 }

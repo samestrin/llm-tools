@@ -2,9 +2,13 @@ package semantic
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"math"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,6 +29,7 @@ type OfflineEmbedder struct {
 	lastCheck     time.Time
 	checkInterval time.Duration
 	dimensions    int
+	mu            sync.Mutex // protects offlineMode and lastCheck
 }
 
 // NewOfflineEmbedder creates an embedder with offline fallback support
@@ -39,23 +44,33 @@ func NewOfflineEmbedder(embedder EmbedderInterface, dimensions int) *OfflineEmbe
 
 // IsOffline returns true if operating in offline mode
 func (o *OfflineEmbedder) IsOffline() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	return o.offlineMode == OfflineFallback
 }
 
 // Embed tries to use the embedder, falls back to keyword embedding if unavailable
 func (o *OfflineEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
-	// Try the real embedder first
-	if o.offlineMode == OnlineMode || time.Since(o.lastCheck) > o.checkInterval {
+	// Check if we should try the real embedder
+	o.mu.Lock()
+	shouldTryEmbedder := o.offlineMode == OnlineMode || time.Since(o.lastCheck) > o.checkInterval
+	o.mu.Unlock()
+
+	if shouldTryEmbedder {
 		embedding, err := o.embedder.Embed(ctx, text)
 		if err == nil {
+			o.mu.Lock()
 			o.offlineMode = OnlineMode
+			o.mu.Unlock()
 			return embedding, nil
 		}
 
 		// Check if it's a network error
 		if isNetworkError(err) {
+			o.mu.Lock()
 			o.offlineMode = OfflineFallback
 			o.lastCheck = time.Now()
+			o.mu.Unlock()
 		} else {
 			// For non-network errors, propagate the error
 			return nil, err
@@ -68,18 +83,26 @@ func (o *OfflineEmbedder) Embed(ctx context.Context, text string) ([]float32, er
 
 // EmbedBatch tries to use the embedder batch, falls back if unavailable
 func (o *OfflineEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	// Try the real embedder first
-	if o.offlineMode == OnlineMode || time.Since(o.lastCheck) > o.checkInterval {
+	// Check if we should try the real embedder
+	o.mu.Lock()
+	shouldTryEmbedder := o.offlineMode == OnlineMode || time.Since(o.lastCheck) > o.checkInterval
+	o.mu.Unlock()
+
+	if shouldTryEmbedder {
 		embeddings, err := o.embedder.EmbedBatch(ctx, texts)
 		if err == nil {
+			o.mu.Lock()
 			o.offlineMode = OnlineMode
+			o.mu.Unlock()
 			return embeddings, nil
 		}
 
 		// Check if it's a network error
 		if isNetworkError(err) {
+			o.mu.Lock()
 			o.offlineMode = OfflineFallback
 			o.lastCheck = time.Now()
+			o.mu.Unlock()
 		} else {
 			// For non-network errors, propagate the error
 			return nil, err
@@ -107,7 +130,11 @@ func (o *OfflineEmbedder) Dimensions() int {
 func (o *OfflineEmbedder) keywordEmbedding(text string) []float32 {
 	dims := o.dimensions
 	if dims == 0 {
-		dims = 1024
+		// Try to get dimensions from embedder before using fallback
+		dims = o.embedder.Dimensions()
+	}
+	if dims == 0 {
+		dims = 1024 // Final fallback for truly unknown dimensions
 	}
 
 	embedding := make([]float32, dims)
@@ -150,7 +177,7 @@ func (o *OfflineEmbedder) keywordEmbedding(text string) []float32 {
 		norm += v * v
 	}
 	if norm > 0 {
-		norm = float32(1.0 / sqrt64(float64(norm)))
+		norm = float32(1.0 / math.Sqrt(float64(norm)))
 		for i := range embedding {
 			embedding[i] *= norm
 		}
@@ -162,30 +189,22 @@ func (o *OfflineEmbedder) keywordEmbedding(text string) []float32 {
 // hashString creates a simple hash of a string
 func hashString(s string) uint32 {
 	hash := uint32(2166136261) // FNV-1a offset basis
-	for _, b := range []byte(s) {
-		hash ^= uint32(b)
+	for i := 0; i < len(s); i++ {
+		hash ^= uint32(s[i])
 		hash *= 16777619 // FNV-1a prime
 	}
 	return hash
-}
-
-// sqrt64 computes square root without importing math
-func sqrt64(x float64) float64 {
-	if x <= 0 {
-		return 0
-	}
-	// Newton's method
-	z := x / 2
-	for i := 0; i < 10; i++ {
-		z = (z + x/z) / 2
-	}
-	return z
 }
 
 // isNetworkError checks if an error is network-related
 func isNetworkError(err error) bool {
 	if err == nil {
 		return false
+	}
+
+	// Check for io.EOF directly (unexpected connection close)
+	if errors.Is(err, io.EOF) {
+		return true
 	}
 
 	errStr := err.Error()
@@ -201,7 +220,7 @@ func isNetworkError(err error) bool {
 		"dial udp",
 		"no route to host",
 		"connection timed out",
-		"eof",
+		"unexpected eof", // More specific than just "eof" to avoid false positives
 	}
 
 	errLower := strings.ToLower(errStr)
@@ -277,8 +296,11 @@ func (s *OfflineSearcher) boostKeywordMatches(query string, results []SearchResu
 		if matchCount > 0 && len(queryWords) > 0 {
 			matchRatio := float32(matchCount) / float32(len(queryWords))
 			results[i].Score += matchRatio * 0.2 // Up to 20% boost
+			// Clamp score to valid range [0.0, 1.0]
 			if results[i].Score > 1.0 {
 				results[i].Score = 1.0
+			} else if results[i].Score < 0.0 {
+				results[i].Score = 0.0
 			}
 		}
 	}

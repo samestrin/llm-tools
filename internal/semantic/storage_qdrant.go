@@ -3,6 +3,7 @@ package semantic
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -221,7 +222,7 @@ func (s *QdrantStorage) Create(ctx context.Context, chunk Chunk, embedding []flo
 	if s.parallelFTS != nil {
 		if err := s.parallelFTS.IndexChunk(ctx, chunk); err != nil {
 			// Log but don't fail - FTS is supplementary
-			// In production, consider returning error or using a background sync
+			slog.Warn("failed to sync chunk to FTS index", "chunk_id", chunk.ID, "error", err)
 		}
 	}
 
@@ -263,6 +264,7 @@ func (s *QdrantStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbed
 		}
 		if err := s.parallelFTS.IndexBatch(ctx, chunkList); err != nil {
 			// Log but don't fail - FTS is supplementary
+			slog.Warn("failed to sync batch to FTS index", "batch_size", len(chunks), "error", err)
 		}
 	}
 
@@ -335,7 +337,10 @@ func (s *QdrantStorage) Delete(ctx context.Context, id string) error {
 
 	// Sync to parallel FTS index
 	if s.parallelFTS != nil {
-		s.parallelFTS.DeleteChunk(ctx, id)
+		if err := s.parallelFTS.DeleteChunk(ctx, id); err != nil {
+			// Log but don't fail - FTS is supplementary
+			slog.Warn("failed to delete chunk from FTS index", "chunk_id", id, "error", err)
+		}
 	}
 
 	return nil
@@ -421,7 +426,11 @@ func (s *QdrantStorage) List(ctx context.Context, opts ListOptions) ([]Chunk, er
 
 	limit := uint32(10000)
 	if opts.Limit > 0 {
-		limit = uint32(opts.Limit + opts.Offset)
+		// Prevent uint32 overflow when calculating limit
+		sum := opts.Limit + opts.Offset
+		if sum > 0 && sum <= int(^uint32(0)) {
+			limit = uint32(sum)
+		}
 	}
 
 	scrollResult, err := s.client.Scroll(ctx, &qdrant.ScrollPoints{
@@ -532,12 +541,15 @@ func (s *QdrantStorage) Stats(ctx context.Context) (*IndexStats, error) {
 
 	// Count unique file paths by scrolling (expensive but necessary)
 	filesIndexed := 0
-	scrollResult, err := s.client.Scroll(ctx, &qdrant.ScrollPoints{
+	scrollResult, scrollErr := s.client.Scroll(ctx, &qdrant.ScrollPoints{
 		CollectionName: s.collectionName,
 		WithPayload:    qdrant.NewWithPayloadInclude("file_path"),
 		Limit:          qdrant.PtrOf(uint32(10000)),
 	})
-	if err == nil {
+	if scrollErr != nil {
+		// Log but don't fail - file count is best-effort
+		slog.Warn("failed to scroll for file count in Stats", "collection", s.collectionName, "error", scrollErr)
+	} else {
 		fileSet := make(map[string]bool)
 		for _, point := range scrollResult {
 			if fp, ok := point.Payload["file_path"]; ok {
@@ -972,7 +984,11 @@ func (s *QdrantStorage) ListMemory(ctx context.Context, opts MemoryListOptions) 
 
 	limit := uint32(10000)
 	if opts.Limit > 0 {
-		limit = uint32(opts.Limit + opts.Offset)
+		// Prevent uint32 overflow when calculating limit
+		sum := opts.Limit + opts.Offset
+		if sum > 0 && sum <= int(^uint32(0)) {
+			limit = uint32(sum)
+		}
 	}
 
 	scrollResult, err := s.client.Scroll(ctx, &qdrant.ScrollPoints{
@@ -1230,4 +1246,85 @@ func NewQdrantStorageFromEnv(embeddingDim int) (*QdrantStorage, error) {
 		EmbeddingDim:   embeddingDim,
 	}
 	return NewQdrantStorage(config)
+}
+
+// calibrationMetadataID returns the unique ID for calibration metadata storage
+func calibrationMetadataID() string {
+	return stringToUUID("calibration_metadata")
+}
+
+// GetCalibrationMetadata retrieves stored calibration data.
+// Returns (nil, nil) if no calibration has been performed yet.
+func (s *QdrantStorage) GetCalibrationMetadata(ctx context.Context) (*CalibrationMetadata, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	points, err := s.client.Get(ctx, &qdrant.GetPoints{
+		CollectionName: s.collectionName,
+		Ids:            []*qdrant.PointId{qdrant.NewID(calibrationMetadataID())},
+		WithPayload:    qdrant.NewWithPayload(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get calibration metadata: %w", err)
+	}
+
+	if len(points) == 0 {
+		return nil, nil // No calibration yet
+	}
+
+	// Extract calibration data from payload
+	payload := points[0].Payload
+	jsonData, ok := payload["calibration_json"]
+	if !ok {
+		return nil, nil // Point exists but no calibration data
+	}
+
+	var meta CalibrationMetadata
+	if err := json.Unmarshal([]byte(jsonData.GetStringValue()), &meta); err != nil {
+		return nil, fmt.Errorf("failed to parse calibration metadata: %w", err)
+	}
+
+	return &meta, nil
+}
+
+// SetCalibrationMetadata stores calibration data.
+// Overwrites any existing calibration data.
+func (s *QdrantStorage) SetCalibrationMetadata(ctx context.Context, meta *CalibrationMetadata) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	jsonData, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("failed to marshal calibration metadata: %w", err)
+	}
+
+	// Create a dummy embedding (zeros) for the metadata point
+	dummyEmbedding := make([]float32, s.embeddingDim)
+
+	point := &qdrant.PointStruct{
+		Id:      qdrant.NewID(calibrationMetadataID()),
+		Vectors: qdrant.NewVectors(dummyEmbedding...),
+		Payload: map[string]*qdrant.Value{
+			"type":             qdrant.NewValueString("calibration_metadata"),
+			"calibration_json": qdrant.NewValueString(string(jsonData)),
+		},
+	}
+
+	_, err = s.client.Upsert(ctx, &qdrant.UpsertPoints{
+		CollectionName: s.collectionName,
+		Points:         []*qdrant.PointStruct{point},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set calibration metadata: %w", err)
+	}
+
+	return nil
 }
