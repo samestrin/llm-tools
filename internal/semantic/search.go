@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 )
 
 // EmbedderInterface defines the interface for embedding generation
@@ -108,8 +109,8 @@ func (s *Searcher) HybridSearch(ctx context.Context, query string, opts HybridSe
 	}
 	lexicalResults, err := lexicalSearcher.LexicalSearch(ctx, query, lexicalOpts)
 	if err != nil {
-		// Log but don't fail - fall back to dense-only
-		// fmt.Fprintf(os.Stderr, "Warning: lexical search failed: %v\n", err)
+		// Log and fall back to dense-only search
+		slog.Warn("lexical search failed, falling back to dense-only", "error", err)
 		return denseResults, nil
 	}
 

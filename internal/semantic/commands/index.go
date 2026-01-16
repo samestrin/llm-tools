@@ -104,6 +104,9 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 			return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
 		}
 		embeddingDim = len(testEmbed)
+		if embeddingDim == 0 {
+			return fmt.Errorf("embedder returned zero-dimension embedding, check embedding model configuration")
+		}
 		if !opts.jsonOutput {
 			fmt.Printf("Detected embedding dimension: %d\n", embeddingDim)
 		}

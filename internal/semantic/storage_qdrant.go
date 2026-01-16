@@ -426,7 +426,11 @@ func (s *QdrantStorage) List(ctx context.Context, opts ListOptions) ([]Chunk, er
 
 	limit := uint32(10000)
 	if opts.Limit > 0 {
-		limit = uint32(opts.Limit + opts.Offset)
+		// Prevent uint32 overflow when calculating limit
+		sum := opts.Limit + opts.Offset
+		if sum > 0 && sum <= int(^uint32(0)) {
+			limit = uint32(sum)
+		}
 	}
 
 	scrollResult, err := s.client.Scroll(ctx, &qdrant.ScrollPoints{
@@ -980,7 +984,11 @@ func (s *QdrantStorage) ListMemory(ctx context.Context, opts MemoryListOptions) 
 
 	limit := uint32(10000)
 	if opts.Limit > 0 {
-		limit = uint32(opts.Limit + opts.Offset)
+		// Prevent uint32 overflow when calculating limit
+		sum := opts.Limit + opts.Offset
+		if sum > 0 && sum <= int(^uint32(0)) {
+			limit = uint32(sum)
+		}
 	}
 
 	scrollResult, err := s.client.Scroll(ctx, &qdrant.ScrollPoints{

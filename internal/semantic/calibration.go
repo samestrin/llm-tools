@@ -178,12 +178,12 @@ func runUnrelatedProbes(ctx context.Context, storage Storage, embedder EmbedderI
 func calculateThresholds(perfectMatch, baseline float32) (high, medium, low float32) {
 	scoreRange := perfectMatch - baseline
 
-	// Handle edge case where range is zero or negative
-	if scoreRange <= 0 {
-		// Fall back to simple proportional thresholds
-		high = perfectMatch * 0.70
-		medium = perfectMatch * 0.40
-		low = perfectMatch * 0.15
+	// Handle edge case where perfectMatch is invalid or range is non-positive
+	if perfectMatch <= 0 || scoreRange <= 0 {
+		// Return sensible defaults when calibration data is unusable
+		high = 0.70
+		medium = 0.40
+		low = 0.15
 		return
 	}
 
