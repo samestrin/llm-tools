@@ -3,6 +3,7 @@ package semantic
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1230,4 +1231,85 @@ func NewQdrantStorageFromEnv(embeddingDim int) (*QdrantStorage, error) {
 		EmbeddingDim:   embeddingDim,
 	}
 	return NewQdrantStorage(config)
+}
+
+// calibrationMetadataID returns the unique ID for calibration metadata storage
+func calibrationMetadataID() string {
+	return stringToUUID("calibration_metadata")
+}
+
+// GetCalibrationMetadata retrieves stored calibration data.
+// Returns (nil, nil) if no calibration has been performed yet.
+func (s *QdrantStorage) GetCalibrationMetadata(ctx context.Context) (*CalibrationMetadata, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	points, err := s.client.Get(ctx, &qdrant.GetPoints{
+		CollectionName: s.collectionName,
+		Ids:            []*qdrant.PointId{qdrant.NewID(calibrationMetadataID())},
+		WithPayload:    qdrant.NewWithPayload(true),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get calibration metadata: %w", err)
+	}
+
+	if len(points) == 0 {
+		return nil, nil // No calibration yet
+	}
+
+	// Extract calibration data from payload
+	payload := points[0].Payload
+	jsonData, ok := payload["calibration_json"]
+	if !ok {
+		return nil, nil // Point exists but no calibration data
+	}
+
+	var meta CalibrationMetadata
+	if err := json.Unmarshal([]byte(jsonData.GetStringValue()), &meta); err != nil {
+		return nil, fmt.Errorf("failed to parse calibration metadata: %w", err)
+	}
+
+	return &meta, nil
+}
+
+// SetCalibrationMetadata stores calibration data.
+// Overwrites any existing calibration data.
+func (s *QdrantStorage) SetCalibrationMetadata(ctx context.Context, meta *CalibrationMetadata) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	jsonData, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("failed to marshal calibration metadata: %w", err)
+	}
+
+	// Create a dummy embedding (zeros) for the metadata point
+	dummyEmbedding := make([]float32, s.embeddingDim)
+
+	point := &qdrant.PointStruct{
+		Id:      qdrant.NewID(calibrationMetadataID()),
+		Vectors: qdrant.NewVectors(dummyEmbedding...),
+		Payload: map[string]*qdrant.Value{
+			"type":             qdrant.NewValueString("calibration_metadata"),
+			"calibration_json": qdrant.NewValueString(string(jsonData)),
+		},
+	}
+
+	_, err = s.client.Upsert(ctx, &qdrant.UpsertPoints{
+		CollectionName: s.collectionName,
+		Points:         []*qdrant.PointStruct{point},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set calibration metadata: %w", err)
+	}
+
+	return nil
 }

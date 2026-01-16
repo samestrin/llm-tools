@@ -105,6 +105,12 @@ func (s *SQLiteStorage) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_memory_tags ON memory(tags);
 	CREATE INDEX IF NOT EXISTS idx_memory_status ON memory(status);
+
+	CREATE TABLE IF NOT EXISTS index_metadata (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -1020,4 +1026,61 @@ func nullableInt64(v int64) interface{} {
 		return nil
 	}
 	return v
+}
+
+// GetCalibrationMetadata retrieves stored calibration data.
+// Returns (nil, nil) if no calibration has been performed yet.
+func (s *SQLiteStorage) GetCalibrationMetadata(ctx context.Context) (*CalibrationMetadata, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	var value string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT value FROM index_metadata WHERE key = 'calibration'`,
+	).Scan(&value)
+
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return nil, nil // No calibration yet
+		}
+		return nil, fmt.Errorf("failed to get calibration metadata: %w", err)
+	}
+
+	var meta CalibrationMetadata
+	if err := json.Unmarshal([]byte(value), &meta); err != nil {
+		return nil, fmt.Errorf("failed to parse calibration metadata: %w", err)
+	}
+
+	return &meta, nil
+}
+
+// SetCalibrationMetadata stores calibration data.
+// Overwrites any existing calibration data.
+func (s *SQLiteStorage) SetCalibrationMetadata(ctx context.Context, meta *CalibrationMetadata) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	value, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("failed to marshal calibration metadata: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT OR REPLACE INTO index_metadata (key, value, updated_at)
+		VALUES ('calibration', ?, CURRENT_TIMESTAMP)
+	`, string(value))
+
+	if err != nil {
+		return fmt.Errorf("failed to set calibration metadata: %w", err)
+	}
+
+	return nil
 }

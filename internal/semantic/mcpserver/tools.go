@@ -176,6 +176,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"config": {
 						"type": "string",
 						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+					},
+					"recalibrate": {
+						"type": "boolean",
+						"description": "Force recalibration of score thresholds even if calibration exists"
+					},
+					"skip_calibration": {
+						"type": "boolean",
+						"description": "Skip the calibration step during indexing"
 					}
 				}
 			}`),

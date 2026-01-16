@@ -48,6 +48,10 @@ func (m *MockEmbedderForOffline) Dimensions() int {
 	return m.dimensions
 }
 
+func (m *MockEmbedderForOffline) Model() string {
+	return "mock-offline-embedder"
+}
+
 func TestOfflineEmbedder_OnlineMode(t *testing.T) {
 	mockEmb := &MockEmbedderForOffline{
 		shouldFail: false,

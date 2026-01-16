@@ -254,6 +254,12 @@ func buildIndexArgs(args map[string]interface{}) []string {
 	if collection, ok := args["collection"].(string); ok && collection != "" {
 		cmdArgs = append(cmdArgs, "--collection", collection)
 	}
+	if getBool(args, "recalibrate") {
+		cmdArgs = append(cmdArgs, "--recalibrate")
+	}
+	if getBool(args, "skip_calibration") {
+		cmdArgs = append(cmdArgs, "--skip-calibration")
+	}
 
 	return cmdArgs
 }

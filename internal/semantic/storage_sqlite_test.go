@@ -109,3 +109,123 @@ func TestEncodeDecodeEmbedding(t *testing.T) {
 		}
 	}
 }
+
+func TestSQLiteStorage_CalibrationMetadata_Empty(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := t.Context()
+
+	// Get on fresh database should return nil, nil
+	meta, err := storage.GetCalibrationMetadata(ctx)
+	if err != nil {
+		t.Fatalf("GetCalibrationMetadata() error = %v", err)
+	}
+	if meta != nil {
+		t.Errorf("GetCalibrationMetadata() = %v, want nil", meta)
+	}
+}
+
+func TestSQLiteStorage_CalibrationMetadata_RoundTrip(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := t.Context()
+
+	// Create test metadata
+	original := &CalibrationMetadata{
+		EmbeddingModel:    "test-model",
+		PerfectMatchScore: 0.95,
+		BaselineScore:     0.20,
+		ScoreRange:        0.75,
+		HighThreshold:     0.725,
+		MediumThreshold:   0.50,
+		LowThreshold:      0.3125,
+	}
+
+	// Set
+	err = storage.SetCalibrationMetadata(ctx, original)
+	if err != nil {
+		t.Fatalf("SetCalibrationMetadata() error = %v", err)
+	}
+
+	// Get
+	retrieved, err := storage.GetCalibrationMetadata(ctx)
+	if err != nil {
+		t.Fatalf("GetCalibrationMetadata() error = %v", err)
+	}
+	if retrieved == nil {
+		t.Fatal("GetCalibrationMetadata() returned nil")
+	}
+
+	// Verify fields
+	if retrieved.EmbeddingModel != original.EmbeddingModel {
+		t.Errorf("EmbeddingModel = %v, want %v", retrieved.EmbeddingModel, original.EmbeddingModel)
+	}
+	if retrieved.PerfectMatchScore != original.PerfectMatchScore {
+		t.Errorf("PerfectMatchScore = %v, want %v", retrieved.PerfectMatchScore, original.PerfectMatchScore)
+	}
+	if retrieved.BaselineScore != original.BaselineScore {
+		t.Errorf("BaselineScore = %v, want %v", retrieved.BaselineScore, original.BaselineScore)
+	}
+	if retrieved.HighThreshold != original.HighThreshold {
+		t.Errorf("HighThreshold = %v, want %v", retrieved.HighThreshold, original.HighThreshold)
+	}
+	if retrieved.MediumThreshold != original.MediumThreshold {
+		t.Errorf("MediumThreshold = %v, want %v", retrieved.MediumThreshold, original.MediumThreshold)
+	}
+	if retrieved.LowThreshold != original.LowThreshold {
+		t.Errorf("LowThreshold = %v, want %v", retrieved.LowThreshold, original.LowThreshold)
+	}
+}
+
+func TestSQLiteStorage_CalibrationMetadata_Overwrite(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := t.Context()
+
+	// Set initial
+	initial := &CalibrationMetadata{
+		EmbeddingModel:    "model-v1",
+		PerfectMatchScore: 0.80,
+		BaselineScore:     0.10,
+	}
+	err = storage.SetCalibrationMetadata(ctx, initial)
+	if err != nil {
+		t.Fatalf("SetCalibrationMetadata() error = %v", err)
+	}
+
+	// Set updated
+	updated := &CalibrationMetadata{
+		EmbeddingModel:    "model-v2",
+		PerfectMatchScore: 0.95,
+		BaselineScore:     0.15,
+	}
+	err = storage.SetCalibrationMetadata(ctx, updated)
+	if err != nil {
+		t.Fatalf("SetCalibrationMetadata() error = %v", err)
+	}
+
+	// Get should return updated
+	retrieved, err := storage.GetCalibrationMetadata(ctx)
+	if err != nil {
+		t.Fatalf("GetCalibrationMetadata() error = %v", err)
+	}
+
+	if retrieved.EmbeddingModel != "model-v2" {
+		t.Errorf("EmbeddingModel = %v, want model-v2", retrieved.EmbeddingModel)
+	}
+	if retrieved.PerfectMatchScore != 0.95 {
+		t.Errorf("PerfectMatchScore = %v, want 0.95", retrieved.PerfectMatchScore)
+	}
+}

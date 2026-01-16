@@ -16,11 +16,13 @@ import (
 
 func indexCmd() *cobra.Command {
 	var (
-		includes   []string
-		excludes   []string
-		force      bool
-		jsonOutput bool
-		verbose    bool
+		includes        []string
+		excludes        []string
+		force           bool
+		jsonOutput      bool
+		verbose         bool
+		recalibrate     bool
+		skipCalibration bool
 	)
 
 	cmd := &cobra.Command{
@@ -36,11 +38,13 @@ Walks the directory, parses code files, and generates embeddings.`,
 			}
 
 			return runIndex(cmd.Context(), path, indexOpts{
-				includes:   includes,
-				excludes:   excludes,
-				force:      force,
-				jsonOutput: jsonOutput,
-				verbose:    verbose,
+				includes:        includes,
+				excludes:        excludes,
+				force:           force,
+				jsonOutput:      jsonOutput,
+				verbose:         verbose,
+				recalibrate:     recalibrate,
+				skipCalibration: skipCalibration,
 			})
 		},
 	}
@@ -50,16 +54,20 @@ Walks the directory, parses code files, and generates embeddings.`,
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force re-index all files")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show per-file progress instead of periodic summary")
+	cmd.Flags().BoolVar(&recalibrate, "recalibrate", false, "Force recalibration of score thresholds")
+	cmd.Flags().BoolVar(&skipCalibration, "skip-calibration", false, "Skip calibration step")
 
 	return cmd
 }
 
 type indexOpts struct {
-	includes   []string
-	excludes   []string
-	force      bool
-	jsonOutput bool
-	verbose    bool
+	includes        []string
+	excludes        []string
+	force           bool
+	jsonOutput      bool
+	verbose         bool
+	recalibrate     bool
+	skipCalibration bool
 }
 
 func runIndex(ctx context.Context, path string, opts indexOpts) error {
@@ -222,11 +230,26 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 		return fmt.Errorf("indexing failed: %w", err)
 	}
 
+	// Run calibration unless skipped
+	var calibrationMeta *semantic.CalibrationMetadata
+	var calibrationErr error
+	if !opts.skipCalibration {
+		calibrationMeta, calibrationErr = runCalibration(ctx, storage, embedder, opts.recalibrate, opts.jsonOutput)
+	}
+
 	// Output results
 	if opts.jsonOutput {
+		type jsonResult struct {
+			*semantic.IndexResult
+			Calibration *semantic.CalibrationMetadata `json:"calibration,omitempty"`
+		}
+		out := jsonResult{
+			IndexResult: result,
+			Calibration: calibrationMeta,
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return enc.Encode(out)
 	}
 
 	fmt.Printf("Indexed %d files, created %d chunks\n", result.FilesProcessed, result.ChunksCreated)
@@ -243,7 +266,63 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 		}
 	}
 
+	// Display calibration result
+	if calibrationErr != nil {
+		fmt.Printf("\nCalibration warning: %v\n", calibrationErr)
+	} else if calibrationMeta != nil {
+		fmt.Printf("\nCalibration: model=%s, thresholds high=%.4f/medium=%.4f/low=%.4f\n",
+			calibrationMeta.EmbeddingModel,
+			calibrationMeta.HighThreshold,
+			calibrationMeta.MediumThreshold,
+			calibrationMeta.LowThreshold)
+	} else if opts.skipCalibration {
+		fmt.Println("\nCalibration: skipped (--skip-calibration)")
+	}
+
 	return nil
+}
+
+// runCalibration handles the calibration workflow for the index command.
+// It checks for existing calibration, runs calibration if needed, and stores results.
+func runCalibration(ctx context.Context, storage semantic.Storage, embedder semantic.EmbedderInterface, forceRecalibrate, jsonOutput bool) (*semantic.CalibrationMetadata, error) {
+	// Check for existing calibration
+	existing, err := storage.GetCalibrationMetadata(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing calibration: %w", err)
+	}
+
+	// Skip if calibration exists and not forcing recalibration
+	if existing != nil && !forceRecalibrate {
+		if !jsonOutput {
+			fmt.Printf("\nUsing existing calibration (model=%s, date=%s)\n",
+				existing.EmbeddingModel,
+				existing.CalibrationDate.Format("2006-01-02"))
+		}
+		return existing, nil
+	}
+
+	if !jsonOutput {
+		if forceRecalibrate {
+			fmt.Println("\nRecalibrating score thresholds...")
+		} else {
+			fmt.Println("\nRunning initial calibration...")
+		}
+	}
+
+	// Run calibration
+	modelName := embedder.Model()
+	meta, err := semantic.RunCalibration(ctx, storage, embedder, modelName)
+	if err != nil {
+		// Calibration failure is a warning, not a fatal error
+		return nil, err
+	}
+
+	// Store calibration results
+	if err := storage.SetCalibrationMetadata(ctx, meta); err != nil {
+		return nil, fmt.Errorf("failed to store calibration: %w", err)
+	}
+
+	return meta, nil
 }
 
 func resolveIndexPath(rootPath string) string {

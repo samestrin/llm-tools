@@ -219,6 +219,10 @@ func (m *mockEmbedder) Dimensions() int {
 	return len(m.embedding)
 }
 
+func (m *mockEmbedder) Model() string {
+	return "mock-embedder"
+}
+
 // ===== Backward Compatibility Regression Tests =====
 // These tests ensure that existing behavior is unchanged after adding hybrid search.
 
