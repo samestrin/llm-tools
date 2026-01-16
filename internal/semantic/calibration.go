@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"sort"
 	"time"
@@ -124,6 +125,8 @@ func runSelfMatchProbes(ctx context.Context, storage Storage, embedder EmbedderI
 
 		if len(results) > 0 {
 			scores = append(scores, results[0].Score)
+		} else {
+			slog.Debug("calibration self-match probe returned no results", "chunk_id", chunk.ID)
 		}
 	}
 
@@ -158,6 +161,8 @@ func runUnrelatedProbes(ctx context.Context, storage Storage, embedder EmbedderI
 
 		if len(results) > 0 {
 			scores = append(scores, results[0].Score)
+		} else {
+			slog.Debug("calibration unrelated probe returned no results", "probe_num", i)
 		}
 	}
 

@@ -108,7 +108,11 @@ func (o *OfflineEmbedder) Dimensions() int {
 func (o *OfflineEmbedder) keywordEmbedding(text string) []float32 {
 	dims := o.dimensions
 	if dims == 0 {
-		dims = 1024
+		// Try to get dimensions from embedder before using fallback
+		dims = o.embedder.Dimensions()
+	}
+	if dims == 0 {
+		dims = 1024 // Final fallback for truly unknown dimensions
 	}
 
 	embedding := make([]float32, dims)
@@ -265,8 +269,11 @@ func (s *OfflineSearcher) boostKeywordMatches(query string, results []SearchResu
 		if matchCount > 0 && len(queryWords) > 0 {
 			matchRatio := float32(matchCount) / float32(len(queryWords))
 			results[i].Score += matchRatio * 0.2 // Up to 20% boost
+			// Clamp score to valid range [0.0, 1.0]
 			if results[i].Score > 1.0 {
 				results[i].Score = 1.0
+			} else if results[i].Score < 0.0 {
+				results[i].Score = 0.0
 			}
 		}
 	}

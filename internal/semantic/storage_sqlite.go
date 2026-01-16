@@ -984,6 +984,7 @@ func encodeEmbedding(embedding []float32) ([]byte, error) {
 func decodeEmbedding(data []byte) ([]float32, error) {
 	if len(data)%4 != 0 {
 		// Fallback: try JSON decode for legacy data
+		slog.Debug("decodeEmbedding using JSON fallback for legacy data", "data_len", len(data))
 		var embedding []float32
 		if err := json.Unmarshal(data, &embedding); err != nil {
 			return nil, fmt.Errorf("invalid embedding data")

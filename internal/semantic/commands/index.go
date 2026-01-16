@@ -401,15 +401,16 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%ds", s)
 }
 
-// truncatePath shortens a path to fit within maxLen characters
+// truncatePath shortens a path to fit within maxLen characters (rune-safe for unicode paths)
 func truncatePath(path string, maxLen int) string {
-	if len(path) <= maxLen {
+	runes := []rune(path)
+	if len(runes) <= maxLen {
 		return path
 	}
 	// Show beginning and end with ellipsis
 	if maxLen < 10 {
-		return path[:maxLen]
+		return string(runes[:maxLen])
 	}
 	half := (maxLen - 3) / 2
-	return path[:half] + "..." + path[len(path)-half:]
+	return string(runes[:half]) + "..." + string(runes[len(runes)-half:])
 }
