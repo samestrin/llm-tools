@@ -159,6 +159,10 @@ func (m *mockEmbedderLatency) Dimensions() int {
 	return m.dim
 }
 
+func (m *mockEmbedderLatency) Model() string {
+	return "mock-latency-embedder"
+}
+
 // TestRecencyBoostLatency validates that recency boosting adds minimal overhead
 func TestRecencyBoostLatency(t *testing.T) {
 	if testing.Short() {

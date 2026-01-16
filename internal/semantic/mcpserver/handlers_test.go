@@ -746,8 +746,9 @@ func TestGetInt(t *testing.T) {
 		{"int value", map[string]interface{}{"num": 42}, "num", 42, true},
 		{"float64 value", map[string]interface{}{"num": float64(42)}, "num", 42, true},
 		{"int64 value", map[string]interface{}{"num": int64(42)}, "num", 42, true},
+		{"string numeric", map[string]interface{}{"num": "42"}, "num", 42, true},
 		{"missing key", map[string]interface{}{}, "num", 0, false},
-		{"wrong type", map[string]interface{}{"num": "42"}, "num", 0, false},
+		{"non-numeric string", map[string]interface{}{"num": "not a number"}, "num", 0, false},
 	}
 
 	for _, tt := range tests {
@@ -774,8 +775,9 @@ func TestGetFloat(t *testing.T) {
 		{"float64 value", map[string]interface{}{"num": float64(3.14)}, "num", 3.14, true},
 		{"float32 value", map[string]interface{}{"num": float32(3.14)}, "num", float64(float32(3.14)), true},
 		{"int value", map[string]interface{}{"num": 42}, "num", 42.0, true},
+		{"string numeric", map[string]interface{}{"num": "3.14"}, "num", 3.14, true},
 		{"missing key", map[string]interface{}{}, "num", 0, false},
-		{"wrong type", map[string]interface{}{"num": "3.14"}, "num", 0, false},
+		{"non-numeric string", map[string]interface{}{"num": "not a number"}, "num", 0, false},
 	}
 
 	for _, tt := range tests {
@@ -957,22 +959,24 @@ func TestBuildSearchArgs_Basic(t *testing.T) {
 	}
 }
 
-func TestBuildSearchArgs_WithMinFlag(t *testing.T) {
+func TestBuildSearchArgs_MinFlagAddedGlobally(t *testing.T) {
+	// Note: --min is added globally by ExecuteHandler, not by buildSearchArgs
+	// This test verifies buildSearchArgs does NOT duplicate it
 	args := map[string]interface{}{
 		"query": "test",
 		"min":   true,
 	}
 	result := buildSearchArgs(args)
 
-	found := false
+	count := 0
 	for _, arg := range result {
 		if arg == "--min" {
-			found = true
-			break
+			count++
 		}
 	}
-	if !found {
-		t.Error("buildSearchArgs() missing --min flag")
+	// buildSearchArgs should NOT add --min (ExecuteHandler adds it globally)
+	if count > 0 {
+		t.Errorf("buildSearchArgs() should not add --min (added globally), but found %d instances", count)
 	}
 }
 

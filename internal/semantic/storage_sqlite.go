@@ -4,10 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -105,6 +108,12 @@ func (s *SQLiteStorage) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_memory_tags ON memory(tags);
 	CREATE INDEX IF NOT EXISTS idx_memory_status ON memory(status);
+
+	CREATE TABLE IF NOT EXISTS index_metadata (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -245,7 +254,7 @@ func (s *SQLiteStorage) Read(ctx context.Context, id string) (*Chunk, error) {
 	`, id).Scan(&chunk.ID, &chunk.FilePath, &typeStr, &chunk.Name, &chunk.Signature,
 		&chunk.Content, &chunk.StartLine, &chunk.EndLine, &chunk.Language)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
@@ -275,16 +284,20 @@ func (s *SQLiteStorage) Update(ctx context.Context, chunk Chunk, embedding []flo
 		UPDATE chunks SET
 			file_path = ?, type = ?, name = ?, signature = ?, content = ?,
 			start_line = ?, end_line = ?, language = ?, embedding = ?,
-			updated_at = CURRENT_TIMESTAMP
+			file_mtime = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`, chunk.FilePath, chunk.Type.String(), chunk.Name, chunk.Signature,
-		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language, embeddingBytes, chunk.ID)
+		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language, embeddingBytes,
+		chunk.FileMtime, chunk.ID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update chunk: %w", err)
 	}
 
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
 	if rows == 0 {
 		return ErrNotFound
 	}
@@ -305,7 +318,10 @@ func (s *SQLiteStorage) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to delete chunk: %w", err)
 	}
 
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
 	if rows == 0 {
 		return ErrNotFound
 	}
@@ -326,7 +342,10 @@ func (s *SQLiteStorage) DeleteByFilePath(ctx context.Context, filePath string) (
 		return 0, fmt.Errorf("failed to delete chunks by file path: %w", err)
 	}
 
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
 	return int(rows), nil
 }
 
@@ -437,7 +456,8 @@ func (s *SQLiteStorage) Search(ctx context.Context, queryEmbedding []float32, op
 
 		embedding, err := decodeEmbedding(embeddingBytes)
 		if err != nil {
-			continue // Skip chunks with invalid embeddings
+			slog.Debug("skipping chunk with invalid embedding", "chunk_id", chunk.ID, "file", chunk.FilePath, "error", err)
+			continue
 		}
 
 		score := cosineSimilarity(queryEmbedding, embedding)
@@ -535,7 +555,7 @@ func (s *SQLiteStorage) GetFileHash(ctx context.Context, filePath string) (strin
 		`SELECT content_hash FROM file_hashes WHERE file_path = ?`,
 		filePath).Scan(&hash)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil // Not indexed yet
 	}
 	if err != nil {
@@ -721,7 +741,8 @@ func (s *SQLiteStorage) SearchMemory(ctx context.Context, queryEmbedding []float
 		// Decode embedding
 		embedding, err := decodeEmbedding(embeddingBytes)
 		if err != nil {
-			continue // Skip entries with invalid embeddings
+			slog.Debug("skipping memory entry with invalid embedding", "entry_id", entry.ID, "error", err)
+			continue
 		}
 
 		// Calculate cosine similarity
@@ -806,7 +827,7 @@ func (s *SQLiteStorage) GetMemory(ctx context.Context, id string) (*MemoryEntry,
 		WHERE id = ?
 	`, id).Scan(&entry.ID, &entry.Question, &entry.Answer, &tagsStr, &source, &entry.Status, &entry.Occurrences, &entry.CreatedAt, &entry.UpdatedAt)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrMemoryNotFound
 	}
 	if err != nil {
@@ -963,6 +984,7 @@ func encodeEmbedding(embedding []float32) ([]byte, error) {
 func decodeEmbedding(data []byte) ([]float32, error) {
 	if len(data)%4 != 0 {
 		// Fallback: try JSON decode for legacy data
+		slog.Debug("decodeEmbedding using JSON fallback for legacy data", "data_len", len(data))
 		var embedding []float32
 		if err := json.Unmarshal(data, &embedding); err != nil {
 			return nil, fmt.Errorf("invalid embedding data")
@@ -980,6 +1002,7 @@ func decodeEmbedding(data []byte) ([]float32, error) {
 // cosineSimilarity calculates the cosine similarity between two vectors
 func cosineSimilarity(a, b []float32) float32 {
 	if len(a) != len(b) {
+		slog.Debug("cosineSimilarity dimension mismatch", "len_a", len(a), "len_b", len(b))
 		return 0
 	}
 
@@ -997,15 +1020,11 @@ func cosineSimilarity(a, b []float32) float32 {
 	return float32(dotProduct / (math.Sqrt(normA) * math.Sqrt(normB)))
 }
 
-// sortResultsByScore sorts results by score in descending order
+// sortResultsByScore sorts results by score in descending order using O(n log n) sort
 func sortResultsByScore(results []SearchResult) {
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].Score > results[i].Score {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
 }
 
 // IndexPath returns the default index path for a repository
@@ -1020,4 +1039,61 @@ func nullableInt64(v int64) interface{} {
 		return nil
 	}
 	return v
+}
+
+// GetCalibrationMetadata retrieves stored calibration data.
+// Returns (nil, nil) if no calibration has been performed yet.
+func (s *SQLiteStorage) GetCalibrationMetadata(ctx context.Context) (*CalibrationMetadata, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	var value string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT value FROM index_metadata WHERE key = 'calibration'`,
+	).Scan(&value)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil // No calibration yet
+		}
+		return nil, fmt.Errorf("failed to get calibration metadata: %w", err)
+	}
+
+	var meta CalibrationMetadata
+	if err := json.Unmarshal([]byte(value), &meta); err != nil {
+		return nil, fmt.Errorf("failed to parse calibration metadata: %w", err)
+	}
+
+	return &meta, nil
+}
+
+// SetCalibrationMetadata stores calibration data.
+// Overwrites any existing calibration data.
+func (s *SQLiteStorage) SetCalibrationMetadata(ctx context.Context, meta *CalibrationMetadata) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	value, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("failed to marshal calibration metadata: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT OR REPLACE INTO index_metadata (key, value, updated_at)
+		VALUES ('calibration', ?, CURRENT_TIMESTAMP)
+	`, string(value))
+
+	if err != nil {
+		return fmt.Errorf("failed to set calibration metadata: %w", err)
+	}
+
+	return nil
 }

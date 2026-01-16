@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -37,12 +38,12 @@ type Config struct {
 func loadConfig(configPath string) (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+		return nil, fmt.Errorf("failed to read config file %q: %w", configPath, err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, fmt.Errorf("failed to parse config file %q: %w", configPath, err)
 	}
 
 	return &cfg, nil
@@ -115,7 +116,21 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 	}
 
 	// Add --json and --min flags for machine-parseable, token-optimized output
-	cmdArgs = append(cmdArgs, "--json", "--min")
+	// Check for existing flags to avoid duplication
+	hasJSON, hasMin := false, false
+	for _, arg := range cmdArgs {
+		if arg == "--json" {
+			hasJSON = true
+		} else if arg == "--min" {
+			hasMin = true
+		}
+	}
+	if !hasJSON {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if !hasMin {
+		cmdArgs = append(cmdArgs, "--min")
+	}
 
 	// Execute command
 	ctx, cancel := context.WithTimeout(context.Background(), CommandTimeout)
@@ -125,15 +140,15 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 	output, err := cmd.CombinedOutput()
 
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("command timed out after %v", CommandTimeout)
+		return "", fmt.Errorf("command %q timed out after %v", cmdName, CommandTimeout)
 	}
 
 	if err != nil {
-		// Return output even on error (may contain useful error message)
+		// Include both the error and any output for better diagnostics
 		if len(output) > 0 {
-			return string(output), nil
+			return "", fmt.Errorf("command %q failed: %w\nOutput: %s", cmdName, err, string(output))
 		}
-		return "", fmt.Errorf("command failed: %w", err)
+		return "", fmt.Errorf("command %q failed: %w", cmdName, err)
 	}
 
 	return string(output), nil
@@ -150,6 +165,10 @@ func stripPrefix(toolName string) string {
 func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 	switch cmdName {
 	case "search":
+		query, ok := args["query"].(string)
+		if !ok || strings.TrimSpace(query) == "" {
+			return nil, fmt.Errorf("search requires a non-empty query")
+		}
 		return buildSearchArgs(args), nil
 	case "index":
 		return buildIndexArgs(args), nil
@@ -160,6 +179,10 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 	case "memory_store":
 		return buildMemoryStoreArgs(args), nil
 	case "memory_search":
+		query, ok := args["query"].(string)
+		if !ok || strings.TrimSpace(query) == "" {
+			return nil, fmt.Errorf("memory_search requires a non-empty query")
+		}
 		return buildMemorySearchArgs(args), nil
 	case "memory_promote":
 		return buildMemoryPromoteArgs(args), nil
@@ -175,7 +198,7 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 func buildSearchArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"search"}
 
-	if query, ok := args["query"].(string); ok {
+	if query, ok := args["query"].(string); ok && query != "" {
 		cmdArgs = append(cmdArgs, query)
 	}
 	if topK, ok := getInt(args, "top_k"); ok {
@@ -190,9 +213,7 @@ func buildSearchArgs(args map[string]interface{}) []string {
 	if pathFilter, ok := args["path"].(string); ok && pathFilter != "" {
 		cmdArgs = append(cmdArgs, "--path", pathFilter)
 	}
-	if getBool(args, "min") {
-		cmdArgs = append(cmdArgs, "--min")
-	}
+	// Note: --min is already added globally by ExecuteHandler, no need to add here
 	if storage, ok := args["storage"].(string); ok && storage != "" {
 		cmdArgs = append(cmdArgs, "--storage", storage)
 	}
@@ -254,6 +275,12 @@ func buildIndexArgs(args map[string]interface{}) []string {
 	if collection, ok := args["collection"].(string); ok && collection != "" {
 		cmdArgs = append(cmdArgs, "--collection", collection)
 	}
+	if getBool(args, "recalibrate") {
+		cmdArgs = append(cmdArgs, "--recalibrate")
+	}
+	if getBool(args, "skip_calibration") {
+		cmdArgs = append(cmdArgs, "--skip-calibration")
+	}
 
 	return cmdArgs
 }
@@ -314,10 +341,18 @@ func getInt(args map[string]interface{}, key string) (int, bool) {
 	switch v := args[key].(type) {
 	case int:
 		return v, true
-	case float64:
+	case int32:
 		return int(v), true
 	case int64:
 		return int(v), true
+	case float64:
+		return int(v), true
+	case float32:
+		return int(v), true
+	case string:
+		if i, err := strconv.Atoi(v); err == nil {
+			return i, true
+		}
 	}
 	return 0, false
 }
@@ -330,6 +365,12 @@ func getFloat(args map[string]interface{}, key string) (float64, bool) {
 		return float64(v), true
 	case int:
 		return float64(v), true
+	case int64:
+		return float64(v), true
+	case string:
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f, true
+		}
 	}
 	return 0, false
 }
