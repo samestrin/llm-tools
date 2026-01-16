@@ -98,7 +98,8 @@ func (c *Chunk) GenerateID() string {
 type SearchResult struct {
 	Chunk     Chunk     `json:"chunk"`
 	Score     float32   `json:"score"`
-	Embedding []float32 `json:"-"` // Not included in JSON output
+	Relevance string    `json:"relevance,omitempty"` // "high", "medium", or "low"
+	Embedding []float32 `json:"-"`                   // Not included in JSON output
 }
 
 // MinimalJSON returns a compact JSON representation for --min output

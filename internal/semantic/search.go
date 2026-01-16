@@ -50,7 +50,15 @@ func (s *Searcher) Search(ctx context.Context, query string, opts SearchOptions)
 	}
 
 	// Search storage
-	return s.storage.Search(ctx, queryEmbedding, opts)
+	results, err := s.storage.Search(ctx, queryEmbedding, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply relevance labels
+	s.applyRelevanceLabels(ctx, results)
+
+	return results, nil
 }
 
 // HybridSearchOptions configures hybrid search behavior.
@@ -130,6 +138,9 @@ func (s *Searcher) HybridSearch(ctx context.Context, query string, opts HybridSe
 	if opts.TopK > 0 && len(results) > opts.TopK {
 		results = results[:opts.TopK]
 	}
+
+	// Apply relevance labels
+	s.applyRelevanceLabels(ctx, results)
 
 	return results, nil
 }
@@ -213,5 +224,41 @@ func (s *Searcher) SearchMultiple(ctx context.Context, queries []string, opts Se
 		results = results[:opts.TopK]
 	}
 
+	// Apply relevance labels
+	s.applyRelevanceLabels(ctx, results)
+
 	return results, nil
+}
+
+// applyRelevanceLabels applies relevance labels to search results.
+// Uses calibration thresholds if available, otherwise falls back to percentile-based labeling.
+func (s *Searcher) applyRelevanceLabels(ctx context.Context, results []SearchResult) {
+	if len(results) == 0 {
+		return
+	}
+
+	// Try to get calibration metadata
+	var cal *CalibrationMetadata
+	cal, err := s.storage.GetCalibrationMetadata(ctx)
+	if err != nil {
+		slog.Debug("failed to get calibration metadata, using percentile fallback", "error", err)
+		cal = nil
+	}
+
+	if cal != nil {
+		// Use calibration-based labeling
+		for i := range results {
+			results[i].Relevance = LabelRelevance(results[i].Score, cal)
+		}
+	} else {
+		// Fallback to percentile-based labeling
+		slog.Debug("no calibration data available, using percentile-based relevance labeling")
+		allScores := make([]float32, len(results))
+		for i, r := range results {
+			allScores[i] = r.Score
+		}
+		for i := range results {
+			results[i].Relevance = LabelByPercentile(results[i].Score, allScores)
+		}
+	}
 }
