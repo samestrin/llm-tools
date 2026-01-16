@@ -199,7 +199,7 @@ func StorageTestSuite(t *testing.T, newStorage func() (Storage, func())) {
 		}
 
 		for _, c := range chunks {
-			_ = storage.Create(context.Background(), c, []float32{0.1, 0.2})
+			_ = storage.Create(context.Background(), c, []float32{0.1, 0.2, 0.3, 0.4})
 		}
 
 		results, err := storage.List(context.Background(), ListOptions{FilePath: "/path/a.go"})
@@ -254,15 +254,15 @@ func StorageTestSuite(t *testing.T, newStorage func() (Storage, func())) {
 			chunk     Chunk
 			embedding []float32
 		}{
-			{Chunk{ID: "t1", FilePath: "/a.go", Name: "High", Type: ChunkFunction, Language: "go"}, []float32{0.9, 0.1}},
-			{Chunk{ID: "t2", FilePath: "/b.go", Name: "Low", Type: ChunkFunction, Language: "go"}, []float32{0.1, 0.9}},
+			{Chunk{ID: "t1", FilePath: "/a.go", Name: "High", Type: ChunkFunction, Language: "go"}, []float32{0.9, 0.1, 0.0, 0.0}},
+			{Chunk{ID: "t2", FilePath: "/b.go", Name: "Low", Type: ChunkFunction, Language: "go"}, []float32{0.1, 0.9, 0.0, 0.0}},
 		}
 
 		for _, c := range chunks {
 			_ = storage.Create(context.Background(), c.chunk, c.embedding)
 		}
 
-		queryEmbedding := []float32{0.95, 0.05}
+		queryEmbedding := []float32{0.95, 0.05, 0.0, 0.0}
 		results, err := storage.Search(context.Background(), queryEmbedding, SearchOptions{TopK: 10, Threshold: 0.8})
 		if err != nil {
 			t.Fatalf("Search() error = %v", err)
@@ -287,7 +287,7 @@ func StorageTestSuite(t *testing.T, newStorage func() (Storage, func())) {
 		}
 
 		for _, c := range chunks {
-			_ = storage.Create(context.Background(), c, []float32{0.1, 0.2})
+			_ = storage.Create(context.Background(), c, []float32{0.1, 0.2, 0.3, 0.4})
 		}
 
 		count, err := storage.DeleteByFilePath(context.Background(), "/path/delete.go")
@@ -317,7 +317,7 @@ func StorageTestSuite(t *testing.T, newStorage func() (Storage, func())) {
 				Name:     "Func" + string(rune('A'+i)),
 				Language: "go",
 			}
-			_ = storage.Create(context.Background(), chunk, []float32{0.1, 0.2})
+			_ = storage.Create(context.Background(), chunk, []float32{0.1, 0.2, 0.3, 0.4})
 		}
 
 		stats, err := storage.Stats(context.Background())
@@ -529,7 +529,7 @@ func MemoryStorageTestSuite(t *testing.T, newStorage func() (Storage, func())) {
 		}
 
 		for _, e := range entries {
-			_ = storage.StoreMemory(context.Background(), *e, []float32{0.1, 0.2})
+			_ = storage.StoreMemory(context.Background(), *e, []float32{0.1, 0.2, 0.3, 0.4})
 		}
 
 		results, err := storage.ListMemory(context.Background(), MemoryListOptions{})
@@ -547,7 +547,7 @@ func MemoryStorageTestSuite(t *testing.T, newStorage func() (Storage, func())) {
 
 		for i := 0; i < 10; i++ {
 			entry := NewMemoryEntry("Question "+string(rune('A'+i))+"?", "Answer")
-			_ = storage.StoreMemory(context.Background(), *entry, []float32{0.1, 0.2})
+			_ = storage.StoreMemory(context.Background(), *entry, []float32{0.1, 0.2, 0.3, 0.4})
 		}
 
 		results, err := storage.ListMemory(context.Background(), MemoryListOptions{Limit: 5})
@@ -569,8 +569,8 @@ func MemoryStorageTestSuite(t *testing.T, newStorage func() (Storage, func())) {
 		entry2 := NewMemoryEntry("Promoted question?", "Answer")
 		entry2.Status = MemoryStatusPromoted
 
-		_ = storage.StoreMemory(context.Background(), *entry1, []float32{0.1, 0.2})
-		_ = storage.StoreMemory(context.Background(), *entry2, []float32{0.1, 0.2})
+		_ = storage.StoreMemory(context.Background(), *entry1, []float32{0.1, 0.2, 0.3, 0.4})
+		_ = storage.StoreMemory(context.Background(), *entry2, []float32{0.1, 0.2, 0.3, 0.4})
 
 		results, err := storage.ListMemory(context.Background(), MemoryListOptions{
 			Status: MemoryStatusPromoted,
@@ -630,15 +630,15 @@ func MemoryStorageTestSuite(t *testing.T, newStorage func() (Storage, func())) {
 			entry     *MemoryEntry
 			embedding []float32
 		}{
-			{NewMemoryEntry("High match?", "Answer"), []float32{0.9, 0.1}},
-			{NewMemoryEntry("Low match?", "Answer"), []float32{0.1, 0.9}},
+			{NewMemoryEntry("High match?", "Answer"), []float32{0.9, 0.1, 0.0, 0.0}},
+			{NewMemoryEntry("Low match?", "Answer"), []float32{0.1, 0.9, 0.0, 0.0}},
 		}
 
 		for _, e := range entries {
 			_ = storage.StoreMemory(context.Background(), *e.entry, e.embedding)
 		}
 
-		queryEmbedding := []float32{0.95, 0.05}
+		queryEmbedding := []float32{0.95, 0.05, 0.0, 0.0}
 		results, err := storage.SearchMemory(context.Background(), queryEmbedding, MemorySearchOptions{
 			TopK:      10,
 			Threshold: 0.8,
@@ -660,9 +660,9 @@ func MemoryStorageTestSuite(t *testing.T, newStorage func() (Storage, func())) {
 		defer cleanup()
 
 		batch := []MemoryWithEmbedding{
-			{Entry: *NewMemoryEntry("Batch Q1?", "A1"), Embedding: []float32{0.1, 0.2}},
-			{Entry: *NewMemoryEntry("Batch Q2?", "A2"), Embedding: []float32{0.3, 0.4}},
-			{Entry: *NewMemoryEntry("Batch Q3?", "A3"), Embedding: []float32{0.5, 0.6}},
+			{Entry: *NewMemoryEntry("Batch Q1?", "A1"), Embedding: []float32{0.1, 0.2, 0.3, 0.4}},
+			{Entry: *NewMemoryEntry("Batch Q2?", "A2"), Embedding: []float32{0.3, 0.4, 0.5, 0.6}},
+			{Entry: *NewMemoryEntry("Batch Q3?", "A3"), Embedding: []float32{0.5, 0.6, 0.7, 0.8}},
 		}
 
 		err := storage.StoreMemoryBatch(context.Background(), batch)
