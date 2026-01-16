@@ -100,15 +100,17 @@ func TestNormalizeArgs(t *testing.T) {
 	}
 }
 
-func TestBuildReadFileArgs_WithAlias(t *testing.T) {
-	// Test that file_path alias works for read_file
+func TestBuildExtractLinesArgs_WithAlias(t *testing.T) {
+	// Test that file_path alias works for extract_lines
 	args := map[string]interface{}{
 		"file_path": "/test/file.txt",
+		"start":     float64(1),
+		"end":       float64(10),
 	}
 
 	// Normalize first (as buildArgs does)
 	normalized := normalizeArgs(args)
-	cmdArgs := buildReadFileArgs(normalized)
+	cmdArgs := buildExtractLinesArgs(normalized)
 
 	// Should contain --path /test/file.txt
 	found := false

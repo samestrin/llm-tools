@@ -8,9 +8,10 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Should have 28 tools
-	if len(tools) != 28 {
-		t.Errorf("GetToolDefinitions() = %d tools, want 28", len(tools))
+	// Should have 15 batch/specialized tools
+	// NOTE: Single-file operations should use Claude's native tools
+	if len(tools) != 15 {
+		t.Errorf("GetToolDefinitions() = %d tools, want 15", len(tools))
 	}
 
 	// Verify all tools have required fields
@@ -47,35 +48,34 @@ func TestGetToolDefinitionsValidJSON(t *testing.T) {
 func TestGetToolDefinitionsNames(t *testing.T) {
 	tools := GetToolDefinitions()
 
+	// 15 batch/specialized tools - single-file operations use Claude's native tools
 	expectedTools := []string{
-		"llm_filesystem_read_file",
+		// Batch Reading
 		"llm_filesystem_read_multiple_files",
-		"llm_filesystem_write_file",
-		"llm_filesystem_large_write_file",
+		"llm_filesystem_extract_lines",
+
+		// Batch Editing
+		"llm_filesystem_edit_blocks",
+		"llm_filesystem_search_and_replace",
+
+		// Directory operations
 		"llm_filesystem_list_directory",
-		"llm_filesystem_get_file_info",
-		"llm_filesystem_create_directory",
+		"llm_filesystem_get_directory_tree",
 		"llm_filesystem_create_directories",
+
+		// Search operations
 		"llm_filesystem_search_files",
 		"llm_filesystem_search_code",
-		"llm_filesystem_get_directory_tree",
-		"llm_filesystem_edit_block",
-		"llm_filesystem_safe_edit",
-		"llm_filesystem_edit_multiple_blocks",
-		"llm_filesystem_edit_blocks",
-		"llm_filesystem_extract_lines",
+
+		// File management
 		"llm_filesystem_copy_file",
 		"llm_filesystem_move_file",
 		"llm_filesystem_delete_file",
 		"llm_filesystem_batch_file_operations",
-		"llm_filesystem_get_disk_usage",
-		"llm_filesystem_find_large_files",
+
+		// Archive operations
 		"llm_filesystem_compress_files",
 		"llm_filesystem_extract_archive",
-		"llm_filesystem_sync_directories",
-		"llm_filesystem_list_allowed_directories",
-		"llm_filesystem_edit_file",
-		"llm_filesystem_search_and_replace",
 	}
 
 	if len(tools) != len(expectedTools) {
