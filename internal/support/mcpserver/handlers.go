@@ -959,6 +959,16 @@ func buildYamlSetArgs(args map[string]interface{}) []string {
 		cmdArgs = append(cmdArgs, "--create")
 	}
 
+	// Dry-run flag
+	if getBool(args, "dry_run") {
+		cmdArgs = append(cmdArgs, "--dry-run")
+	}
+
+	// Quiet flag
+	if getBool(args, "quiet") {
+		cmdArgs = append(cmdArgs, "--quiet")
+	}
+
 	// Output format flags
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
@@ -996,6 +1006,11 @@ func buildYamlMultigetArgs(args map[string]interface{}) []string {
 		}
 	}
 
+	// Required file flag
+	if requiredFile, ok := args["required_file"].(string); ok && requiredFile != "" {
+		cmdArgs = append(cmdArgs, "--required-file", requiredFile)
+	}
+
 	// Output format flags
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
@@ -1030,6 +1045,16 @@ func buildYamlMultisetArgs(args map[string]interface{}) []string {
 	// Create flag
 	if getBool(args, "create") {
 		cmdArgs = append(cmdArgs, "--create")
+	}
+
+	// Dry-run flag
+	if getBool(args, "dry_run") {
+		cmdArgs = append(cmdArgs, "--dry-run")
+	}
+
+	// Quiet flag
+	if getBool(args, "quiet") {
+		cmdArgs = append(cmdArgs, "--quiet")
 	}
 
 	// Output format flags

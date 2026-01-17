@@ -138,7 +138,7 @@ func TestToolSchemaRequiredFields(t *testing.T) {
 		"llm_support_context_multiget": {"dir", "keys"},
 		"llm_support_yaml_get":         {"file", "key"},
 		"llm_support_yaml_set":         {"file", "key", "value"},
-		"llm_support_yaml_multiget":    {"file", "keys"},
+		"llm_support_yaml_multiget":    {"file"},
 		"llm_support_yaml_multiset":    {"file", "pairs"},
 	}
 

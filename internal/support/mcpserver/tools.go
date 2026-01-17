@@ -866,7 +866,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 26. YAML set - store value at dot-notation key
 		{
 			Name:        ToolPrefix + "yaml_set",
-			Description: "Store a value in YAML config file at the specified key. Creates intermediate keys if needed. Preserves comments.",
+			Description: "Store a value in YAML config file at the specified key. Creates intermediate keys if needed. Preserves comments. Supports array bracket notation (e.g., items[0].name, items[-1]).",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -876,7 +876,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"key": {
 						"type": "string",
-						"description": "Dot-notation key (e.g., helper.llm)"
+						"description": "Dot-notation key (e.g., helper.llm, items[0].name)"
 					},
 					"value": {
 						"type": "string",
@@ -885,6 +885,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"create": {
 						"type": "boolean",
 						"description": "Create file if it doesn't exist"
+					},
+					"dry_run": {
+						"type": "boolean",
+						"description": "Preview changes without writing to file"
+					},
+					"quiet": {
+						"type": "boolean",
+						"description": "Suppress success messages (errors still returned)"
 					},
 					"json": {
 						"type": "boolean",
@@ -902,7 +910,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 27. YAML multiget - retrieve multiple values
 		{
 			Name:        ToolPrefix + "yaml_multiget",
-			Description: "Retrieve multiple values from YAML config file in a single operation. More efficient than multiple get calls.",
+			Description: "Retrieve multiple values from YAML config file in a single operation. More efficient than multiple get calls. Supports array bracket notation (e.g., items[0].name).",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -919,6 +927,10 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "object",
 						"description": "Default values for keys (e.g., {\"helper.llm\": \"gemini\"})"
 					},
+					"required_file": {
+						"type": "string",
+						"description": "Path to file containing required keys (one per line, # comments supported)"
+					},
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
@@ -928,14 +940,14 @@ func GetToolDefinitions() []ToolDefinition {
 						"description": "Minimal output - values only, newline-separated"
 					}
 				},
-				"required": ["file", "keys"]
+				"required": ["file"]
 			}`),
 		},
 
 		// 28. YAML multiset - set multiple key-value pairs
 		{
 			Name:        ToolPrefix + "yaml_multiset",
-			Description: "Set multiple key-value pairs in YAML config file atomically. Validates all keys before writing.",
+			Description: "Set multiple key-value pairs in YAML config file atomically. Validates all keys before writing. Supports array bracket notation (e.g., items[0].name).",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -950,6 +962,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"create": {
 						"type": "boolean",
 						"description": "Create file if it doesn't exist"
+					},
+					"dry_run": {
+						"type": "boolean",
+						"description": "Preview changes without writing to file"
+					},
+					"quiet": {
+						"type": "boolean",
+						"description": "Suppress success messages (errors still returned)"
 					},
 					"json": {
 						"type": "boolean",

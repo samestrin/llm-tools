@@ -100,7 +100,7 @@ func runMemoryStore(ctx context.Context, opts memoryStoreOpts) error {
 		indexPath = findIndexPath()
 		if indexPath == "" {
 			// Create default index path
-			indexPath = ".llm-index/semantic.db"
+			indexPath = ".index/semantic.db"
 		}
 	}
 
@@ -275,6 +275,25 @@ func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
 	})
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
+	}
+
+	// Track retrieval stats (automatic for memory profile)
+	if len(results) > 0 {
+		if tracker, ok := storage.(semantic.MemoryStatsTracker); ok {
+			// Build retrieval batch
+			retrievals := make([]semantic.MemoryRetrieval, len(results))
+			for i, r := range results {
+				retrievals[i] = semantic.MemoryRetrieval{
+					MemoryID: r.Entry.ID,
+					Score:    r.Score,
+				}
+			}
+			// Track in background - don't fail search if tracking fails
+			if err := tracker.TrackMemoryRetrievalBatch(ctx, retrievals, opts.query); err != nil {
+				// Log error but don't fail the search
+				fmt.Fprintf(os.Stderr, "Warning: failed to track retrieval stats: %v\n", err)
+			}
+		}
 	}
 
 	// Output results
@@ -586,7 +605,7 @@ func runMemoryImport(ctx context.Context, opts memoryImportOpts) error {
 		indexPath = findIndexPath()
 		if indexPath == "" {
 			// Create default index path
-			indexPath = ".llm-index/semantic.db"
+			indexPath = ".index/semantic.db"
 		}
 	}
 

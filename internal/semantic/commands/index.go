@@ -311,18 +311,18 @@ func runCalibration(ctx context.Context, storage semantic.Storage, embedder sema
 
 func resolveIndexPath(rootPath string) string {
 	// If custom index dir specified
-	if indexDir != "" && indexDir != ".llm-index" {
+	if indexDir != "" && indexDir != ".index" {
 		return filepath.Join(indexDir, "semantic.db")
 	}
 
 	// Try git root first
 	gitRoot, err := findGitRootFrom(rootPath)
 	if err == nil {
-		return filepath.Join(gitRoot, ".llm-index", "semantic.db")
+		return filepath.Join(gitRoot, ".index", "semantic.db")
 	}
 
 	// Fall back to the indexed directory
-	return filepath.Join(rootPath, ".llm-index", "semantic.db")
+	return filepath.Join(rootPath, ".index", "semantic.db")
 }
 
 func findGitRootFrom(startPath string) (string, error) {

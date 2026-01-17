@@ -446,3 +446,208 @@ func TestSQLiteStorage_ConcurrentReadWrite(t *testing.T) {
 func idForWorker(workerID, iteration int) string {
 	return fmt.Sprintf("worker-%d-%d", workerID, iteration)
 }
+
+// ===== Memory Stats Tracking Tests =====
+
+func TestSQLiteStorage_TrackMemoryRetrieval(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create SQLite storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := context.Background()
+
+	// Track a retrieval
+	err = storage.TrackMemoryRetrieval(ctx, "mem-001", "test query", 0.95)
+	if err != nil {
+		t.Fatalf("TrackMemoryRetrieval failed: %v", err)
+	}
+
+	// Verify stats were created
+	stats, err := storage.GetMemoryStats(ctx, "mem-001")
+	if err != nil {
+		t.Fatalf("GetMemoryStats failed: %v", err)
+	}
+	if stats == nil {
+		t.Fatal("Expected stats to be non-nil")
+	}
+	if stats.RetrievalCount != 1 {
+		t.Errorf("Expected RetrievalCount=1, got %d", stats.RetrievalCount)
+	}
+	if stats.Status != "active" {
+		t.Errorf("Expected Status='active', got %q", stats.Status)
+	}
+
+	// Track another retrieval - count should increment
+	err = storage.TrackMemoryRetrieval(ctx, "mem-001", "another query", 0.85)
+	if err != nil {
+		t.Fatalf("Second TrackMemoryRetrieval failed: %v", err)
+	}
+
+	stats, err = storage.GetMemoryStats(ctx, "mem-001")
+	if err != nil {
+		t.Fatalf("GetMemoryStats failed: %v", err)
+	}
+	if stats.RetrievalCount != 2 {
+		t.Errorf("Expected RetrievalCount=2, got %d", stats.RetrievalCount)
+	}
+}
+
+func TestSQLiteStorage_TrackMemoryRetrievalBatch(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create SQLite storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := context.Background()
+
+	// Track a batch of retrievals
+	retrievals := []MemoryRetrieval{
+		{MemoryID: "mem-001", Score: 0.95},
+		{MemoryID: "mem-002", Score: 0.85},
+		{MemoryID: "mem-003", Score: 0.75},
+	}
+	err = storage.TrackMemoryRetrievalBatch(ctx, retrievals, "batch query")
+	if err != nil {
+		t.Fatalf("TrackMemoryRetrievalBatch failed: %v", err)
+	}
+
+	// Verify all stats were created
+	allStats, err := storage.GetAllMemoryStats(ctx)
+	if err != nil {
+		t.Fatalf("GetAllMemoryStats failed: %v", err)
+	}
+	if len(allStats) != 3 {
+		t.Errorf("Expected 3 stats entries, got %d", len(allStats))
+	}
+
+	// Verify individual stats
+	for _, id := range []string{"mem-001", "mem-002", "mem-003"} {
+		stats, err := storage.GetMemoryStats(ctx, id)
+		if err != nil {
+			t.Fatalf("GetMemoryStats for %s failed: %v", id, err)
+		}
+		if stats == nil {
+			t.Errorf("Expected stats for %s to be non-nil", id)
+			continue
+		}
+		if stats.RetrievalCount != 1 {
+			t.Errorf("Expected RetrievalCount=1 for %s, got %d", id, stats.RetrievalCount)
+		}
+	}
+}
+
+func TestSQLiteStorage_GetMemoryRetrievalHistory(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create SQLite storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := context.Background()
+
+	// Track multiple retrievals for the same memory
+	queries := []string{"query1", "query2", "query3"}
+	for i, q := range queries {
+		err = storage.TrackMemoryRetrieval(ctx, "mem-001", q, float32(0.9-float32(i)*0.1))
+		if err != nil {
+			t.Fatalf("TrackMemoryRetrieval failed: %v", err)
+		}
+	}
+
+	// Get history
+	history, err := storage.GetMemoryRetrievalHistory(ctx, "mem-001", 10)
+	if err != nil {
+		t.Fatalf("GetMemoryRetrievalHistory failed: %v", err)
+	}
+	if len(history) != 3 {
+		t.Errorf("Expected 3 history entries, got %d", len(history))
+	}
+
+	// Verify all queries are present in history (order may vary due to same-second timestamps)
+	queryMap := make(map[string]bool)
+	for _, h := range history {
+		queryMap[h.Query] = true
+	}
+	for _, q := range queries {
+		if !queryMap[q] {
+			t.Errorf("Expected query %q in history", q)
+		}
+	}
+}
+
+func TestSQLiteStorage_UpdateMemoryStatsStatus(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create SQLite storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := context.Background()
+
+	// Track a retrieval to create the stats entry
+	err = storage.TrackMemoryRetrieval(ctx, "mem-001", "test", 0.9)
+	if err != nil {
+		t.Fatalf("TrackMemoryRetrieval failed: %v", err)
+	}
+
+	// Update status
+	err = storage.UpdateMemoryStatsStatus(ctx, "mem-001", "archived")
+	if err != nil {
+		t.Fatalf("UpdateMemoryStatsStatus failed: %v", err)
+	}
+
+	// Verify status was updated
+	stats, err := storage.GetMemoryStats(ctx, "mem-001")
+	if err != nil {
+		t.Fatalf("GetMemoryStats failed: %v", err)
+	}
+	if stats.Status != "archived" {
+		t.Errorf("Expected Status='archived', got %q", stats.Status)
+	}
+
+	// Retrieval count should be preserved
+	if stats.RetrievalCount != 1 {
+		t.Errorf("Expected RetrievalCount=1, got %d", stats.RetrievalCount)
+	}
+}
+
+func TestSQLiteStorage_PruneMemoryRetrievalLog(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create SQLite storage: %v", err)
+	}
+	defer storage.Close()
+
+	ctx := context.Background()
+
+	// Track some retrievals
+	for i := 0; i < 5; i++ {
+		err = storage.TrackMemoryRetrieval(ctx, fmt.Sprintf("mem-%03d", i), "test", 0.9)
+		if err != nil {
+			t.Fatalf("TrackMemoryRetrieval failed: %v", err)
+		}
+	}
+
+	// Pruning with 0 days should delete nothing (all are from "now")
+	deleted, err := storage.PruneMemoryRetrievalLog(ctx, 0)
+	if err != nil {
+		t.Fatalf("PruneMemoryRetrievalLog failed: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("Expected 0 deleted, got %d", deleted)
+	}
+}
+
+func TestSQLiteStorage_MemoryStatsInterface(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create SQLite storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Verify SQLiteStorage implements MemoryStatsTracker
+	var _ MemoryStatsTracker = storage
+}

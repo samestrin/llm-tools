@@ -171,3 +171,29 @@ type IndexHealth struct {
 	NewFiles      int        `json:"new_files"`
 	ModifiedFiles int        `json:"modified_files"`
 }
+
+// ===== Memory Retrieval Stats Types =====
+
+// RetrievalStats holds retrieval statistics for a memory entry.
+type RetrievalStats struct {
+	MemoryID       string  `json:"memory_id"`
+	RetrievalCount int     `json:"retrieval_count"`
+	LastRetrieved  string  `json:"last_retrieved,omitempty"`
+	Status         string  `json:"status"`
+	AvgScore       float32 `json:"avg_score,omitempty"`
+}
+
+// MemoryRetrieval represents a single retrieval event for batch tracking.
+type MemoryRetrieval struct {
+	MemoryID string
+	Score    float32
+}
+
+// RetrievalLogEntry represents a single retrieval event log.
+type RetrievalLogEntry struct {
+	ID        int64   `json:"id"`
+	MemoryID  string  `json:"memory_id"`
+	Query     string  `json:"query"`
+	Score     float32 `json:"score"`
+	Timestamp string  `json:"timestamp"`
+}

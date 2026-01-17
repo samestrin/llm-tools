@@ -1123,6 +1123,21 @@ func TestBuildYamlSetArgs(t *testing.T) {
 			args: map[string]interface{}{"file": "/tmp/config.yaml", "key": "helper.llm", "value": "claude", "json": false, "min": false},
 			want: []string{"yaml", "set", "--file", "/tmp/config.yaml", "helper.llm", "claude"},
 		},
+		{
+			name: "with dry_run flag",
+			args: map[string]interface{}{"file": "/tmp/config.yaml", "key": "helper.llm", "value": "claude", "dry_run": true},
+			want: []string{"yaml", "set", "--file", "/tmp/config.yaml", "helper.llm", "claude", "--dry-run", "--json", "--min"},
+		},
+		{
+			name: "with quiet flag",
+			args: map[string]interface{}{"file": "/tmp/config.yaml", "key": "helper.llm", "value": "claude", "quiet": true},
+			want: []string{"yaml", "set", "--file", "/tmp/config.yaml", "helper.llm", "claude", "--quiet", "--json", "--min"},
+		},
+		{
+			name: "with both dry_run and quiet",
+			args: map[string]interface{}{"file": "/tmp/config.yaml", "key": "helper.llm", "value": "claude", "dry_run": true, "quiet": true},
+			want: []string{"yaml", "set", "--file", "/tmp/config.yaml", "helper.llm", "claude", "--dry-run", "--quiet", "--json", "--min"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1179,6 +1194,15 @@ func TestBuildYamlMultigetArgs(t *testing.T) {
 			},
 			want: []string{"yaml", "multiget", "--file", "/tmp/config.yaml", "helper.llm", "--json", "--min"},
 		},
+		{
+			name: "with required_file parameter",
+			args: map[string]interface{}{
+				"file":          "/tmp/config.yaml",
+				"keys":          []interface{}{"helper.llm"},
+				"required_file": "/tmp/required-keys.txt",
+			},
+			want: []string{"yaml", "multiget", "--file", "/tmp/config.yaml", "helper.llm", "--required-file", "/tmp/required-keys.txt", "--json", "--min"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1224,6 +1248,49 @@ func TestBuildYamlMultisetArgs(t *testing.T) {
 			},
 			wantPrefix:    []string{"yaml", "multiset", "--file", "/tmp/config.yaml"},
 			wantContains:  []string{"key", "value", "--create"},
+			wantSuffix:    []string{"--json", "--min"},
+			skipDeepEqual: true,
+		},
+		{
+			name: "with dry_run flag",
+			args: map[string]interface{}{
+				"file": "/tmp/config.yaml",
+				"pairs": map[string]interface{}{
+					"key": "value",
+				},
+				"dry_run": true,
+			},
+			wantPrefix:    []string{"yaml", "multiset", "--file", "/tmp/config.yaml"},
+			wantContains:  []string{"key", "value", "--dry-run"},
+			wantSuffix:    []string{"--json", "--min"},
+			skipDeepEqual: true,
+		},
+		{
+			name: "with quiet flag",
+			args: map[string]interface{}{
+				"file": "/tmp/config.yaml",
+				"pairs": map[string]interface{}{
+					"key": "value",
+				},
+				"quiet": true,
+			},
+			wantPrefix:    []string{"yaml", "multiset", "--file", "/tmp/config.yaml"},
+			wantContains:  []string{"key", "value", "--quiet"},
+			wantSuffix:    []string{"--json", "--min"},
+			skipDeepEqual: true,
+		},
+		{
+			name: "with both dry_run and quiet",
+			args: map[string]interface{}{
+				"file": "/tmp/config.yaml",
+				"pairs": map[string]interface{}{
+					"key": "value",
+				},
+				"dry_run": true,
+				"quiet":   true,
+			},
+			wantPrefix:    []string{"yaml", "multiset", "--file", "/tmp/config.yaml"},
+			wantContains:  []string{"key", "value", "--dry-run", "--quiet"},
 			wantSuffix:    []string{"--json", "--min"},
 			skipDeepEqual: true,
 		},

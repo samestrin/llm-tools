@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -1792,9 +1793,9 @@ func TestParseArrayIndex(t *testing.T) {
 		{"10", 10},
 		{"[0]", 0},
 		{"[5]", 5},
-		{"abc", -1},
-		{"", -1},
-		{"[abc]", -1},
+		{"abc", invalidArrayIndex},   // Invalid index returns sentinel value
+		{"", invalidArrayIndex},      // Invalid index returns sentinel value
+		{"[abc]", invalidArrayIndex}, // Invalid index returns sentinel value
 	}
 
 	for _, tt := range tests {
@@ -1831,10 +1832,13 @@ func TestGetValueAtPath_ArrayAccess(t *testing.T) {
 		t.Error("expected not to find items.10")
 	}
 
-	// Test negative array index
-	_, found = getValueAtPath(data, "items.-1")
-	if found {
-		t.Error("expected not to find items.-1")
+	// Test negative array index (now valid - returns last element)
+	val, found = getValueAtPath(data, "items.-1")
+	if !found {
+		t.Error("expected to find items.-1 (last element)")
+	}
+	if val != "third" {
+		t.Errorf("expected 'third' for items.-1, got: %v", val)
 	}
 
 	// Test empty path returns full data
@@ -2118,5 +2122,1106 @@ data:
 	output := strings.TrimSpace(buf.String())
 	if output != "two" {
 		t.Errorf("expected 'two', got: %s", output)
+	}
+}
+
+// ============================================================================
+// Array Bracket Notation Tests (Sprint 9.0)
+// ============================================================================
+
+func TestParseDotPath_BracketNotation(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []string
+	}{
+		{"items[0]", []string{"items", "0"}},
+		{"items[0].name", []string{"items", "0", "name"}},
+		{"a.items[2].b", []string{"a", "items", "2", "b"}},
+		{"items[-1]", []string{"items", "-1"}},
+		{"items[-1].value", []string{"items", "-1", "value"}},
+		{"a[0][1]", []string{"a", "0", "1"}}, // Nested arrays
+		{"simple.path", []string{"simple", "path"}},
+		{`a\.b.c`, []string{"a.b", "c"}},         // Escaped dot regression
+		{`a\.b[0].c`, []string{"a.b", "0", "c"}}, // Escaped dot with bracket
+		{"", nil},                                // Empty path
+		{"single", []string{"single"}},
+		{"items[10].deep.nested[0]", []string{"items", "10", "deep", "nested", "0"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := parseDotPath(tt.input)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("parseDotPath(%q) = %v, want %v",
+					tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestYamlGet_ArrayBracketNotation(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - name: first
+    value: 1
+  - name: second
+    value: 2
+  - name: third
+    value: 3
+`)
+
+	tests := []struct {
+		key      string
+		expected string
+	}{
+		{"items[0].name", "first"},
+		{"items[1].name", "second"},
+		{"items[2].value", "3"},
+		{"items[-1].name", "third"},  // Last element
+		{"items[-2].name", "second"}, // Second to last
+		{"items[-3].value", "1"},     // Third to last (first)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			cmd := newYamlCmd()
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+			cmd.SetArgs([]string{"get", "--file", configPath, tt.key, "--min"})
+
+			err := cmd.Execute()
+			if err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+
+			output := strings.TrimSpace(buf.String())
+			if output != tt.expected {
+				t.Errorf("get %s = %q, want %q", tt.key, output, tt.expected)
+			}
+		})
+	}
+}
+
+func TestYamlGet_ArrayBracketNotation_OutOfBounds(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - first
+  - second
+`)
+
+	tests := []struct {
+		key string
+	}{
+		{"items[5]"},   // Beyond end
+		{"items[-5]"},  // Beyond start (negative)
+		{"items[100]"}, // Way beyond end
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			cmd := newYamlCmd()
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+			cmd.SetArgs([]string{"get", "--file", configPath, tt.key})
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Errorf("expected error for out-of-bounds index %s", tt.key)
+			}
+		})
+	}
+}
+
+func TestYamlSet_ArrayBracketNotation(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - name: first
+    value: 1
+  - name: second
+    value: 2
+`)
+
+	// Set value at items[0].name
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "items[0].name", "updated"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify the value was set
+	cmd2 := newYamlCmd()
+	buf2 := new(bytes.Buffer)
+	cmd2.SetOut(buf2)
+	cmd2.SetArgs([]string{"get", "--file", configPath, "items[0].name", "--min"})
+
+	err = cmd2.Execute()
+	if err != nil {
+		t.Fatalf("expected no error reading back, got: %v", err)
+	}
+
+	output := strings.TrimSpace(buf2.String())
+	if output != "updated" {
+		t.Errorf("expected 'updated', got: %s", output)
+	}
+}
+
+func TestYamlSet_ArrayBracketNotation_NegativeIndex(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - name: first
+  - name: second
+  - name: third
+`)
+
+	// Set value at items[-1].name (last element)
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "items[-1].name", "last_updated"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify the last element was updated
+	cmd2 := newYamlCmd()
+	buf2 := new(bytes.Buffer)
+	cmd2.SetOut(buf2)
+	cmd2.SetArgs([]string{"get", "--file", configPath, "items[2].name", "--min"})
+
+	err = cmd2.Execute()
+	if err != nil {
+		t.Fatalf("expected no error reading back, got: %v", err)
+	}
+
+	output := strings.TrimSpace(buf2.String())
+	if output != "last_updated" {
+		t.Errorf("expected 'last_updated', got: %s", output)
+	}
+}
+
+func TestYamlMultiget_ArrayBracketNotation(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - name: first
+  - name: second
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "items[0].name", "items[1].name", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+	if lines[0] != "first" {
+		t.Errorf("expected first line 'first', got: %s", lines[0])
+	}
+	if lines[1] != "second" {
+		t.Errorf("expected second line 'second', got: %s", lines[1])
+	}
+}
+
+func TestParseArrayIndex_NegativeIndices(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected int
+	}{
+		{"0", 0},
+		{"1", 1},
+		{"-1", -1},
+		{"-2", -2},
+		{"-10", -10},
+		{"[0]", 0},
+		{"[-1]", -1},
+		{"[-5]", -5},
+		{"abc", invalidArrayIndex},
+		{"", invalidArrayIndex},
+		{"[abc]", invalidArrayIndex},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := parseArrayIndex(tt.input)
+			if result != tt.expected {
+				t.Errorf("parseArrayIndex(%q) = %d, want %d", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetValueAtPath_NegativeArrayIndex(t *testing.T) {
+	data := map[string]interface{}{
+		"items": []interface{}{"first", "second", "third"},
+	}
+
+	tests := []struct {
+		path     string
+		expected string
+		found    bool
+	}{
+		{"items.-1", "third", true},  // Last
+		{"items.-2", "second", true}, // Second to last
+		{"items.-3", "first", true},  // Third to last (first)
+		{"items.-4", "", false},      // Beyond start
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			val, found := getValueAtPath(data, tt.path)
+			if found != tt.found {
+				t.Errorf("getValueAtPath(%q) found = %v, want %v", tt.path, found, tt.found)
+				return
+			}
+			if found && val != tt.expected {
+				t.Errorf("getValueAtPath(%q) = %v, want %v", tt.path, val, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSetValueAtPath_ArrayIndex(t *testing.T) {
+	// Test setting value at array index
+	data := map[string]interface{}{
+		"items": []interface{}{
+			map[string]interface{}{"name": "first"},
+			map[string]interface{}{"name": "second"},
+		},
+	}
+
+	err := setValueAtPath(data, "items.0.name", "updated")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val, found := getValueAtPath(data, "items.0.name")
+	if !found {
+		t.Fatal("expected to find items.0.name")
+	}
+	if val != "updated" {
+		t.Errorf("expected 'updated', got: %v", val)
+	}
+}
+
+func TestSetValueAtPath_NegativeArrayIndex(t *testing.T) {
+	// Test setting value at negative array index
+	data := map[string]interface{}{
+		"items": []interface{}{
+			map[string]interface{}{"name": "first"},
+			map[string]interface{}{"name": "second"},
+			map[string]interface{}{"name": "third"},
+		},
+	}
+
+	err := setValueAtPath(data, "items.-1.name", "last_updated")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val, found := getValueAtPath(data, "items.2.name")
+	if !found {
+		t.Fatal("expected to find items.2.name")
+	}
+	if val != "last_updated" {
+		t.Errorf("expected 'last_updated', got: %v", val)
+	}
+}
+
+func TestSetValueAtPath_ArrayIndexOutOfBounds(t *testing.T) {
+	data := map[string]interface{}{
+		"items": []interface{}{"first", "second"},
+	}
+
+	err := setValueAtPath(data, "items.5", "invalid")
+	if err == nil {
+		t.Fatal("expected error for out-of-bounds index")
+	}
+	if !strings.Contains(err.Error(), "out of bounds") {
+		t.Errorf("expected 'out of bounds' error, got: %v", err)
+	}
+}
+
+func TestYamlGet_NestedArrayBracketNotation(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+data:
+  lists:
+    - items:
+        - a
+        - b
+    - items:
+        - c
+        - d
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"get", "--file", configPath, "data.lists[1].items[0]", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := strings.TrimSpace(buf.String())
+	if output != "c" {
+		t.Errorf("expected 'c', got: %s", output)
+	}
+}
+
+// ============================================================================
+// Stdin Input Support Tests (Sprint 9.0 - Task 02)
+// ============================================================================
+
+func TestYamlSet_StdinValue(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	// Simulate stdin using a buffer
+	var stdin bytes.Buffer
+	stdin.WriteString("from-stdin")
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetIn(&stdin)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "-"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify value was set
+	content, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(content), "from-stdin") {
+		t.Errorf("expected 'from-stdin' in file, got: %s", string(content))
+	}
+}
+
+func TestYamlSet_StdinMultiline(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `description: old`)
+
+	var stdin bytes.Buffer
+	stdin.WriteString("line1\nline2\nline3")
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetIn(&stdin)
+	cmd.SetArgs([]string{"set", "--file", configPath, "description", "-"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify multi-line value (YAML uses | for multi-line strings)
+	content, _ := os.ReadFile(configPath)
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "line1") || !strings.Contains(contentStr, "line2") {
+		t.Errorf("expected multi-line content, got: %s", contentStr)
+	}
+}
+
+func TestYamlSet_StdinEmpty(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	var stdin bytes.Buffer // Empty
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetIn(&stdin)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "-"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error for empty stdin, got: %v", err)
+	}
+
+	// Value should be empty string
+	content, _ := os.ReadFile(configPath)
+	// YAML represents empty string as "" or ''
+	if !strings.Contains(string(content), `key: ""`) && !strings.Contains(string(content), `key: ''`) && !strings.Contains(string(content), "key:") {
+		t.Errorf("expected empty key value, got: %s", string(content))
+	}
+}
+
+func TestYamlSet_StdinWithTrailingNewline(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	var stdin bytes.Buffer
+	stdin.WriteString("value-with-newline\n") // Trailing newline like from echo
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetIn(&stdin)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "-"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Read back to verify trailing newline was trimmed
+	cmd2 := newYamlCmd()
+	buf2 := new(bytes.Buffer)
+	cmd2.SetOut(buf2)
+	cmd2.SetArgs([]string{"get", "--file", configPath, "key", "--min"})
+
+	err = cmd2.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := strings.TrimSpace(buf2.String())
+	if output != "value-with-newline" {
+		t.Errorf("expected 'value-with-newline', got: %q", output)
+	}
+}
+
+func TestYamlSet_RegularValueStillWorks(t *testing.T) {
+	// Verify that regular values (not "-") still work
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "regular-value"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify value was set
+	content, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(content), "regular-value") {
+		t.Errorf("expected 'regular-value' in file, got: %s", string(content))
+	}
+}
+
+func TestYamlSet_LiteralDashValue(t *testing.T) {
+	// Test that a literal dash is interpreted as stdin (by design)
+	// This test documents the behavior
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	var stdin bytes.Buffer
+	stdin.WriteString("stdin-value")
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetIn(&stdin)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "-"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify stdin was used, not literal "-"
+	content, _ := os.ReadFile(configPath)
+	if strings.Contains(string(content), "key: -") {
+		t.Error("expected stdin value, not literal '-'")
+	}
+	if !strings.Contains(string(content), "stdin-value") {
+		t.Errorf("expected 'stdin-value' in file, got: %s", string(content))
+	}
+}
+
+// ============================================================================
+// Dry-Run Flag Tests (Sprint 9.0 - Task 03)
+// ============================================================================
+
+func TestYamlSet_DryRun(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new-value", "--dry-run"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify output contains preview
+	output := buf.String()
+	if !strings.Contains(output, "DRY RUN") {
+		t.Errorf("expected 'DRY RUN' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "Old: original") {
+		t.Errorf("expected 'Old: original' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "New: new-value") {
+		t.Errorf("expected 'New: new-value' in output, got: %s", output)
+	}
+
+	// Verify file NOT modified
+	content, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(content), "original") {
+		t.Error("expected file to still contain 'original'")
+	}
+	if strings.Contains(string(content), "new-value") {
+		t.Error("expected file to NOT contain 'new-value'")
+	}
+}
+
+func TestYamlSet_DryRunJSON(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new-value", "--dry-run", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify JSON output
+	var result map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+	if result["dry_run"] != true {
+		t.Error("expected dry_run: true")
+	}
+
+	// File NOT modified
+	content, _ := os.ReadFile(configPath)
+	if strings.Contains(string(content), "new-value") {
+		t.Error("expected file to NOT contain 'new-value'")
+	}
+}
+
+func TestYamlSet_DryRunMin(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new-value", "--dry-run", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify minimal output: key: old → new
+	output := buf.String()
+	if !strings.Contains(output, "key:") && !strings.Contains(output, "→") {
+		t.Errorf("expected 'key: old → new' format, got: %s", output)
+	}
+}
+
+func TestYamlSet_DryRunNewKey(t *testing.T) {
+	// Test dry-run for a key that doesn't exist yet
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `existing: value`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "new_key", "new-value", "--dry-run"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify output shows <not set>
+	output := buf.String()
+	if !strings.Contains(output, "<not set>") {
+		t.Errorf("expected '<not set>' for new key, got: %s", output)
+	}
+}
+
+func TestYamlMultiset_DryRun(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiset", "--file", configPath, "a", "10", "b", "20", "--dry-run"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify output contains preview
+	output := buf.String()
+	if !strings.Contains(output, "DRY RUN") {
+		t.Errorf("expected 'DRY RUN' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "Changes (2)") {
+		t.Errorf("expected 'Changes (2)' in output, got: %s", output)
+	}
+
+	// Verify file NOT modified
+	content, _ := os.ReadFile(configPath)
+	if strings.Contains(string(content), "10") || strings.Contains(string(content), "20") {
+		t.Error("expected file to NOT contain new values")
+	}
+}
+
+func TestYamlMultiset_DryRunJSON(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiset", "--file", configPath, "a", "10", "b", "20", "--dry-run", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify JSON output
+	var result map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+	if result["dry_run"] != true {
+		t.Error("expected dry_run: true")
+	}
+	changes, ok := result["changes"].([]interface{})
+	if !ok || len(changes) != 2 {
+		t.Errorf("expected 2 changes, got: %v", result["changes"])
+	}
+}
+
+// ============================================================================
+// Task 04: Quiet Flag Tests
+// ============================================================================
+
+func TestYamlSet_Quiet(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new", "--quiet"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify NO output on success
+	if buf.String() != "" {
+		t.Errorf("expected empty output with --quiet, got: %q", buf.String())
+	}
+
+	// But file WAS modified
+	content, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(content), "new") {
+		t.Error("expected file to contain 'new'")
+	}
+}
+
+func TestYamlSet_QuietStillReturnsErrors(t *testing.T) {
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", "/nonexistent/path/config.yaml", "key", "value", "--quiet"})
+
+	err := cmd.Execute()
+	// Errors still returned
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestYamlMultiset_Quiet(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiset", "--file", configPath, "a", "10", "b", "20", "--quiet"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// No output
+	if buf.String() != "" {
+		t.Errorf("expected empty output with --quiet, got: %q", buf.String())
+	}
+
+	// File modified
+	content, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(content), "a: 10") {
+		t.Error("expected file to contain 'a: 10'")
+	}
+}
+
+func TestYamlSet_QuietWithJSON(t *testing.T) {
+	// --quiet should take precedence over --json for success output
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new", "--quiet", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Even with --json, quiet suppresses output
+	if buf.String() != "" {
+		t.Errorf("expected empty output with --quiet --json, got: %q", buf.String())
+	}
+}
+
+func TestYamlSet_QuietWithMin(t *testing.T) {
+	// --quiet should take precedence over --min for success output
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new", "--quiet", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Even with --min, quiet suppresses output
+	if buf.String() != "" {
+		t.Errorf("expected empty output with --quiet --min, got: %q", buf.String())
+	}
+}
+
+func TestYamlSet_QuietDoesNotSuppressDryRun(t *testing.T) {
+	// Dry-run output should NOT be suppressed by quiet
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new", "--quiet", "--dry-run"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Dry-run preview is still output even with --quiet
+	// (quiet only suppresses success messages, dry-run is informational)
+	output := buf.String()
+	if !strings.Contains(output, "DRY RUN") {
+		t.Errorf("expected dry-run output even with --quiet, got: %q", output)
+	}
+}
+
+func TestYamlMultiset_QuietWithJSON(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiset", "--file", configPath, "a", "10", "b", "20", "--quiet", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Even with --json, quiet suppresses output
+	if buf.String() != "" {
+		t.Errorf("expected empty output with --quiet --json, got: %q", buf.String())
+	}
+}
+
+// ============================================================================
+// Task 05: Required Keys from File Tests
+// ============================================================================
+
+func TestParseRequiredKeysFile(t *testing.T) {
+	// Create temp file with test content
+	content := `# Database config
+db.host
+db.port
+db.name
+
+# API config
+api.url
+api.key  # inline comment
+
+# Empty lines above ignored
+`
+	tmpFile, err := os.CreateTemp("", "required-keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.WriteString(content)
+	tmpFile.Close()
+
+	keys, err := parseRequiredKeysFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	expected := []string{"db.host", "db.port", "db.name", "api.url", "api.key"}
+	if !reflect.DeepEqual(keys, expected) {
+		t.Errorf("expected %v, got %v", expected, keys)
+	}
+}
+
+func TestParseRequiredKeysFile_NotFound(t *testing.T) {
+	_, err := parseRequiredKeysFile("nonexistent-file-12345.txt")
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestYamlMultiget_RequiredFile(t *testing.T) {
+	// Create YAML file
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+db:
+  host: localhost
+  port: 5432
+api:
+  url: https://api.example.com
+`)
+
+	// Create required keys file
+	keysFile, err := os.CreateTemp("", "keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create keys file: %v", err)
+	}
+	defer os.Remove(keysFile.Name())
+	keysFile.WriteString("db.host\ndb.port\napi.url\n")
+	keysFile.Close()
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "--required-file", keysFile.Name()})
+
+	err = cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "localhost") {
+		t.Errorf("expected output to contain 'localhost', got: %s", output)
+	}
+	if !strings.Contains(output, "5432") {
+		t.Errorf("expected output to contain '5432', got: %s", output)
+	}
+	if !strings.Contains(output, "https://api.example.com") {
+		t.Errorf("expected output to contain 'https://api.example.com', got: %s", output)
+	}
+}
+
+func TestYamlMultiget_RequiredFileMissingKey(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+db:
+  host: localhost
+`)
+
+	// Create required keys file with a key that doesn't exist
+	keysFile, err := os.CreateTemp("", "keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create keys file: %v", err)
+	}
+	defer os.Remove(keysFile.Name())
+	keysFile.WriteString("db.host\ndb.port\n") // db.port doesn't exist
+	keysFile.Close()
+
+	cmd := newYamlCmd()
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "--required-file", keysFile.Name()})
+
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for missing key")
+	}
+	if !strings.Contains(err.Error(), "db.port") {
+		t.Errorf("expected error to mention 'db.port', got: %v", err)
+	}
+}
+
+func TestYamlMultiget_CombinedSources(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+c: 3
+`)
+
+	// Create required keys file with "a"
+	keysFile, err := os.CreateTemp("", "keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create keys file: %v", err)
+	}
+	defer os.Remove(keysFile.Name())
+	keysFile.WriteString("a\n")
+	keysFile.Close()
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	// Combine: positional "b" and "c", --required-file has "a"
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "b", "c", "--required-file", keysFile.Name()})
+
+	err = cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := buf.String()
+	// All three keys should be present
+	if !strings.Contains(output, "b=2") {
+		t.Errorf("expected output to contain 'b=2', got: %s", output)
+	}
+	if !strings.Contains(output, "c=3") {
+		t.Errorf("expected output to contain 'c=3', got: %s", output)
+	}
+	if !strings.Contains(output, "a=1") {
+		t.Errorf("expected output to contain 'a=1', got: %s", output)
+	}
+}
+
+func TestYamlUniqueStrings(t *testing.T) {
+	input := []string{"a", "b", "a", "c", "b", "d"}
+	expected := []string{"a", "b", "c", "d"}
+	result := yamlUniqueStrings(input)
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("expected %v, got %v", expected, result)
+	}
+}
+
+func TestYamlMultiget_DuplicateKeys(t *testing.T) {
+	// Verify duplicate keys are handled correctly
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+`)
+
+	// Create required keys file with duplicates
+	keysFile, err := os.CreateTemp("", "keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create keys file: %v", err)
+	}
+	defer os.Remove(keysFile.Name())
+	keysFile.WriteString("a\nb\na\n") // "a" appears twice
+	keysFile.Close()
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "--required-file", keysFile.Name()})
+
+	err = cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := buf.String()
+	// Each key should appear only once in output
+	count := strings.Count(output, "a=1")
+	if count != 1 {
+		t.Errorf("expected 'a=1' to appear once, appeared %d times in: %s", count, output)
+	}
+}
+
+func TestYamlMultiget_RequiredFileWithBracketNotation(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - name: first
+  - name: second
+`)
+
+	// Create required keys file with bracket notation
+	keysFile, err := os.CreateTemp("", "keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create keys file: %v", err)
+	}
+	defer os.Remove(keysFile.Name())
+	keysFile.WriteString("items[0].name\nitems[1].name\n")
+	keysFile.Close()
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "--required-file", keysFile.Name()})
+
+	err = cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "first") {
+		t.Errorf("expected output to contain 'first', got: %s", output)
+	}
+	if !strings.Contains(output, "second") {
+		t.Errorf("expected output to contain 'second', got: %s", output)
 	}
 }

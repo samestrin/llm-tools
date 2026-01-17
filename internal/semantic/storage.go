@@ -136,3 +136,28 @@ type Storage interface {
 	// Overwrites any existing calibration data.
 	SetCalibrationMetadata(ctx context.Context, meta *CalibrationMetadata) error
 }
+
+// MemoryStatsTracker is an optional interface for tracking memory retrieval statistics.
+// Storage implementations that support memory stats should implement this interface.
+type MemoryStatsTracker interface {
+	// TrackMemoryRetrieval records a single memory retrieval event.
+	TrackMemoryRetrieval(ctx context.Context, memoryID string, query string, score float32) error
+
+	// TrackMemoryRetrievalBatch records multiple memory retrieval events in a single transaction.
+	TrackMemoryRetrievalBatch(ctx context.Context, retrievals []MemoryRetrieval, query string) error
+
+	// GetMemoryStats returns stats for a specific memory entry.
+	GetMemoryStats(ctx context.Context, memoryID string) (*RetrievalStats, error)
+
+	// GetAllMemoryStats returns stats for all tracked memories.
+	GetAllMemoryStats(ctx context.Context) ([]RetrievalStats, error)
+
+	// GetMemoryRetrievalHistory returns recent retrieval log entries for a memory.
+	GetMemoryRetrievalHistory(ctx context.Context, memoryID string, limit int) ([]RetrievalLogEntry, error)
+
+	// PruneMemoryRetrievalLog removes retrieval log entries older than the specified duration.
+	PruneMemoryRetrievalLog(ctx context.Context, olderThanDays int) (int64, error)
+
+	// UpdateMemoryStatsStatus updates the status of a memory entry.
+	UpdateMemoryStatsStatus(ctx context.Context, memoryID string, status string) error
+}

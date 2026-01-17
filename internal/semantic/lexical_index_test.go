@@ -417,26 +417,21 @@ func TestSanitizeCollectionName(t *testing.T) {
 
 // TestGetFTSPath verifies FTS database path generation.
 func TestGetFTSPath(t *testing.T) {
-	// Test with custom data dir
+	// Test with custom data dir (project-local .index/)
 	t.Run("CustomDataDir", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		path := getFTSPath("test_collection", tmpDir)
-		expected := filepath.Join(tmpDir, "qdrant-fts-test_collection.db")
+		expected := filepath.Join(tmpDir, "qdrant_fts.db")
 		if path != expected {
 			t.Errorf("getFTSPath = %q, want %q", path, expected)
 		}
 	})
 
-	// Test with default data dir (home dir)
-	t.Run("DefaultDataDir", func(t *testing.T) {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			t.Skip("cannot get home dir")
-		}
+	// Test with empty data dir (should return empty string)
+	t.Run("EmptyDataDir", func(t *testing.T) {
 		path := getFTSPath("my_collection", "")
-		expected := filepath.Join(home, ".llm-semantic", "qdrant-fts-my_collection.db")
-		if path != expected {
-			t.Errorf("getFTSPath = %q, want %q", path, expected)
+		if path != "" {
+			t.Errorf("getFTSPath with empty dataDir = %q, want empty string", path)
 		}
 	})
 }
