@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -79,8 +80,14 @@ func (o *MultisearchOptions) Validate() error {
 			return fmt.Errorf("query at index %d cannot be empty", i)
 		}
 	}
+	if o.TopK < 0 {
+		return errors.New("top_k cannot be negative")
+	}
 	if o.Threshold < 0 || o.Threshold > 1 {
 		return errors.New("threshold must be between 0.0 and 1.0")
+	}
+	if !IsValidOutputFormat(string(o.Output)) {
+		return fmt.Errorf("invalid output format: %s", o.Output)
 	}
 	return nil
 }
@@ -256,13 +263,11 @@ func (s *Searcher) Multisearch(ctx context.Context, opts MultisearchOptions) (*M
 	}, nil
 }
 
-// sortEnhancedResultsByScore sorts results by BoostedScore descending
+// sortEnhancedResultsByScore sorts results by BoostedScore descending using O(n log n) sort
 func sortEnhancedResultsByScore(results []EnhancedResult) {
-	for i := 1; i < len(results); i++ {
-		for j := i; j > 0 && results[j].BoostedScore > results[j-1].BoostedScore; j-- {
-			results[j], results[j-1] = results[j-1], results[j]
-		}
-	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].BoostedScore > results[j].BoostedScore
+	})
 }
 
 // FormatByQuery converts a blended MultisearchResult to by_query format.

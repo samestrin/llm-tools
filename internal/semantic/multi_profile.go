@@ -11,15 +11,22 @@ import (
 
 // MultiProfileSearcher orchestrates search across multiple storage profiles (collections).
 // It executes queries in parallel across configured profiles and merges results.
+//
+// Thread Safety: The storageMap is treated as immutable after construction and must not
+// be modified after NewMultiProfileSearcher returns. Only defaultProfile is protected by
+// mutex and can be changed via SetDefaultProfile.
 type MultiProfileSearcher struct {
 	embedder       EmbedderInterface
-	storageMap     map[string]Storage
+	storageMap     map[string]Storage // IMMUTABLE after construction - do not modify
 	defaultProfile string
-	mu             sync.RWMutex
+	mu             sync.RWMutex // Protects defaultProfile only
 }
 
 // NewMultiProfileSearcher creates a new MultiProfileSearcher with the given storage mapping.
 // storageMap maps profile names (e.g., "code", "docs") to their Storage instances.
+//
+// IMPORTANT: The storageMap is stored by reference and must not be modified after this call.
+// The caller should not modify the map after passing it to this function.
 func NewMultiProfileSearcher(embedder EmbedderInterface, storageMap map[string]Storage) *MultiProfileSearcher {
 	return &MultiProfileSearcher{
 		embedder:       embedder,
@@ -49,6 +56,12 @@ func (mps *MultiProfileSearcher) Search(ctx context.Context, query string, opts 
 	if query == "" {
 		return nil, fmt.Errorf("query cannot be empty")
 	}
+	if opts.TopK < 0 {
+		return nil, fmt.Errorf("top_k cannot be negative")
+	}
+	if opts.Threshold < 0 || opts.Threshold > 1 {
+		return nil, fmt.Errorf("threshold must be between 0.0 and 1.0")
+	}
 
 	// Resolve profiles to search
 	profiles := opts.Profiles
@@ -56,6 +69,12 @@ func (mps *MultiProfileSearcher) Search(ctx context.Context, query string, opts 
 		mps.mu.RLock()
 		profiles = []string{mps.defaultProfile}
 		mps.mu.RUnlock()
+	}
+
+	// Validate profile count
+	const maxProfiles = 10
+	if len(profiles) > maxProfiles {
+		return nil, fmt.Errorf("profile count exceeds maximum of %d", maxProfiles)
 	}
 
 	// Validate all profiles exist
@@ -166,6 +185,9 @@ func (mps *MultiProfileSearcher) Search(ctx context.Context, query string, opts 
 		merged = merged[:opts.TopK]
 	}
 
+	// Apply relevance labels (using percentile-based since no single calibration source)
+	ApplyPercentileRelevanceLabels(merged)
+
 	return merged, nil
 }
 
@@ -183,6 +205,12 @@ func (mps *MultiProfileSearcher) Multisearch(ctx context.Context, opts Multisear
 		mps.mu.RLock()
 		profiles = []string{mps.defaultProfile}
 		mps.mu.RUnlock()
+	}
+
+	// Validate profile count
+	const maxProfiles = 10
+	if len(profiles) > maxProfiles {
+		return nil, fmt.Errorf("profile count exceeds maximum of %d", maxProfiles)
 	}
 
 	// Validate all profiles exist
@@ -208,6 +236,7 @@ func (mps *MultiProfileSearcher) Multisearch(ctx context.Context, opts Multisear
 	resultMap := make(map[string]*enhancedResultEntry)
 	queriesMatched := make(map[string]int)
 	var mu sync.Mutex
+	var successCount int
 
 	g, gctx := errgroup.WithContext(ctx)
 
@@ -229,6 +258,7 @@ func (mps *MultiProfileSearcher) Multisearch(ctx context.Context, opts Multisear
 				}
 
 				mu.Lock()
+				successCount++
 				queriesMatched[query] += len(results)
 				for _, result := range results {
 					if result.Chunk.Domain == "" {
@@ -258,6 +288,11 @@ func (mps *MultiProfileSearcher) Multisearch(ctx context.Context, opts Multisear
 
 	if err := g.Wait(); err != nil {
 		return nil, err
+	}
+
+	// Check if all queries failed
+	if successCount == 0 {
+		return nil, fmt.Errorf("all queries failed across all profiles")
 	}
 
 	// Convert map to enhanced results with boosting
@@ -291,6 +326,16 @@ func (mps *MultiProfileSearcher) Multisearch(ctx context.Context, opts Multisear
 	// Apply TopK limit
 	if opts.TopK > 0 && len(results) > opts.TopK {
 		results = results[:opts.TopK]
+	}
+
+	// Apply relevance labels to the embedded SearchResults
+	searchResults := make([]SearchResult, len(results))
+	for i := range results {
+		searchResults[i] = results[i].SearchResult
+	}
+	ApplyPercentileRelevanceLabels(searchResults)
+	for i := range results {
+		results[i].SearchResult = searchResults[i]
 	}
 
 	return &MultisearchResult{

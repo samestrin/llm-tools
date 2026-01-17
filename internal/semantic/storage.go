@@ -27,11 +27,15 @@ type ListOptions struct {
 
 // SearchOptions configures how vector search is performed
 type SearchOptions struct {
-	TopK       int      `json:"top_k,omitempty"`       // Maximum number of results to return (0 = unlimited/all results)
-	Threshold  float32  `json:"threshold,omitempty"`   // Minimum similarity score (0.0 - 1.0)
-	Type       string   `json:"type,omitempty"`        // Filter by chunk type
-	PathFilter string   `json:"path_filter,omitempty"` // Filter by file path pattern (glob)
-	Profiles   []string `json:"profiles,omitempty"`    // Profiles (collections) to search across; if nil/empty, uses default profile
+	TopK       int     `json:"top_k,omitempty"`       // Maximum number of results to return (0 = unlimited/all results)
+	Threshold  float32 `json:"threshold,omitempty"`   // Minimum similarity score (0.0 - 1.0)
+	Type       string  `json:"type,omitempty"`        // Filter by chunk type
+	PathFilter string  `json:"path_filter,omitempty"` // Filter by file path pattern (glob)
+	// Profiles specifies which profiles (collections) to search across.
+	// NOTE: This field is NOT used by Storage.Search directly. It is used by
+	// higher-level APIs (Searcher, MultiProfileSearcher) to coordinate multi-profile
+	// search and is included here to allow unified option passing through the stack.
+	Profiles []string `json:"profiles,omitempty"`
 }
 
 // ChunkWithEmbedding pairs a chunk with its embedding for batch operations

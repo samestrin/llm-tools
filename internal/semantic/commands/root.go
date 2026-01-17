@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -106,6 +107,7 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 
 	// Add subcommands
 	rootCmd.AddCommand(searchCmd())
+	rootCmd.AddCommand(multisearchCmd())
 	rootCmd.AddCommand(indexCmd())
 	rootCmd.AddCommand(indexStatusCmd())
 	rootCmd.AddCommand(indexUpdateCmd())
@@ -352,4 +354,61 @@ func ResetGlobalsForTesting() {
 	loadedConfig = nil
 	GlobalJSONOutput = false
 	GlobalMinOutput = false
+}
+
+// searchComponents holds initialized components needed for search operations.
+// Use initSearchComponents to create and cleanup to release resources.
+type searchComponents struct {
+	Storage  semantic.Storage
+	Embedder semantic.EmbedderInterface
+}
+
+// initSearchComponents initializes the common components needed for search operations.
+// Returns components and a cleanup function. Always call cleanup when done.
+//
+// This consolidates the duplicated initialization code from runSearch and runMultisearch:
+// - Finding index path (for sqlite)
+// - Creating embedder
+// - Probing embedder dimensions (for qdrant)
+// - Opening storage
+func initSearchComponents(ctx context.Context, createStorageFn func(indexPath string, embeddingDim int) (semantic.Storage, error)) (*searchComponents, func(), error) {
+	// Find index path (only needed for sqlite)
+	indexPath := ""
+	if storageType == "" || storageType == "sqlite" {
+		indexPath = findIndexPath()
+		if indexPath == "" {
+			return nil, nil, fmt.Errorf("semantic index not found. Run 'llm-semantic index' first")
+		}
+	}
+
+	// Create embedder
+	embedder, err := createEmbedder()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create embedder: %w", err)
+	}
+
+	// For Qdrant, we need to probe the embedder to get dimensions
+	embeddingDim := 0
+	if storageType == "qdrant" {
+		testEmbed, err := embedder.Embed(ctx, "test")
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		}
+		embeddingDim = len(testEmbed)
+	}
+
+	// Open storage
+	storage, err := createStorageFn(indexPath, embeddingDim)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open index: %w", err)
+	}
+
+	cleanup := func() {
+		storage.Close()
+	}
+
+	return &searchComponents{
+		Storage:  storage,
+		Embedder: embedder,
+	}, cleanup, nil
 }
