@@ -229,6 +229,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildSprintStatusArgs(args), nil
 	case "alignment_check":
 		return buildAlignmentCheckArgs(args), nil
+	case "tdd_compliance":
+		return buildTddComplianceArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1678,6 +1680,26 @@ func buildAlignmentCheckArgs(args map[string]interface{}) []string {
 	}
 	if stories, ok := args["stories"].(string); ok {
 		cmdArgs = append(cmdArgs, "--stories", stories)
+	}
+	return cmdArgs
+}
+
+func buildTddComplianceArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"tdd-compliance"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	if content, ok := args["content"].(string); ok {
+		cmdArgs = append(cmdArgs, "--content", content)
+	}
+	if since, ok := args["since"].(string); ok {
+		cmdArgs = append(cmdArgs, "--since", since)
+	}
+	if until, ok := args["until"].(string); ok {
+		cmdArgs = append(cmdArgs, "--until", until)
+	}
+	if count, ok := getInt(args, "count"); ok {
+		cmdArgs = append(cmdArgs, "--count", strconv.Itoa(count))
 	}
 	return cmdArgs
 }

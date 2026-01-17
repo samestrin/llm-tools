@@ -2047,5 +2047,44 @@ func GetToolDefinitions() []ToolDefinition {
 				"required": ["tests_passed"]
 			}`),
 		},
+
+		// 54. TDD compliance analysis
+		{
+			Name:        ToolPrefix + "tdd_compliance",
+			Description: "Analyze git history for TDD compliance. Classifies commits as test-first, test-with, test-after, or no-test patterns. Calculates compliance score (0-100) with letter grade (A-F). Returns violations with remediation suggestions.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Path to git repository"
+					},
+					"content": {
+						"type": "string",
+						"description": "Git log content (pipe-delimited: hash|author|date|message|files)"
+					},
+					"since": {
+						"type": "string",
+						"description": "Analyze commits since date (YYYY-MM-DD)"
+					},
+					"until": {
+						"type": "string",
+						"description": "Analyze commits until date (YYYY-MM-DD)"
+					},
+					"count": {
+						"type": "integer",
+						"description": "Maximum number of commits to analyze"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
 	}
 }
