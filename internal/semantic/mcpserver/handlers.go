@@ -60,8 +60,11 @@ func init() {
 		}
 	}
 
-	// Check if binary is in PATH
-	if _, err := exec.LookPath(BinaryPath); err != nil {
+	// Resolve binary to absolute path
+	if resolvedPath, err := exec.LookPath(BinaryPath); err == nil {
+		// Found in PATH - use the resolved absolute path
+		BinaryPath = resolvedPath
+	} else {
 		// Not in PATH, fallback to standard install location
 		if _, err := os.Stat("/usr/local/bin/llm-semantic"); err == nil {
 			BinaryPath = "/usr/local/bin/llm-semantic"

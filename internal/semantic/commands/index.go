@@ -354,6 +354,7 @@ func createStorage(indexPath string, embeddingDim int) (semantic.Storage, error)
 			URL:            strings.TrimSpace(os.Getenv("QDRANT_API_URL")),
 			CollectionName: collection,
 			EmbeddingDim:   embeddingDim,
+			FTSDataDir:     filepath.Dir(indexPath),
 		}
 		return semantic.NewQdrantStorage(config)
 	case "sqlite", "":
