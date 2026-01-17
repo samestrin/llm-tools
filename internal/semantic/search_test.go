@@ -474,6 +474,221 @@ func TestTopK_BehaviorPreserved(t *testing.T) {
 	}
 }
 
+// ===== Enhanced Search Output Tests =====
+// These tests verify the enhanced search output fields: relevance, preview, domain
+
+// TestSearch_EnhancedOutput_RelevanceLabels verifies that search results include relevance labels.
+func TestSearch_EnhancedOutput_RelevanceLabels(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Use specific embeddings for predictable cosine similarity
+	embedder := &mockEmbedder{embedding: []float32{1, 0, 0, 0}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add chunks with different similarity to query
+	storage.Create(ctx, Chunk{ID: "high", Name: "High", Signature: "func High()"}, []float32{1, 0, 0, 0})           // Score 1.0
+	storage.Create(ctx, Chunk{ID: "medium", Name: "Medium", Signature: "func Medium()"}, []float32{0.7, 0.7, 0, 0}) // Score ~0.7
+	storage.Create(ctx, Chunk{ID: "low", Name: "Low", Signature: "func Low()"}, []float32{0.1, 0.9, 0, 0})          // Score ~0.1
+
+	results, err := searcher.Search(ctx, "test", SearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	if len(results) != 3 {
+		t.Fatalf("Search() returned %d results, want 3", len(results))
+	}
+
+	// Verify all results have relevance labels
+	for _, r := range results {
+		if r.Relevance == "" {
+			t.Errorf("Result %q missing relevance label", r.Chunk.Name)
+		}
+		// Relevance should be one of: high, medium, low
+		if r.Relevance != "high" && r.Relevance != "medium" && r.Relevance != "low" {
+			t.Errorf("Result %q has invalid relevance: %q", r.Chunk.Name, r.Relevance)
+		}
+	}
+}
+
+// TestSearch_EnhancedOutput_Preview verifies that search results include preview.
+func TestSearch_EnhancedOutput_Preview(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{embedding: []float32{0.1, 0.2, 0.3, 0.4}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add chunks with signatures and content
+	storage.Create(ctx, Chunk{
+		ID:        "1",
+		Name:      "Add",
+		Signature: "func Add(a, b int) int",
+		Content:   "func Add(a, b int) int { return a + b }",
+	}, []float32{0.1, 0.2, 0.3, 0.4})
+
+	results, err := searcher.Search(ctx, "test", SearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("Search() returned %d results, want 1", len(results))
+	}
+
+	// Verify preview is set (should be signature since it's available)
+	if results[0].Preview == "" {
+		t.Error("Result missing preview")
+	}
+	if results[0].Preview != "func Add(a, b int) int" {
+		t.Errorf("Preview = %q, want %q", results[0].Preview, "func Add(a, b int) int")
+	}
+}
+
+// TestSearch_EnhancedOutput_Domain verifies that search results include domain.
+func TestSearch_EnhancedOutput_Domain(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{embedding: []float32{0.1, 0.2, 0.3, 0.4}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add a chunk (domain should default to "code")
+	storage.Create(ctx, Chunk{
+		ID:   "1",
+		Name: "Test",
+	}, []float32{0.1, 0.2, 0.3, 0.4})
+
+	results, err := searcher.Search(ctx, "test", SearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("Search() returned %d results, want 1", len(results))
+	}
+
+	// Verify domain is set to default "code"
+	if results[0].Chunk.Domain != "code" {
+		t.Errorf("Chunk.Domain = %q, want %q", results[0].Chunk.Domain, "code")
+	}
+}
+
+// TestHybridSearch_EnhancedOutput verifies HybridSearch also populates enhanced fields.
+func TestHybridSearch_EnhancedOutput(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{embedding: []float32{0.1, 0.2, 0.3, 0.4}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add a chunk with signature
+	storage.Create(ctx, Chunk{
+		ID:        "1",
+		Name:      "Add",
+		Signature: "func Add(a, b int) int",
+		Content:   "func Add(a, b int) int { return a + b }",
+	}, []float32{0.1, 0.2, 0.3, 0.4})
+
+	results, err := searcher.HybridSearch(ctx, "test", HybridSearchOptions{
+		SearchOptions: SearchOptions{TopK: 10},
+	})
+	if err != nil {
+		t.Fatalf("HybridSearch() error = %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("HybridSearch() returned %d results, want 1", len(results))
+	}
+
+	// Verify enhanced fields
+	if results[0].Relevance == "" {
+		t.Error("HybridSearch result missing relevance label")
+	}
+	if results[0].Preview == "" {
+		t.Error("HybridSearch result missing preview")
+	}
+	if results[0].Chunk.Domain != "code" {
+		t.Errorf("HybridSearch Chunk.Domain = %q, want %q", results[0].Chunk.Domain, "code")
+	}
+}
+
+// TestSearch_PercentileFallback verifies that percentile-based labeling works when no calibration.
+func TestSearch_PercentileFallback(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Use specific embeddings for predictable cosine similarity
+	embedder := &mockEmbedder{embedding: []float32{1, 0, 0, 0}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add 10 chunks with varying similarity (no calibration metadata set)
+	for i := 0; i < 10; i++ {
+		emb := []float32{float32(10-i) / 10, float32(i) / 10, 0, 0}
+		storage.Create(ctx, Chunk{
+			ID:   fmt.Sprintf("chunk-%d", i),
+			Name: fmt.Sprintf("Func%d", i),
+		}, emb)
+	}
+
+	results, err := searcher.Search(ctx, "test", SearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	// Verify all results have relevance labels from percentile fallback
+	highCount := 0
+	mediumCount := 0
+	lowCount := 0
+	for _, r := range results {
+		switch r.Relevance {
+		case "high":
+			highCount++
+		case "medium":
+			mediumCount++
+		case "low":
+			lowCount++
+		default:
+			t.Errorf("Invalid relevance %q for result %q", r.Relevance, r.Chunk.Name)
+		}
+	}
+
+	// With 10 results and percentile distribution (20% high, 50% medium, 30% low):
+	// - High: 2 results (top 20%)
+	// - Medium: 5 results (middle 50%)
+	// - Low: 3 results (bottom 30%)
+	if highCount < 1 {
+		t.Errorf("Expected at least 1 high result, got %d", highCount)
+	}
+	if mediumCount < 1 {
+		t.Errorf("Expected at least 1 medium result, got %d", mediumCount)
+	}
+	if lowCount < 1 {
+		t.Errorf("Expected at least 1 low result, got %d", lowCount)
+	}
+}
+
 // TestThreshold_BehaviorPreserved verifies that threshold filtering works correctly.
 func TestThreshold_BehaviorPreserved(t *testing.T) {
 	storage, err := NewSQLiteStorage(":memory:", 4)

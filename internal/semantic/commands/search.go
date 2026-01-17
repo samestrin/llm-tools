@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/samestrin/llm-tools/internal/semantic"
 	"github.com/spf13/cobra"
@@ -192,6 +193,14 @@ func outputJSON(results []semantic.SearchResult, minimal bool) error {
 				"line":  r.Chunk.StartLine,
 				"score": r.Score,
 			}
+			// Include relevance if set
+			if r.Relevance != "" {
+				minResults[i]["r"] = r.Relevance
+			}
+			// Include preview if set
+			if r.Preview != "" {
+				minResults[i]["pr"] = r.Preview
+			}
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -210,9 +219,19 @@ func outputText(results []semantic.SearchResult) error {
 	}
 
 	for i, r := range results {
-		fmt.Printf("%d. %s:%d - %s (%s)\n", i+1, r.Chunk.FilePath, r.Chunk.StartLine, r.Chunk.Name, r.Chunk.Type)
+		// Format relevance label
+		relevanceLabel := ""
+		if r.Relevance != "" {
+			relevanceLabel = fmt.Sprintf(" [%s]", strings.ToUpper(r.Relevance))
+		}
+
+		fmt.Printf("%d. %s:%d - %s (%s)%s\n", i+1, r.Chunk.FilePath, r.Chunk.StartLine, r.Chunk.Name, r.Chunk.Type, relevanceLabel)
 		fmt.Printf("   Score: %.4f\n", r.Score)
-		if r.Chunk.Signature != "" {
+
+		// Show preview if available, otherwise fall back to signature
+		if r.Preview != "" {
+			fmt.Printf("   %s\n", r.Preview)
+		} else if r.Chunk.Signature != "" {
 			fmt.Printf("   %s\n", r.Chunk.Signature)
 		}
 		fmt.Println()
