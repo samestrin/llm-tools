@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -1792,9 +1793,9 @@ func TestParseArrayIndex(t *testing.T) {
 		{"10", 10},
 		{"[0]", 0},
 		{"[5]", 5},
-		{"abc", -1},
-		{"", -1},
-		{"[abc]", -1},
+		{"abc", -999},   // Invalid index returns sentinel value
+		{"", -999},      // Invalid index returns sentinel value
+		{"[abc]", -999}, // Invalid index returns sentinel value
 	}
 
 	for _, tt := range tests {
@@ -1831,10 +1832,13 @@ func TestGetValueAtPath_ArrayAccess(t *testing.T) {
 		t.Error("expected not to find items.10")
 	}
 
-	// Test negative array index
-	_, found = getValueAtPath(data, "items.-1")
-	if found {
-		t.Error("expected not to find items.-1")
+	// Test negative array index (now valid - returns last element)
+	val, found = getValueAtPath(data, "items.-1")
+	if !found {
+		t.Error("expected to find items.-1 (last element)")
+	}
+	if val != "third" {
+		t.Errorf("expected 'third' for items.-1, got: %v", val)
 	}
 
 	// Test empty path returns full data
@@ -2118,5 +2122,712 @@ data:
 	output := strings.TrimSpace(buf.String())
 	if output != "two" {
 		t.Errorf("expected 'two', got: %s", output)
+	}
+}
+
+// ============================================================================
+// Array Bracket Notation Tests (Sprint 9.0)
+// ============================================================================
+
+func TestParseDotPath_BracketNotation(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []string
+	}{
+		{"items[0]", []string{"items", "0"}},
+		{"items[0].name", []string{"items", "0", "name"}},
+		{"a.items[2].b", []string{"a", "items", "2", "b"}},
+		{"items[-1]", []string{"items", "-1"}},
+		{"items[-1].value", []string{"items", "-1", "value"}},
+		{"a[0][1]", []string{"a", "0", "1"}}, // Nested arrays
+		{"simple.path", []string{"simple", "path"}},
+		{`a\.b.c`, []string{"a.b", "c"}},         // Escaped dot regression
+		{`a\.b[0].c`, []string{"a.b", "0", "c"}}, // Escaped dot with bracket
+		{"", nil},                                // Empty path
+		{"single", []string{"single"}},
+		{"items[10].deep.nested[0]", []string{"items", "10", "deep", "nested", "0"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := parseDotPath(tt.input)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("parseDotPath(%q) = %v, want %v",
+					tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestYamlGet_ArrayBracketNotation(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - name: first
+    value: 1
+  - name: second
+    value: 2
+  - name: third
+    value: 3
+`)
+
+	tests := []struct {
+		key      string
+		expected string
+	}{
+		{"items[0].name", "first"},
+		{"items[1].name", "second"},
+		{"items[2].value", "3"},
+		{"items[-1].name", "third"},  // Last element
+		{"items[-2].name", "second"}, // Second to last
+		{"items[-3].value", "1"},     // Third to last (first)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			cmd := newYamlCmd()
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+			cmd.SetArgs([]string{"get", "--file", configPath, tt.key, "--min"})
+
+			err := cmd.Execute()
+			if err != nil {
+				t.Fatalf("expected no error, got: %v", err)
+			}
+
+			output := strings.TrimSpace(buf.String())
+			if output != tt.expected {
+				t.Errorf("get %s = %q, want %q", tt.key, output, tt.expected)
+			}
+		})
+	}
+}
+
+func TestYamlGet_ArrayBracketNotation_OutOfBounds(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - first
+  - second
+`)
+
+	tests := []struct {
+		key string
+	}{
+		{"items[5]"},   // Beyond end
+		{"items[-5]"},  // Beyond start (negative)
+		{"items[100]"}, // Way beyond end
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			cmd := newYamlCmd()
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+			cmd.SetArgs([]string{"get", "--file", configPath, tt.key})
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Errorf("expected error for out-of-bounds index %s", tt.key)
+			}
+		})
+	}
+}
+
+func TestYamlSet_ArrayBracketNotation(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - name: first
+    value: 1
+  - name: second
+    value: 2
+`)
+
+	// Set value at items[0].name
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "items[0].name", "updated"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify the value was set
+	cmd2 := newYamlCmd()
+	buf2 := new(bytes.Buffer)
+	cmd2.SetOut(buf2)
+	cmd2.SetArgs([]string{"get", "--file", configPath, "items[0].name", "--min"})
+
+	err = cmd2.Execute()
+	if err != nil {
+		t.Fatalf("expected no error reading back, got: %v", err)
+	}
+
+	output := strings.TrimSpace(buf2.String())
+	if output != "updated" {
+		t.Errorf("expected 'updated', got: %s", output)
+	}
+}
+
+func TestYamlSet_ArrayBracketNotation_NegativeIndex(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - name: first
+  - name: second
+  - name: third
+`)
+
+	// Set value at items[-1].name (last element)
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "items[-1].name", "last_updated"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify the last element was updated
+	cmd2 := newYamlCmd()
+	buf2 := new(bytes.Buffer)
+	cmd2.SetOut(buf2)
+	cmd2.SetArgs([]string{"get", "--file", configPath, "items[2].name", "--min"})
+
+	err = cmd2.Execute()
+	if err != nil {
+		t.Fatalf("expected no error reading back, got: %v", err)
+	}
+
+	output := strings.TrimSpace(buf2.String())
+	if output != "last_updated" {
+		t.Errorf("expected 'last_updated', got: %s", output)
+	}
+}
+
+func TestYamlMultiget_ArrayBracketNotation(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - name: first
+  - name: second
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "items[0].name", "items[1].name", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+	if lines[0] != "first" {
+		t.Errorf("expected first line 'first', got: %s", lines[0])
+	}
+	if lines[1] != "second" {
+		t.Errorf("expected second line 'second', got: %s", lines[1])
+	}
+}
+
+func TestParseArrayIndex_NegativeIndices(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected int
+	}{
+		{"0", 0},
+		{"1", 1},
+		{"-1", -1},
+		{"-2", -2},
+		{"-10", -10},
+		{"[0]", 0},
+		{"[-1]", -1},
+		{"[-5]", -5},
+		{"abc", -999},
+		{"", -999},
+		{"[abc]", -999},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := parseArrayIndex(tt.input)
+			if result != tt.expected {
+				t.Errorf("parseArrayIndex(%q) = %d, want %d", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetValueAtPath_NegativeArrayIndex(t *testing.T) {
+	data := map[string]interface{}{
+		"items": []interface{}{"first", "second", "third"},
+	}
+
+	tests := []struct {
+		path     string
+		expected string
+		found    bool
+	}{
+		{"items.-1", "third", true},  // Last
+		{"items.-2", "second", true}, // Second to last
+		{"items.-3", "first", true},  // Third to last (first)
+		{"items.-4", "", false},      // Beyond start
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			val, found := getValueAtPath(data, tt.path)
+			if found != tt.found {
+				t.Errorf("getValueAtPath(%q) found = %v, want %v", tt.path, found, tt.found)
+				return
+			}
+			if found && val != tt.expected {
+				t.Errorf("getValueAtPath(%q) = %v, want %v", tt.path, val, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSetValueAtPath_ArrayIndex(t *testing.T) {
+	// Test setting value at array index
+	data := map[string]interface{}{
+		"items": []interface{}{
+			map[string]interface{}{"name": "first"},
+			map[string]interface{}{"name": "second"},
+		},
+	}
+
+	err := setValueAtPath(data, "items.0.name", "updated")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val, found := getValueAtPath(data, "items.0.name")
+	if !found {
+		t.Fatal("expected to find items.0.name")
+	}
+	if val != "updated" {
+		t.Errorf("expected 'updated', got: %v", val)
+	}
+}
+
+func TestSetValueAtPath_NegativeArrayIndex(t *testing.T) {
+	// Test setting value at negative array index
+	data := map[string]interface{}{
+		"items": []interface{}{
+			map[string]interface{}{"name": "first"},
+			map[string]interface{}{"name": "second"},
+			map[string]interface{}{"name": "third"},
+		},
+	}
+
+	err := setValueAtPath(data, "items.-1.name", "last_updated")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val, found := getValueAtPath(data, "items.2.name")
+	if !found {
+		t.Fatal("expected to find items.2.name")
+	}
+	if val != "last_updated" {
+		t.Errorf("expected 'last_updated', got: %v", val)
+	}
+}
+
+func TestSetValueAtPath_ArrayIndexOutOfBounds(t *testing.T) {
+	data := map[string]interface{}{
+		"items": []interface{}{"first", "second"},
+	}
+
+	err := setValueAtPath(data, "items.5", "invalid")
+	if err == nil {
+		t.Fatal("expected error for out-of-bounds index")
+	}
+	if !strings.Contains(err.Error(), "out of bounds") {
+		t.Errorf("expected 'out of bounds' error, got: %v", err)
+	}
+}
+
+func TestYamlGet_NestedArrayBracketNotation(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+data:
+  lists:
+    - items:
+        - a
+        - b
+    - items:
+        - c
+        - d
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"get", "--file", configPath, "data.lists[1].items[0]", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := strings.TrimSpace(buf.String())
+	if output != "c" {
+		t.Errorf("expected 'c', got: %s", output)
+	}
+}
+
+// ============================================================================
+// Stdin Input Support Tests (Sprint 9.0 - Task 02)
+// ============================================================================
+
+func TestYamlSet_StdinValue(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	// Simulate stdin using a buffer
+	var stdin bytes.Buffer
+	stdin.WriteString("from-stdin")
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetIn(&stdin)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "-"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify value was set
+	content, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(content), "from-stdin") {
+		t.Errorf("expected 'from-stdin' in file, got: %s", string(content))
+	}
+}
+
+func TestYamlSet_StdinMultiline(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `description: old`)
+
+	var stdin bytes.Buffer
+	stdin.WriteString("line1\nline2\nline3")
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetIn(&stdin)
+	cmd.SetArgs([]string{"set", "--file", configPath, "description", "-"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify multi-line value (YAML uses | for multi-line strings)
+	content, _ := os.ReadFile(configPath)
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "line1") || !strings.Contains(contentStr, "line2") {
+		t.Errorf("expected multi-line content, got: %s", contentStr)
+	}
+}
+
+func TestYamlSet_StdinEmpty(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	var stdin bytes.Buffer // Empty
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetIn(&stdin)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "-"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error for empty stdin, got: %v", err)
+	}
+
+	// Value should be empty string
+	content, _ := os.ReadFile(configPath)
+	// YAML represents empty string as "" or ''
+	if !strings.Contains(string(content), `key: ""`) && !strings.Contains(string(content), `key: ''`) && !strings.Contains(string(content), "key:") {
+		t.Errorf("expected empty key value, got: %s", string(content))
+	}
+}
+
+func TestYamlSet_StdinWithTrailingNewline(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	var stdin bytes.Buffer
+	stdin.WriteString("value-with-newline\n") // Trailing newline like from echo
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetIn(&stdin)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "-"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Read back to verify trailing newline was trimmed
+	cmd2 := newYamlCmd()
+	buf2 := new(bytes.Buffer)
+	cmd2.SetOut(buf2)
+	cmd2.SetArgs([]string{"get", "--file", configPath, "key", "--min"})
+
+	err = cmd2.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := strings.TrimSpace(buf2.String())
+	if output != "value-with-newline" {
+		t.Errorf("expected 'value-with-newline', got: %q", output)
+	}
+}
+
+func TestYamlSet_RegularValueStillWorks(t *testing.T) {
+	// Verify that regular values (not "-") still work
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "regular-value"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify value was set
+	content, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(content), "regular-value") {
+		t.Errorf("expected 'regular-value' in file, got: %s", string(content))
+	}
+}
+
+func TestYamlSet_LiteralDashValue(t *testing.T) {
+	// Test that a literal dash is interpreted as stdin (by design)
+	// This test documents the behavior
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	var stdin bytes.Buffer
+	stdin.WriteString("stdin-value")
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetIn(&stdin)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "-"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify stdin was used, not literal "-"
+	content, _ := os.ReadFile(configPath)
+	if strings.Contains(string(content), "key: -") {
+		t.Error("expected stdin value, not literal '-'")
+	}
+	if !strings.Contains(string(content), "stdin-value") {
+		t.Errorf("expected 'stdin-value' in file, got: %s", string(content))
+	}
+}
+
+// ============================================================================
+// Dry-Run Flag Tests (Sprint 9.0 - Task 03)
+// ============================================================================
+
+func TestYamlSet_DryRun(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new-value", "--dry-run"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify output contains preview
+	output := buf.String()
+	if !strings.Contains(output, "DRY RUN") {
+		t.Errorf("expected 'DRY RUN' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "Old: original") {
+		t.Errorf("expected 'Old: original' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "New: new-value") {
+		t.Errorf("expected 'New: new-value' in output, got: %s", output)
+	}
+
+	// Verify file NOT modified
+	content, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(content), "original") {
+		t.Error("expected file to still contain 'original'")
+	}
+	if strings.Contains(string(content), "new-value") {
+		t.Error("expected file to NOT contain 'new-value'")
+	}
+}
+
+func TestYamlSet_DryRunJSON(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new-value", "--dry-run", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify JSON output
+	var result map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+	if result["dry_run"] != true {
+		t.Error("expected dry_run: true")
+	}
+
+	// File NOT modified
+	content, _ := os.ReadFile(configPath)
+	if strings.Contains(string(content), "new-value") {
+		t.Error("expected file to NOT contain 'new-value'")
+	}
+}
+
+func TestYamlSet_DryRunMin(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new-value", "--dry-run", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify minimal output: key: old → new
+	output := buf.String()
+	if !strings.Contains(output, "key:") && !strings.Contains(output, "→") {
+		t.Errorf("expected 'key: old → new' format, got: %s", output)
+	}
+}
+
+func TestYamlSet_DryRunNewKey(t *testing.T) {
+	// Test dry-run for a key that doesn't exist yet
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `existing: value`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "new_key", "new-value", "--dry-run"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify output shows <not set>
+	output := buf.String()
+	if !strings.Contains(output, "<not set>") {
+		t.Errorf("expected '<not set>' for new key, got: %s", output)
+	}
+}
+
+func TestYamlMultiset_DryRun(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiset", "--file", configPath, "a", "10", "b", "20", "--dry-run"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify output contains preview
+	output := buf.String()
+	if !strings.Contains(output, "DRY RUN") {
+		t.Errorf("expected 'DRY RUN' in output, got: %s", output)
+	}
+	if !strings.Contains(output, "Changes (2)") {
+		t.Errorf("expected 'Changes (2)' in output, got: %s", output)
+	}
+
+	// Verify file NOT modified
+	content, _ := os.ReadFile(configPath)
+	if strings.Contains(string(content), "10") || strings.Contains(string(content), "20") {
+		t.Error("expected file to NOT contain new values")
+	}
+}
+
+func TestYamlMultiset_DryRunJSON(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiset", "--file", configPath, "a", "10", "b", "20", "--dry-run", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify JSON output
+	var result map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+	if result["dry_run"] != true {
+		t.Error("expected dry_run: true")
+	}
+	changes, ok := result["changes"].([]interface{})
+	if !ok || len(changes) != 2 {
+		t.Errorf("expected 2 changes, got: %v", result["changes"])
 	}
 }
