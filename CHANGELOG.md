@@ -7,9 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-01-17
+
 ### Added
 
 #### llm-semantic
+
+- **Hybrid search with RRF fusion** - Combine dense vector search with lexical BM25 for better results:
+  - `--hybrid` flag enables combined search
+  - `--fusion-alpha` controls dense vs lexical weighting (0.0-1.0, default 0.7)
+  - `--fusion-k` controls RRF smoothing (default 60)
+
+- **Recency boosting** - Recently modified files rank higher:
+  - `--recency-boost` enables the feature
+  - `--recency-factor` controls boost strength (default 0.5)
+  - `--recency-decay` sets half-life in days (default 7)
+
+- **Multi-profile search** - Search across multiple indexes in one query:
+  - `--profiles code,docs` searches both code and documentation
+  - Results merged and deduplicated by score
+
+- **`multisearch` command** - Execute 1-10 queries in parallel with intelligent result merging:
+  - Multi-match boosting: results matching multiple queries score higher
+  - Automatic deduplication
+  - Output modes: blended (flat), by_query (grouped), by_collection
+
+- **Config file and profile support** - Project-specific semantic search configuration:
+  - `--config .planning/.config/config.yaml` loads project settings
+  - `--profile code|docs|memory|sprints` selects index profile
+  - Profiles define collection names and storage backends per project
+
+- **Sprints profile** - Index sprint planning documents for semantic search
+
+- **Calibration infrastructure** - Automatic threshold calibration per embedding model:
+  - Runs on first index, stores high/medium/low thresholds
+  - `--recalibrate` forces recalibration
+  - `--skip-calibration` bypasses for faster indexing
+
+- **Memory commands** - Consolidated from llm-clarification:
+  - `memory store` - Store Q&A pairs with tags
+  - `memory search` - Semantic search through memories
+  - `memory list` - List stored memories
+  - `memory promote` - Promote to CLAUDE.md
+  - `memory delete` - Remove entries
+
+- **Markdown chunker** - Semantic chunking for `.md` files by headers and sections
+
+- **HTML chunker** - Semantic chunking for `.html`/`.htm` files by document structure
 
 - **Rust language support** - Native chunker for `.rs` files with support for:
   - Functions (`fn`, `pub fn`, `async fn`, `unsafe fn`)
@@ -17,9 +61,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Traits and impl blocks
   - Modules and type aliases
 
+- **Enhanced search output** - Relevance labels (high/medium/low/marginal) based on calibrated thresholds
+
+- **`LLM_SEMANTIC_MODEL` environment variable** - Set default embedding model
+
+#### llm-support
+
+- **8 deterministic workflow tools** (Sprint 8.14):
+  - `tdd-compliance` - Analyze git history for TDD compliance scoring
+  - `sprint-status` - Determine sprint completion status from metrics
+  - `route-td` - Route technical debt by time estimate thresholds
+  - `parse-stream` - Parse pipe-delimited and markdown checklist formats
+  - `coverage-report` - Calculate requirement coverage from user stories
+  - `alignment-check` - Compare requirements against delivered work
+  - `validate-risks` - Cross-reference sprint risks with work items
+  - `plan-type` - Extract plan type from metadata files
+
+- **YAML command enhancements** (Sprint 9.0):
+  - Array bracket notation support: `items[0].name`, `items[-1]`
+  - `--quiet` flag suppresses success messages
+  - `--dry-run` previews changes without writing
+  - `--create` creates file if missing
+  - Better error messages for invalid paths
+
+- **`headers` format for `summarize-dir`** - Extract just markdown headers
+
+#### llm-filesystem-mcp
+
+- **Simplified to 15 batch/specialized tools** - Removed redundant single-file operations (use native Claude tools instead)
+
 ### Changed
 
 - **Default embedding model** changed from `mxbai-embed-large` to `nomic-embed-text` (8K context, faster, better for code)
+
+### Fixed
+
+- **llm-semantic-mcp**: Binary path now resolves to absolute path on startup - fixes "Disconnected" status when running from directories without local binary
+- **llm-semantic**: `--force` flag now properly clears index before rebuilding
+- **llm-semantic**: Suppressed Qdrant API key warning in insecure mode
+- **llm-support-mcp**: Default template syntax now correctly uses brackets
 
 ## [1.5.0] - 2026-01-08
 
@@ -361,7 +441,8 @@ Binary size: 14-15MB per platform.
 - OpenAI-compatible LLM API with retry and caching
 - Race-condition free (verified with `go test -race`)
 
-[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/samestrin/llm-tools/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/samestrin/llm-tools/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/samestrin/llm-tools/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/samestrin/llm-tools/compare/v1.2.0...v1.3.0
