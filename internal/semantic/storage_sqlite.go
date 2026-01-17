@@ -136,6 +136,11 @@ func (s *SQLiteStorage) initSchema() error {
 		return err
 	}
 
+	// Initialize memory stats tracking tables
+	if err := s.initMemoryStatsSchema(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1075,7 +1080,7 @@ func sortResultsByScore(results []SearchResult) {
 
 // IndexPath returns the default index path for a repository
 func IndexPath(repoRoot string) string {
-	return filepath.Join(repoRoot, ".llm-index", "semantic.db")
+	return filepath.Join(repoRoot, ".index", "semantic.db")
 }
 
 // nullableInt64 returns nil if value is 0, otherwise returns the value.
@@ -1139,6 +1144,321 @@ func (s *SQLiteStorage) SetCalibrationMetadata(ctx context.Context, meta *Calibr
 
 	if err != nil {
 		return fmt.Errorf("failed to set calibration metadata: %w", err)
+	}
+
+	return nil
+}
+
+// ===== Memory Stats Tracking =====
+
+// initMemoryStatsSchema creates the memory stats tracking tables.
+func (s *SQLiteStorage) initMemoryStatsSchema() error {
+	// Create memory_stats table for tracking retrieval counts
+	statsSchema := `
+	CREATE TABLE IF NOT EXISTS memory_stats (
+		memory_id TEXT PRIMARY KEY,
+		retrieval_count INTEGER DEFAULT 0,
+		last_retrieved TEXT,
+		status TEXT DEFAULT 'active'
+	);
+	`
+	if _, err := s.db.Exec(statsSchema); err != nil {
+		return fmt.Errorf("failed to create memory_stats table: %w", err)
+	}
+
+	// Create retrieval_log table for detailed tracking
+	logSchema := `
+	CREATE TABLE IF NOT EXISTS retrieval_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		memory_id TEXT NOT NULL,
+		query TEXT,
+		score REAL,
+		timestamp TEXT DEFAULT (datetime('now'))
+	);
+	`
+	if _, err := s.db.Exec(logSchema); err != nil {
+		return fmt.Errorf("failed to create retrieval_log table: %w", err)
+	}
+
+	// Create indexes for efficient queries
+	indexSchema := `
+	CREATE INDEX IF NOT EXISTS idx_retrieval_log_timestamp ON retrieval_log(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_retrieval_log_memory_id ON retrieval_log(memory_id);
+	`
+	if _, err := s.db.Exec(indexSchema); err != nil {
+		return fmt.Errorf("failed to create retrieval_log indexes: %w", err)
+	}
+
+	return nil
+}
+
+// TrackMemoryRetrieval records a memory retrieval event.
+// This should be called after search results are returned for memory search.
+func (s *SQLiteStorage) TrackMemoryRetrieval(ctx context.Context, memoryID string, query string, score float32) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Update or insert stats
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO memory_stats (memory_id, retrieval_count, last_retrieved, status)
+		VALUES (?, 1, datetime('now'), 'active')
+		ON CONFLICT(memory_id) DO UPDATE SET
+			retrieval_count = retrieval_count + 1,
+			last_retrieved = datetime('now')
+	`, memoryID)
+	if err != nil {
+		return fmt.Errorf("failed to update memory_stats: %w", err)
+	}
+
+	// Log the retrieval
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO retrieval_log (memory_id, query, score)
+		VALUES (?, ?, ?)
+	`, memoryID, query, score)
+	if err != nil {
+		return fmt.Errorf("failed to insert retrieval_log: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// TrackMemoryRetrievalBatch records multiple memory retrieval events in a single transaction.
+func (s *SQLiteStorage) TrackMemoryRetrievalBatch(ctx context.Context, retrievals []MemoryRetrieval, query string) error {
+	if len(retrievals) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Prepare statements for batch operations
+	stmtStats, err := tx.PrepareContext(ctx, `
+		INSERT INTO memory_stats (memory_id, retrieval_count, last_retrieved, status)
+		VALUES (?, 1, datetime('now'), 'active')
+		ON CONFLICT(memory_id) DO UPDATE SET
+			retrieval_count = retrieval_count + 1,
+			last_retrieved = datetime('now')
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare stats statement: %w", err)
+	}
+	defer stmtStats.Close()
+
+	stmtLog, err := tx.PrepareContext(ctx, `
+		INSERT INTO retrieval_log (memory_id, query, score)
+		VALUES (?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare log statement: %w", err)
+	}
+	defer stmtLog.Close()
+
+	for _, r := range retrievals {
+		if _, err := stmtStats.ExecContext(ctx, r.MemoryID); err != nil {
+			return fmt.Errorf("failed to update stats for %s: %w", r.MemoryID, err)
+		}
+		if _, err := stmtLog.ExecContext(ctx, r.MemoryID, query, r.Score); err != nil {
+			return fmt.Errorf("failed to log retrieval for %s: %w", r.MemoryID, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetMemoryStats returns stats for a specific memory entry.
+func (s *SQLiteStorage) GetMemoryStats(ctx context.Context, memoryID string) (*RetrievalStats, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	var stats RetrievalStats
+	var lastRetrieved sql.NullString
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT memory_id, retrieval_count, last_retrieved, status
+		FROM memory_stats
+		WHERE memory_id = ?
+	`, memoryID).Scan(&stats.MemoryID, &stats.RetrievalCount, &lastRetrieved, &stats.Status)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // No stats yet
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get memory stats: %w", err)
+	}
+
+	if lastRetrieved.Valid {
+		stats.LastRetrieved = lastRetrieved.String
+	}
+
+	// Calculate average score from log
+	var avgScore sql.NullFloat64
+	err = s.db.QueryRowContext(ctx, `
+		SELECT AVG(score) FROM retrieval_log WHERE memory_id = ?
+	`, memoryID).Scan(&avgScore)
+	if err == nil && avgScore.Valid {
+		stats.AvgScore = float32(avgScore.Float64)
+	}
+
+	return &stats, nil
+}
+
+// GetAllMemoryStats returns stats for all tracked memories.
+func (s *SQLiteStorage) GetAllMemoryStats(ctx context.Context) ([]RetrievalStats, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT
+			ms.memory_id,
+			ms.retrieval_count,
+			ms.last_retrieved,
+			ms.status,
+			COALESCE(AVG(rl.score), 0) as avg_score
+		FROM memory_stats ms
+		LEFT JOIN retrieval_log rl ON ms.memory_id = rl.memory_id
+		GROUP BY ms.memory_id
+		ORDER BY ms.retrieval_count DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query memory stats: %w", err)
+	}
+	defer rows.Close()
+
+	var results []RetrievalStats
+	for rows.Next() {
+		var stats RetrievalStats
+		var lastRetrieved sql.NullString
+		var avgScore sql.NullFloat64
+
+		if err := rows.Scan(&stats.MemoryID, &stats.RetrievalCount, &lastRetrieved, &stats.Status, &avgScore); err != nil {
+			return nil, fmt.Errorf("failed to scan memory stats: %w", err)
+		}
+
+		if lastRetrieved.Valid {
+			stats.LastRetrieved = lastRetrieved.String
+		}
+		if avgScore.Valid {
+			stats.AvgScore = float32(avgScore.Float64)
+		}
+
+		results = append(results, stats)
+	}
+
+	return results, rows.Err()
+}
+
+// GetMemoryRetrievalHistory returns recent retrieval log entries for a memory.
+func (s *SQLiteStorage) GetMemoryRetrievalHistory(ctx context.Context, memoryID string, limit int) ([]RetrievalLogEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, memory_id, query, score, timestamp
+		FROM retrieval_log
+		WHERE memory_id = ?
+		ORDER BY timestamp DESC
+		LIMIT ?
+	`, memoryID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query retrieval history: %w", err)
+	}
+	defer rows.Close()
+
+	var results []RetrievalLogEntry
+	for rows.Next() {
+		var entry RetrievalLogEntry
+		var query sql.NullString
+		var score sql.NullFloat64
+
+		if err := rows.Scan(&entry.ID, &entry.MemoryID, &query, &score, &entry.Timestamp); err != nil {
+			return nil, fmt.Errorf("failed to scan retrieval log entry: %w", err)
+		}
+
+		if query.Valid {
+			entry.Query = query.String
+		}
+		if score.Valid {
+			entry.Score = float32(score.Float64)
+		}
+
+		results = append(results, entry)
+	}
+
+	return results, rows.Err()
+}
+
+// PruneMemoryRetrievalLog removes retrieval log entries older than the specified duration.
+func (s *SQLiteStorage) PruneMemoryRetrievalLog(ctx context.Context, olderThanDays int) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return 0, ErrStorageClosed
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM retrieval_log
+		WHERE timestamp < datetime('now', '-' || ? || ' days')
+	`, olderThanDays)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prune retrieval log: %w", err)
+	}
+
+	return result.RowsAffected()
+}
+
+// UpdateMemoryStatsStatus updates the status of a memory entry (active, archived, etc.).
+func (s *SQLiteStorage) UpdateMemoryStatsStatus(ctx context.Context, memoryID string, status string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO memory_stats (memory_id, retrieval_count, status)
+		VALUES (?, 0, ?)
+		ON CONFLICT(memory_id) DO UPDATE SET status = ?
+	`, memoryID, status, status)
+	if err != nil {
+		return fmt.Errorf("failed to update memory status: %w", err)
 	}
 
 	return nil

@@ -13,12 +13,12 @@ func TestDeriveCollectionFromPath(t *testing.T) {
 	}{
 		{
 			name:     "simple path with code suffix",
-			path:     ".llm-index/code",
+			path:     ".index/code",
 			expected: "code",
 		},
 		{
 			name:     "simple path with docs suffix",
-			path:     ".llm-index/docs",
+			path:     ".index/docs",
 			expected: "docs",
 		},
 		{
@@ -28,17 +28,17 @@ func TestDeriveCollectionFromPath(t *testing.T) {
 		},
 		{
 			name:     "path with trailing slash",
-			path:     ".llm-index/code/",
+			path:     ".index/code/",
 			expected: "code",
 		},
 		{
-			name:     "default .llm-index should return empty",
-			path:     ".llm-index",
+			name:     "default .index should return empty",
+			path:     ".index",
 			expected: "",
 		},
 		{
-			name:     "llm-index without dot should return empty",
-			path:     "llm-index",
+			name:     "index without dot should return empty",
+			path:     "index",
 			expected: "",
 		},
 		{
@@ -48,27 +48,27 @@ func TestDeriveCollectionFromPath(t *testing.T) {
 		},
 		{
 			name:     "path with hyphen converted to underscore",
-			path:     ".llm-index/my-collection",
+			path:     ".index/my-collection",
 			expected: "my_collection",
 		},
 		{
 			name:     "path with dot converted to underscore",
-			path:     ".llm-index/v1.0",
+			path:     ".index/v1.0",
 			expected: "v1_0",
 		},
 		{
 			name:     "path starting with number gets prefix",
-			path:     ".llm-index/123test",
+			path:     ".index/123test",
 			expected: "idx_123test",
 		},
 		{
 			name:     "alphanumeric path unchanged",
-			path:     ".llm-index/MyProject2024",
+			path:     ".index/MyProject2024",
 			expected: "MyProject2024",
 		},
 		{
 			name:     "path with underscores preserved",
-			path:     ".llm-index/my_project_code",
+			path:     ".index/my_project_code",
 			expected: "my_project_code",
 		},
 		{
@@ -78,7 +78,7 @@ func TestDeriveCollectionFromPath(t *testing.T) {
 		},
 		{
 			name:     "special characters removed",
-			path:     ".llm-index/test@project#1",
+			path:     ".index/test@project#1",
 			expected: "testproject1",
 		},
 	}
@@ -108,7 +108,7 @@ func TestResolveCollectionName(t *testing.T) {
 
 	t.Run("priority 1: explicit collection flag", func(t *testing.T) {
 		collectionName = "explicit_collection"
-		indexDir = ".llm-index/code"
+		indexDir = ".index/code"
 		os.Setenv("QDRANT_COLLECTION", "env_collection")
 
 		result := resolveCollectionName()
@@ -119,7 +119,7 @@ func TestResolveCollectionName(t *testing.T) {
 
 	t.Run("priority 2: derive from index-dir", func(t *testing.T) {
 		collectionName = ""
-		indexDir = ".llm-index/myproject"
+		indexDir = ".index/myproject"
 		os.Setenv("QDRANT_COLLECTION", "env_collection")
 
 		result := resolveCollectionName()
@@ -130,7 +130,7 @@ func TestResolveCollectionName(t *testing.T) {
 
 	t.Run("priority 3: environment variable", func(t *testing.T) {
 		collectionName = ""
-		indexDir = ".llm-index" // default, won't derive
+		indexDir = ".index" // default, won't derive
 		os.Setenv("QDRANT_COLLECTION", "env_collection")
 
 		result := resolveCollectionName()
@@ -141,7 +141,7 @@ func TestResolveCollectionName(t *testing.T) {
 
 	t.Run("priority 4: default llm_semantic", func(t *testing.T) {
 		collectionName = ""
-		indexDir = ".llm-index"
+		indexDir = ".index"
 		os.Unsetenv("QDRANT_COLLECTION")
 
 		result := resolveCollectionName()
@@ -163,7 +163,7 @@ func TestResolveCollectionName(t *testing.T) {
 
 	t.Run("default index-dir with no env uses default", func(t *testing.T) {
 		collectionName = ""
-		indexDir = ".llm-index"
+		indexDir = ".index"
 		os.Unsetenv("QDRANT_COLLECTION")
 
 		result := resolveCollectionName()
@@ -188,7 +188,7 @@ func TestResolveCollectionName_EdgeCases(t *testing.T) {
 
 	t.Run("whitespace-only collection name treated as empty", func(t *testing.T) {
 		collectionName = "   "
-		indexDir = ".llm-index/code"
+		indexDir = ".index/code"
 		os.Unsetenv("QDRANT_COLLECTION")
 
 		result := resolveCollectionName()
@@ -250,7 +250,7 @@ func TestIndexDirFlag_InRootCmd(t *testing.T) {
 		t.Fatal("--index-dir flag not found in root command")
 	}
 
-	if flag.DefValue != ".llm-index" {
-		t.Errorf("--index-dir default should be '.llm-index', got %q", flag.DefValue)
+	if flag.DefValue != ".index" {
+		t.Errorf("--index-dir default should be '.index', got %q", flag.DefValue)
 	}
 }

@@ -155,7 +155,12 @@ func (idx *LexicalIndex) initSchema() error {
 	}
 
 	// Backfill existing chunks if FTS is empty but chunks exist
-	return idx.backfillFTS()
+	if err := idx.backfillFTS(); err != nil {
+		return err
+	}
+
+	// Create memory stats tracking tables
+	return idx.initStatsSchema()
 }
 
 // backfillFTS populates the FTS5 index from existing chunks.
@@ -434,20 +439,15 @@ func sanitizeCollectionName(name string) string {
 }
 
 // getFTSPath returns the path for a parallel FTS database.
-// If dataDir is empty, uses ~/.llm-semantic/.
-// Returns empty string if home directory cannot be determined and dataDir is empty.
+// dataDir should be the project's .index directory (e.g., {gitRoot}/.index/).
+// Returns empty string if dataDir is empty (caller should handle).
 func getFTSPath(collection string, dataDir string) string {
 	if dataDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			// Return empty string to signal error - caller should handle
-			return ""
-		}
-		dataDir = filepath.Join(home, ".llm-semantic")
+		// Return empty string to signal error - caller should handle
+		return ""
 	}
 
-	safeCollection := sanitizeCollectionName(collection)
-	return filepath.Join(dataDir, fmt.Sprintf("qdrant-fts-%s.db", safeCollection))
+	return filepath.Join(dataDir, "qdrant_fts.db")
 }
 
 // nullableInt64Lexical returns nil if value is 0, otherwise returns the value.
@@ -483,6 +483,325 @@ func (idx *LexicalIndex) migrateMtimeColumn() error {
 		if err != nil {
 			return fmt.Errorf("failed to create file_mtime index: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// ===== Memory Stats Tracking =====
+
+// initStatsSchema creates the memory stats tracking tables.
+func (idx *LexicalIndex) initStatsSchema() error {
+	// Create memory_stats table for tracking retrieval counts
+	statsSchema := `
+	CREATE TABLE IF NOT EXISTS memory_stats (
+		memory_id TEXT PRIMARY KEY,
+		retrieval_count INTEGER DEFAULT 0,
+		last_retrieved TEXT,
+		status TEXT DEFAULT 'active'
+	);
+	`
+	if _, err := idx.db.Exec(statsSchema); err != nil {
+		return fmt.Errorf("failed to create memory_stats table: %w", err)
+	}
+
+	// Create retrieval_log table for detailed tracking
+	logSchema := `
+	CREATE TABLE IF NOT EXISTS retrieval_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		memory_id TEXT NOT NULL,
+		query TEXT,
+		score REAL,
+		timestamp TEXT DEFAULT (datetime('now'))
+	);
+	`
+	if _, err := idx.db.Exec(logSchema); err != nil {
+		return fmt.Errorf("failed to create retrieval_log table: %w", err)
+	}
+
+	// Create index for pruning old log entries
+	indexSchema := `
+	CREATE INDEX IF NOT EXISTS idx_retrieval_log_timestamp ON retrieval_log(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_retrieval_log_memory_id ON retrieval_log(memory_id);
+	`
+	if _, err := idx.db.Exec(indexSchema); err != nil {
+		return fmt.Errorf("failed to create retrieval_log indexes: %w", err)
+	}
+
+	return nil
+}
+
+// TrackRetrieval records a memory retrieval event.
+// This should be called after search results are returned for profile=memory.
+func (idx *LexicalIndex) TrackRetrieval(memoryID string, query string, score float32) error {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	if idx.closed {
+		return fmt.Errorf("index is closed")
+	}
+
+	tx, err := idx.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Update or insert stats
+	_, err = tx.Exec(`
+		INSERT INTO memory_stats (memory_id, retrieval_count, last_retrieved, status)
+		VALUES (?, 1, datetime('now'), 'active')
+		ON CONFLICT(memory_id) DO UPDATE SET
+			retrieval_count = retrieval_count + 1,
+			last_retrieved = datetime('now')
+	`, memoryID)
+	if err != nil {
+		return fmt.Errorf("failed to update memory_stats: %w", err)
+	}
+
+	// Log the retrieval
+	_, err = tx.Exec(`
+		INSERT INTO retrieval_log (memory_id, query, score)
+		VALUES (?, ?, ?)
+	`, memoryID, query, score)
+	if err != nil {
+		return fmt.Errorf("failed to insert retrieval_log: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// TrackRetrievalBatch records multiple memory retrieval events in a single transaction.
+// More efficient than calling TrackRetrieval multiple times.
+func (idx *LexicalIndex) TrackRetrievalBatch(retrievals []struct {
+	MemoryID string
+	Score    float32
+}, query string) error {
+	if len(retrievals) == 0 {
+		return nil
+	}
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	if idx.closed {
+		return fmt.Errorf("index is closed")
+	}
+
+	tx, err := idx.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Prepare statements for batch operations
+	stmtStats, err := tx.Prepare(`
+		INSERT INTO memory_stats (memory_id, retrieval_count, last_retrieved, status)
+		VALUES (?, 1, datetime('now'), 'active')
+		ON CONFLICT(memory_id) DO UPDATE SET
+			retrieval_count = retrieval_count + 1,
+			last_retrieved = datetime('now')
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare stats statement: %w", err)
+	}
+	defer stmtStats.Close()
+
+	stmtLog, err := tx.Prepare(`
+		INSERT INTO retrieval_log (memory_id, query, score)
+		VALUES (?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare log statement: %w", err)
+	}
+	defer stmtLog.Close()
+
+	for _, r := range retrievals {
+		if _, err := stmtStats.Exec(r.MemoryID); err != nil {
+			return fmt.Errorf("failed to update stats for %s: %w", r.MemoryID, err)
+		}
+		if _, err := stmtLog.Exec(r.MemoryID, query, r.Score); err != nil {
+			return fmt.Errorf("failed to log retrieval for %s: %w", r.MemoryID, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetMemoryStats returns stats for a specific memory entry.
+func (idx *LexicalIndex) GetMemoryStats(memoryID string) (*RetrievalStats, error) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	if idx.closed {
+		return nil, fmt.Errorf("index is closed")
+	}
+
+	var stats RetrievalStats
+	var lastRetrieved sql.NullString
+
+	err := idx.db.QueryRow(`
+		SELECT memory_id, retrieval_count, last_retrieved, status
+		FROM memory_stats
+		WHERE memory_id = ?
+	`, memoryID).Scan(&stats.MemoryID, &stats.RetrievalCount, &lastRetrieved, &stats.Status)
+
+	if err == sql.ErrNoRows {
+		return nil, nil // No stats yet
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get memory stats: %w", err)
+	}
+
+	if lastRetrieved.Valid {
+		stats.LastRetrieved = lastRetrieved.String
+	}
+
+	// Calculate average score from log
+	var avgScore sql.NullFloat64
+	err = idx.db.QueryRow(`
+		SELECT AVG(score) FROM retrieval_log WHERE memory_id = ?
+	`, memoryID).Scan(&avgScore)
+	if err == nil && avgScore.Valid {
+		stats.AvgScore = float32(avgScore.Float64)
+	}
+
+	return &stats, nil
+}
+
+// GetAllMemoryStats returns stats for all tracked memories.
+func (idx *LexicalIndex) GetAllMemoryStats() ([]RetrievalStats, error) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	if idx.closed {
+		return nil, fmt.Errorf("index is closed")
+	}
+
+	rows, err := idx.db.Query(`
+		SELECT
+			ms.memory_id,
+			ms.retrieval_count,
+			ms.last_retrieved,
+			ms.status,
+			COALESCE(AVG(rl.score), 0) as avg_score
+		FROM memory_stats ms
+		LEFT JOIN retrieval_log rl ON ms.memory_id = rl.memory_id
+		GROUP BY ms.memory_id
+		ORDER BY ms.retrieval_count DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query memory stats: %w", err)
+	}
+	defer rows.Close()
+
+	var results []RetrievalStats
+	for rows.Next() {
+		var stats RetrievalStats
+		var lastRetrieved sql.NullString
+		var avgScore sql.NullFloat64
+
+		if err := rows.Scan(&stats.MemoryID, &stats.RetrievalCount, &lastRetrieved, &stats.Status, &avgScore); err != nil {
+			return nil, fmt.Errorf("failed to scan memory stats: %w", err)
+		}
+
+		if lastRetrieved.Valid {
+			stats.LastRetrieved = lastRetrieved.String
+		}
+		if avgScore.Valid {
+			stats.AvgScore = float32(avgScore.Float64)
+		}
+
+		results = append(results, stats)
+	}
+
+	return results, rows.Err()
+}
+
+// GetRetrievalHistory returns recent retrieval log entries for a memory.
+func (idx *LexicalIndex) GetRetrievalHistory(memoryID string, limit int) ([]RetrievalLogEntry, error) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	if idx.closed {
+		return nil, fmt.Errorf("index is closed")
+	}
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := idx.db.Query(`
+		SELECT id, memory_id, query, score, timestamp
+		FROM retrieval_log
+		WHERE memory_id = ?
+		ORDER BY timestamp DESC
+		LIMIT ?
+	`, memoryID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query retrieval history: %w", err)
+	}
+	defer rows.Close()
+
+	var results []RetrievalLogEntry
+	for rows.Next() {
+		var entry RetrievalLogEntry
+		var query sql.NullString
+		var score sql.NullFloat64
+
+		if err := rows.Scan(&entry.ID, &entry.MemoryID, &query, &score, &entry.Timestamp); err != nil {
+			return nil, fmt.Errorf("failed to scan retrieval log entry: %w", err)
+		}
+
+		if query.Valid {
+			entry.Query = query.String
+		}
+		if score.Valid {
+			entry.Score = float32(score.Float64)
+		}
+
+		results = append(results, entry)
+	}
+
+	return results, rows.Err()
+}
+
+// PruneRetrievalLog removes retrieval log entries older than the specified duration.
+func (idx *LexicalIndex) PruneRetrievalLog(olderThanDays int) (int64, error) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	if idx.closed {
+		return 0, fmt.Errorf("index is closed")
+	}
+
+	result, err := idx.db.Exec(`
+		DELETE FROM retrieval_log
+		WHERE timestamp < datetime('now', '-' || ? || ' days')
+	`, olderThanDays)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prune retrieval log: %w", err)
+	}
+
+	return result.RowsAffected()
+}
+
+// UpdateMemoryStatus updates the status of a memory entry (active, archived, etc.).
+func (idx *LexicalIndex) UpdateMemoryStatus(memoryID string, status string) error {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	if idx.closed {
+		return fmt.Errorf("index is closed")
+	}
+
+	_, err := idx.db.Exec(`
+		INSERT INTO memory_stats (memory_id, retrieval_count, status)
+		VALUES (?, 0, ?)
+		ON CONFLICT(memory_id) DO UPDATE SET status = ?
+	`, memoryID, status, status)
+	if err != nil {
+		return fmt.Errorf("failed to update memory status: %w", err)
 	}
 
 	return nil

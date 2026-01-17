@@ -279,6 +279,8 @@ func newYamlSetCmd() *cobra.Command {
 	var create bool
 	var jsonOutput bool
 	var minOutput bool
+	var dryRun bool
+	var quiet bool
 
 	cmd := &cobra.Command{
 		Use:   "set KEY VALUE",
@@ -288,10 +290,16 @@ func newYamlSetCmd() *cobra.Command {
 Creates intermediate keys if they don't exist.
 Preserves comments where possible.
 
+Use '-' as VALUE to read from stdin (for piping values or multi-line input).
+Use --dry-run to preview changes without writing to the file.
+Use --quiet to suppress success messages (errors still output).
+
 Examples:
   yaml set --file config.yaml helper.llm claude
   yaml set --file config.yaml helper.max_lines 2500
-  yaml set --file config.yaml new.nested.key value --create`,
+  yaml set --file config.yaml new.nested.key value --create
+  echo "piped" | yaml set --file config.yaml key -
+  yaml set --file config.yaml key value --dry-run`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if file == "" {
@@ -301,15 +309,50 @@ Examples:
 			key := args[0]
 			value := args[1]
 
+			// Handle stdin input when value is "-"
+			if value == "-" {
+				stdinValue, err := readFromStdin(cmd)
+				if err != nil {
+					return fmt.Errorf("failed to read value from stdin: %w", err)
+				}
+				value = stdinValue
+			}
+
 			// Check if file exists
 			if _, err := os.Stat(file); os.IsNotExist(err) {
 				if !create {
 					return fmt.Errorf("config file not found: %s (hint: use --create to create it, or run 'llm-support yaml init --file %s' first)", file, file)
 				}
-				// Create empty file
-				if err := os.WriteFile(file, []byte(""), 0644); err != nil {
-					return fmt.Errorf("failed to create config file: %w", err)
+				// Create empty file (unless dry-run)
+				if !dryRun {
+					if err := os.WriteFile(file, []byte(""), 0644); err != nil {
+						return fmt.Errorf("failed to create config file: %w", err)
+					}
 				}
+			}
+
+			// Set value (convert numeric strings to numbers)
+			var typedValue interface{} = value
+			if num, err := parseNumber(value); err == nil {
+				typedValue = num
+			}
+
+			// Handle dry-run mode - preview without writing
+			if dryRun {
+				var oldValue interface{}
+				if _, err := os.Stat(file); err == nil {
+					// Acquire read lock to prevent race condition with concurrent writes
+					lock, err := yamlFileLock(file, false) // false = read lock
+					if err != nil {
+						return fmt.Errorf("failed to acquire read lock for dry-run: %w", err)
+					}
+					data, err := readYAMLAsMap(file)
+					lock.Unlock()
+					if err == nil {
+						oldValue, _ = getValueAtPath(data, key)
+					}
+				}
+				return outputDryRunPreview(cmd, file, key, oldValue, typedValue, jsonOutput, minOutput)
 			}
 
 			// Acquire write lock
@@ -319,15 +362,14 @@ Examples:
 			}
 			defer lock.Unlock()
 
-			// Set value (convert numeric strings to numbers)
-			var typedValue interface{} = value
-			if num, err := parseNumber(value); err == nil {
-				typedValue = num
-			}
-
 			// Use comment-preserving set (uses AST manipulation)
 			if err := setValuePreservingComments(file, key, typedValue); err != nil {
 				return fmt.Errorf("failed to set value: %w", err)
+			}
+
+			// Skip success output if quiet
+			if quiet {
+				return nil
 			}
 
 			// Output
@@ -357,6 +399,8 @@ Examples:
 	cmd.Flags().BoolVar(&create, "create", false, "Create file if it doesn't exist")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing to file")
+	cmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress success messages (errors still output)")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
@@ -369,13 +413,18 @@ func newYamlMultigetCmd() *cobra.Command {
 	var separator string
 	var jsonOutput bool
 	var minOutput bool
+	var requiredFile string
 
 	cmd := &cobra.Command{
-		Use:   "multiget KEY1 [KEY2 ...]",
+		Use:   "multiget [KEY1 KEY2 ...]",
 		Short: "Retrieve multiple values",
 		Long: `Retrieve multiple values from the YAML config file in a single operation.
 
 Values are returned in argument order.
+
+Keys can be specified via:
+  - Positional arguments
+  - --required-file (one key per line, # comments supported)
 
 Output Formats:
   default: key=value (one per line)
@@ -385,11 +434,34 @@ Output Formats:
 Examples:
   yaml multiget --file config.yaml helper.llm project.type
   yaml multiget --file config.yaml helper.llm missing.key --defaults '{"missing.key": "default"}'
-  yaml multiget --file config.yaml helper.llm project.type --min`,
-		Args: cobra.MinimumNArgs(1),
+  yaml multiget --file config.yaml helper.llm project.type --min
+  yaml multiget --file config.yaml --required-file keys.txt`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if file == "" {
 				return fmt.Errorf("--file flag is required")
+			}
+
+			// Collect keys from all sources
+			var keys []string
+
+			// From positional args
+			keys = append(keys, args...)
+
+			// From --required-file
+			if requiredFile != "" {
+				fileKeys, err := parseRequiredKeysFile(requiredFile)
+				if err != nil {
+					return fmt.Errorf("failed to read required keys file: %w", err)
+				}
+				keys = append(keys, fileKeys...)
+			}
+
+			// Deduplicate keys while preserving order
+			keys = yamlUniqueStrings(keys)
+
+			if len(keys) == 0 {
+				return fmt.Errorf("no keys specified (use positional args or --required-file)")
 			}
 
 			// Parse defaults if provided
@@ -419,7 +491,7 @@ Examples:
 			// Get all values
 			results := make(map[string]string)
 			var orderedKeys []string
-			for _, key := range args {
+			for _, key := range keys {
 				orderedKeys = append(orderedKeys, key)
 				value, found := getValueAtPath(data, key)
 				if found {
@@ -469,6 +541,7 @@ Examples:
 	cmd.Flags().StringVar(&separator, "separator", "\n", "Value separator for --min output")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output (values only)")
+	cmd.Flags().StringVar(&requiredFile, "required-file", "", "File containing required keys (one per line, # comments supported)")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
@@ -480,6 +553,8 @@ func newYamlMultisetCmd() *cobra.Command {
 	var create bool
 	var jsonOutput bool
 	var minOutput bool
+	var dryRun bool
+	var quiet bool
 
 	cmd := &cobra.Command{
 		Use:   "multiset KEY1 VALUE1 [KEY2 VALUE2 ...]",
@@ -488,10 +563,13 @@ func newYamlMultisetCmd() *cobra.Command {
 
 All keys are validated before any writes occur.
 Arguments must be in KEY VALUE pairs.
+Use --dry-run to preview changes without writing to the file.
+Use --quiet to suppress success messages (errors still output).
 
 Examples:
   yaml multiset --file config.yaml helper.llm claude helper.max_lines 2500
-  yaml multiset --file config.yaml --create new.key value1 other.key value2`,
+  yaml multiset --file config.yaml --create new.key value1 other.key value2
+  yaml multiset --file config.yaml key1 val1 key2 val2 --dry-run`,
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if file == "" {
@@ -517,10 +595,60 @@ Examples:
 				if !create {
 					return fmt.Errorf("config file not found: %s (hint: use --create)", file)
 				}
-				// Create empty file
-				if err := os.WriteFile(file, []byte(""), 0644); err != nil {
-					return fmt.Errorf("failed to create config file: %w", err)
+				// Create empty file (unless dry-run)
+				if !dryRun {
+					if err := os.WriteFile(file, []byte(""), 0644); err != nil {
+						return fmt.Errorf("failed to create config file: %w", err)
+					}
 				}
+			}
+
+			// Handle dry-run mode - preview without writing
+			if dryRun {
+				var data map[string]interface{}
+				if _, statErr := os.Stat(file); statErr == nil {
+					// Acquire read lock to prevent race condition with concurrent writes
+					lock, lockErr := yamlFileLock(file, false) // false = read lock
+					if lockErr != nil {
+						return fmt.Errorf("failed to acquire read lock for dry-run: %w", lockErr)
+					}
+					var readErr error
+					data, readErr = readYAMLAsMap(file)
+					lock.Unlock()
+					if readErr != nil {
+						return fmt.Errorf("failed to read config file: %w", readErr)
+					}
+				} else {
+					data = make(map[string]interface{})
+				}
+
+				var changes []dryRunChange
+				for _, pair := range pairs {
+					var typedValue interface{} = pair.value
+					if num, parseErr := parseNumber(pair.value); parseErr == nil {
+						typedValue = num
+					}
+
+					oldValue, _ := getValueAtPath(data, pair.key)
+					changes = append(changes, dryRunChange{
+						Key:      pair.key,
+						OldValue: oldValue,
+						NewValue: typedValue,
+					})
+				}
+				return outputMultiDryRunPreview(cmd, file, changes, jsonOutput, minOutput)
+			}
+
+			// Read file for actual update
+			var data map[string]interface{}
+			var err error
+			if _, statErr := os.Stat(file); statErr == nil {
+				data, err = readYAMLAsMap(file)
+				if err != nil {
+					return fmt.Errorf("failed to read config file: %w", err)
+				}
+			} else {
+				data = make(map[string]interface{})
 			}
 
 			// Acquire write lock
@@ -530,17 +658,11 @@ Examples:
 			}
 			defer lock.Unlock()
 
-			// Read file
-			data, err := readYAMLAsMap(file)
-			if err != nil {
-				return fmt.Errorf("failed to read config file: %w", err)
-			}
-
 			// Set all values
 			var keys []string
 			for _, pair := range pairs {
 				var typedValue interface{} = pair.value
-				if num, err := parseNumber(pair.value); err == nil {
+				if num, parseErr := parseNumber(pair.value); parseErr == nil {
 					typedValue = num
 				}
 
@@ -553,6 +675,11 @@ Examples:
 			// Write file atomically
 			if err := writeYAMLFile(file, data); err != nil {
 				return fmt.Errorf("failed to write config file: %w", err)
+			}
+
+			// Skip success output if quiet
+			if quiet {
+				return nil
 			}
 
 			// Output
@@ -583,6 +710,8 @@ Examples:
 	cmd.Flags().BoolVar(&create, "create", false, "Create file if it doesn't exist")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing to file")
+	cmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress success messages (errors still output)")
 	cmd.MarkFlagRequired("file")
 
 	return cmd

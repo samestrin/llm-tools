@@ -237,15 +237,15 @@ func findIndexPath() string {
 		}
 	}
 
-	// Try .llm-index in current directory
-	path := filepath.Join(".llm-index", "semantic.db")
+	// Try .index in current directory
+	path := filepath.Join(".index", "semantic.db")
 	if _, err := os.Stat(path); err == nil {
 		return path
 	}
 
 	// Try to find git root and check there
 	if gitRoot, err := findGitRoot(); err == nil {
-		path := filepath.Join(gitRoot, ".llm-index", "semantic.db")
+		path := filepath.Join(gitRoot, ".index", "semantic.db")
 		if _, err := os.Stat(path); err == nil {
 			return path
 		}
