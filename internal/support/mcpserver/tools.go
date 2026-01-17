@@ -1903,5 +1903,33 @@ func GetToolDefinitions() []ToolDefinition {
 				}
 			}`),
 		},
+
+		// 50. Coverage report for requirements
+		{
+			Name:        ToolPrefix + "coverage_report",
+			Description: "Calculate requirement coverage from user stories. Parses requirements file to extract IDs (REQ-#, R-#, REQUIREMENT-#), scans user story markdown files, and returns total, covered, uncovered requirements with coverage percentage and per-story mapping.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"requirements": {
+						"type": "string",
+						"description": "Path to requirements markdown file"
+					},
+					"stories": {
+						"type": "string",
+						"description": "Path to user stories directory"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["requirements", "stories"]
+			}`),
+		},
 	}
 }
