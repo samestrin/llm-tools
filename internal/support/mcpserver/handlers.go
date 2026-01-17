@@ -217,6 +217,22 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildRuntimeArgs(args), nil
 	case "complete":
 		return buildCompleteArgs(args), nil
+	case "parse_stream":
+		return buildParseStreamArgs(args), nil
+	case "route_td":
+		return buildRouteTDArgs(args), nil
+	case "coverage_report":
+		return buildCoverageReportArgs(args), nil
+	case "validate_risks":
+		return buildValidateRisksArgs(args), nil
+	case "sprint_status":
+		return buildSprintStatusArgs(args), nil
+	case "alignment_check":
+		return buildAlignmentCheckArgs(args), nil
+	case "tdd_compliance":
+		return buildTddComplianceArgs(args), nil
+	case "categorize_changes":
+		return buildCategorizeChangesArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1560,5 +1576,149 @@ func buildRuntimeArgs(args map[string]interface{}) []string {
 		cmdArgs = append(cmdArgs, "--min")
 	}
 
+	return cmdArgs
+}
+
+func buildParseStreamArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"parse-stream"}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+	if content, ok := args["content"].(string); ok {
+		cmdArgs = append(cmdArgs, "--content", content)
+	}
+	if format, ok := args["format"].(string); ok {
+		cmdArgs = append(cmdArgs, "--format", format)
+	}
+	if delimiter, ok := args["delimiter"].(string); ok {
+		cmdArgs = append(cmdArgs, "--delimiter", delimiter)
+	}
+	if headers, ok := args["headers"].(string); ok {
+		cmdArgs = append(cmdArgs, "--headers", headers)
+	}
+	return cmdArgs
+}
+
+func buildRouteTDArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"route-td"}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+	if content, ok := args["content"].(string); ok {
+		cmdArgs = append(cmdArgs, "--content", content)
+	}
+	if quickWinsMax, ok := getInt(args, "quick_wins_max"); ok {
+		cmdArgs = append(cmdArgs, "--quick-wins-max", strconv.Itoa(quickWinsMax))
+	}
+	if backlogMax, ok := getInt(args, "backlog_max"); ok {
+		cmdArgs = append(cmdArgs, "--backlog-max", strconv.Itoa(backlogMax))
+	}
+	return cmdArgs
+}
+
+func buildCoverageReportArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"coverage-report"}
+	if requirements, ok := args["requirements"].(string); ok {
+		cmdArgs = append(cmdArgs, "--requirements", requirements)
+	}
+	if stories, ok := args["stories"].(string); ok {
+		cmdArgs = append(cmdArgs, "--stories", stories)
+	}
+	return cmdArgs
+}
+
+func buildValidateRisksArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"validate-risks"}
+	if design, ok := args["design"].(string); ok {
+		cmdArgs = append(cmdArgs, "--design", design)
+	}
+	if stories, ok := args["stories"].(string); ok {
+		cmdArgs = append(cmdArgs, "--stories", stories)
+	}
+	if tasks, ok := args["tasks"].(string); ok {
+		cmdArgs = append(cmdArgs, "--tasks", tasks)
+	}
+	if ac, ok := args["acceptance_criteria"].(string); ok {
+		cmdArgs = append(cmdArgs, "--acceptance-criteria", ac)
+	}
+	return cmdArgs
+}
+
+func buildSprintStatusArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"sprint-status"}
+	if tasksTotal, ok := getInt(args, "tasks_total"); ok {
+		cmdArgs = append(cmdArgs, "--tasks-total", strconv.Itoa(tasksTotal))
+	}
+	if tasksCompleted, ok := getInt(args, "tasks_completed"); ok {
+		cmdArgs = append(cmdArgs, "--tasks-completed", strconv.Itoa(tasksCompleted))
+	}
+	if getBool(args, "tests_passed") {
+		cmdArgs = append(cmdArgs, "--tests-passed")
+	} else {
+		cmdArgs = append(cmdArgs, "--tests-passed=false")
+	}
+	if coverage, ok := args["coverage"].(float64); ok {
+		cmdArgs = append(cmdArgs, "--coverage", strconv.FormatFloat(coverage, 'f', 1, 64))
+	}
+	if issues, ok := getInt(args, "critical_issues"); ok {
+		cmdArgs = append(cmdArgs, "--critical-issues", strconv.Itoa(issues))
+	}
+	if thresh, ok := args["completed_threshold"].(float64); ok {
+		cmdArgs = append(cmdArgs, "--completed-threshold", strconv.FormatFloat(thresh, 'f', 2, 64))
+	}
+	if thresh, ok := args["partial_threshold"].(float64); ok {
+		cmdArgs = append(cmdArgs, "--partial-threshold", strconv.FormatFloat(thresh, 'f', 2, 64))
+	}
+	if thresh, ok := args["coverage_threshold"].(float64); ok {
+		cmdArgs = append(cmdArgs, "--coverage-threshold", strconv.FormatFloat(thresh, 'f', 1, 64))
+	}
+	return cmdArgs
+}
+
+func buildAlignmentCheckArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"alignment-check"}
+	if requirements, ok := args["requirements"].(string); ok {
+		cmdArgs = append(cmdArgs, "--requirements", requirements)
+	}
+	if stories, ok := args["stories"].(string); ok {
+		cmdArgs = append(cmdArgs, "--stories", stories)
+	}
+	if tasks, ok := args["tasks"].(string); ok {
+		cmdArgs = append(cmdArgs, "--tasks", tasks)
+	}
+	return cmdArgs
+}
+
+func buildTddComplianceArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"tdd-compliance"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	if content, ok := args["content"].(string); ok {
+		cmdArgs = append(cmdArgs, "--content", content)
+	}
+	if since, ok := args["since"].(string); ok {
+		cmdArgs = append(cmdArgs, "--since", since)
+	}
+	if until, ok := args["until"].(string); ok {
+		cmdArgs = append(cmdArgs, "--until", until)
+	}
+	if count, ok := getInt(args, "count"); ok {
+		cmdArgs = append(cmdArgs, "--count", strconv.Itoa(count))
+	}
+	return cmdArgs
+}
+
+func buildCategorizeChangesArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"categorize-changes"}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+	if content, ok := args["content"].(string); ok {
+		cmdArgs = append(cmdArgs, "--content", content)
+	}
+	if patterns, ok := args["sensitive_patterns"].(string); ok {
+		cmdArgs = append(cmdArgs, "--sensitive-patterns", patterns)
+	}
 	return cmdArgs
 }

@@ -81,3 +81,94 @@ func TestGrepCommand(t *testing.T) {
 		})
 	}
 }
+
+// TestGrepJSONOutput tests JSON output mode
+func TestGrepJSONOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	file := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(file, []byte("hello world\nfoo bar"), 0644)
+
+	cmd := newGrepCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"hello", file, "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// JSON output should have proper structure
+	if !strings.Contains(output, "{") {
+		t.Errorf("JSON output should contain JSON structure, got: %s", output)
+	}
+}
+
+// TestGrepMinimalOutput tests minimal output mode
+func TestGrepMinimalOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	file := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(file, []byte("hello world\nfoo bar"), 0644)
+
+	cmd := newGrepCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"hello", file, "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Minimal output should contain the match
+	if !strings.Contains(output, "hello") {
+		t.Errorf("minimal output should contain 'hello', got: %s", output)
+	}
+}
+
+// TestGrepDirectory tests grepping in a directory
+func TestGrepDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "subdir")
+	os.MkdirAll(subDir, 0755)
+
+	os.WriteFile(filepath.Join(tmpDir, "root.txt"), []byte("root hello"), 0644)
+	os.WriteFile(filepath.Join(subDir, "sub.txt"), []byte("sub hello"), 0644)
+
+	cmd := newGrepCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"hello", tmpDir})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Should find matches in both files
+	if !strings.Contains(output, "root") || !strings.Contains(output, "sub") {
+		t.Errorf("should find matches in both files, got: %s", output)
+	}
+}
+
+// TestGrepInvalidPattern tests error handling for invalid regex
+func TestGrepInvalidPattern(t *testing.T) {
+	tmpDir := t.TempDir()
+	file := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(file, []byte("hello world"), 0644)
+
+	cmd := newGrepCmd()
+	buf := new(bytes.Buffer)
+	errBuf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(errBuf)
+	cmd.SetArgs([]string{"[invalid", file})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for invalid regex pattern")
+	}
+}
