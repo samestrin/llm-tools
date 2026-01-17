@@ -1793,9 +1793,9 @@ func TestParseArrayIndex(t *testing.T) {
 		{"10", 10},
 		{"[0]", 0},
 		{"[5]", 5},
-		{"abc", -999},   // Invalid index returns sentinel value
-		{"", -999},      // Invalid index returns sentinel value
-		{"[abc]", -999}, // Invalid index returns sentinel value
+		{"abc", invalidArrayIndex},   // Invalid index returns sentinel value
+		{"", invalidArrayIndex},      // Invalid index returns sentinel value
+		{"[abc]", invalidArrayIndex}, // Invalid index returns sentinel value
 	}
 
 	for _, tt := range tests {
@@ -2352,9 +2352,9 @@ func TestParseArrayIndex_NegativeIndices(t *testing.T) {
 		{"[0]", 0},
 		{"[-1]", -1},
 		{"[-5]", -5},
-		{"abc", -999},
-		{"", -999},
-		{"[abc]", -999},
+		{"abc", invalidArrayIndex},
+		{"", invalidArrayIndex},
+		{"[abc]", invalidArrayIndex},
 	}
 
 	for _, tt := range tests {

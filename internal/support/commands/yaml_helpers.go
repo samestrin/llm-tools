@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
@@ -15,6 +16,10 @@ import (
 	"github.com/gofrs/flock"
 	"github.com/spf13/cobra"
 )
+
+// invalidArrayIndex is a sentinel value for parseArrayIndex when input is not a valid integer.
+// We use -999 because -1, -2, etc. are valid negative indices for accessing array elements from the end.
+const invalidArrayIndex = -999
 
 // Built-in templates for yaml init
 
@@ -203,7 +208,7 @@ func getValueAtPath(data map[string]interface{}, dotPath string) (interface{}, b
 		case []interface{}:
 			// Handle array index (including negative indices)
 			idx := parseArrayIndex(part)
-			if idx == -999 {
+			if idx == invalidArrayIndex {
 				// Not a valid index
 				return nil, false
 			}
@@ -289,7 +294,7 @@ func setValueAtPath(data map[string]interface{}, dotPath string, value interface
 		case []interface{}:
 			// Handle array index traversal
 			idx := parseArrayIndex(part)
-			if idx == -999 {
+			if idx == invalidArrayIndex {
 				return fmt.Errorf("invalid array index: %s", part)
 			}
 			// Handle negative indices
@@ -347,7 +352,7 @@ func setValueAtPath(data map[string]interface{}, dotPath string, value interface
 		curr[finalPart] = value
 	case []interface{}:
 		idx := parseArrayIndex(finalPart)
-		if idx == -999 {
+		if idx == invalidArrayIndex {
 			return fmt.Errorf("invalid array index: %s", finalPart)
 		}
 		// Handle negative indices
@@ -471,7 +476,7 @@ func parseDotPath(path string) []string {
 }
 
 // parseArrayIndex parses an array index from a path part like "0", "[0]", "-1", or "[-1]"
-// Returns -999 as a sentinel value for invalid input (since -1, -2, etc. are valid negative indices)
+// Returns invalidArrayIndex as a sentinel value for invalid input (since -1, -2, etc. are valid negative indices)
 func parseArrayIndex(part string) int {
 	// Remove brackets if present
 	part = strings.TrimPrefix(part, "[")
@@ -480,7 +485,7 @@ func parseArrayIndex(part string) int {
 	var idx int
 	_, err := fmt.Sscanf(part, "%d", &idx)
 	if err != nil {
-		return -999 // Sentinel value for invalid index
+		return invalidArrayIndex
 	}
 	return idx
 }
@@ -711,7 +716,7 @@ func resolveNegativeIndices(data map[string]interface{}, dotPath string) (string
 
 	for i, part := range parts {
 		idx := parseArrayIndex(part)
-		if idx != -999 && idx < 0 {
+		if idx != invalidArrayIndex && idx < 0 {
 			// Negative index - need to resolve it
 			arr, ok := current.([]interface{})
 			if !ok {
@@ -732,7 +737,7 @@ func resolveNegativeIndices(data map[string]interface{}, dotPath string) (string
 			case map[interface{}]interface{}:
 				current = v[part]
 			case []interface{}:
-				if idx != -999 && idx >= 0 && idx < len(v) {
+				if idx != invalidArrayIndex && idx >= 0 && idx < len(v) {
 					current = v[idx]
 				}
 			}
@@ -754,8 +759,13 @@ func resolveNegativeIndices(data map[string]interface{}, dotPath string) (string
 	return result.String(), nil
 }
 
+// maxStdinSize is the maximum allowed size for stdin input (10MB)
+// This prevents memory exhaustion from malicious or accidental large inputs
+const maxStdinSize = 10 * 1024 * 1024
+
 // readFromStdin reads all content from stdin, trimming trailing newline
 // Uses cmd.InOrStdin() for testability - tests can use cmd.SetIn()
+// Enforces a maximum size limit to prevent memory exhaustion
 func readFromStdin(cmd *cobra.Command) (string, error) {
 	reader := cmd.InOrStdin()
 
@@ -771,21 +781,59 @@ func readFromStdin(cmd *cobra.Command) (string, error) {
 		}
 	}
 
-	// Read all content
-	content, err := io.ReadAll(reader)
+	// Read with size limit to prevent memory exhaustion
+	limitedReader := io.LimitReader(reader, maxStdinSize+1)
+	content, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return "", fmt.Errorf("error reading stdin: %w", err)
 	}
 
+	// Check if we hit the limit
+	if len(content) > maxStdinSize {
+		return "", fmt.Errorf("stdin input exceeds maximum size of %d bytes", maxStdinSize)
+	}
+
+	// Validate UTF-8 encoding to prevent YAML corruption from binary data
+	if !utf8.Valid(content) {
+		return "", fmt.Errorf("stdin input is not valid UTF-8 (binary data not supported for YAML values)")
+	}
+
 	// Trim trailing newline (common from echo)
+	// Handle both Unix (\n) and Windows (\r\n) line endings
 	result := strings.TrimSuffix(string(content), "\n")
+	result = strings.TrimSuffix(result, "\r")
 	return result, nil
 }
 
 // parseRequiredKeysFile reads keys from a file, one per line
 // Supports # comments and skips empty lines
+// Validates the file path to prevent path traversal attacks
 func parseRequiredKeysFile(filePath string) ([]string, error) {
-	file, err := os.Open(filePath)
+	// Clean the path to resolve any . or .. components
+	cleanPath := filepath.Clean(filePath)
+
+	// Resolve to absolute path
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve file path: %w", err)
+	}
+
+	// Verify the file exists and is a regular file (not a symlink to something else)
+	info, err := os.Lstat(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat required keys file: %w", err)
+	}
+
+	// Don't follow symlinks to prevent traversal via symlink
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("required keys file cannot be a symlink for security reasons")
+	}
+
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("required keys file must be a regular file")
+	}
+
+	file, err := os.Open(absPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open required keys file: %w", err)
 	}
@@ -793,6 +841,12 @@ func parseRequiredKeysFile(filePath string) ([]string, error) {
 
 	var keys []string
 	scanner := bufio.NewScanner(file)
+	// Increase buffer size to handle keys longer than default 64KB limit
+	// YAML keys with long paths (e.g., deeply.nested.keys.with.many.segments)
+	// may exceed the default scanner buffer
+	const maxKeyLength = 256 * 1024 // 256KB should be more than enough for any key
+	buf := make([]byte, maxKeyLength)
+	scanner.Buffer(buf, maxKeyLength)
 	for scanner.Scan() {
 		line := scanner.Text()
 

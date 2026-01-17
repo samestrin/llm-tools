@@ -341,7 +341,13 @@ Examples:
 			if dryRun {
 				var oldValue interface{}
 				if _, err := os.Stat(file); err == nil {
+					// Acquire read lock to prevent race condition with concurrent writes
+					lock, err := yamlFileLock(file, false) // false = read lock
+					if err != nil {
+						return fmt.Errorf("failed to acquire read lock for dry-run: %w", err)
+					}
 					data, err := readYAMLAsMap(file)
+					lock.Unlock()
 					if err == nil {
 						oldValue, _ = getValueAtPath(data, key)
 					}
@@ -597,20 +603,25 @@ Examples:
 				}
 			}
 
-			// Read file for dry-run comparison or actual update
-			var data map[string]interface{}
-			var err error
-			if _, statErr := os.Stat(file); statErr == nil {
-				data, err = readYAMLAsMap(file)
-				if err != nil {
-					return fmt.Errorf("failed to read config file: %w", err)
-				}
-			} else {
-				data = make(map[string]interface{})
-			}
-
 			// Handle dry-run mode - preview without writing
 			if dryRun {
+				var data map[string]interface{}
+				if _, statErr := os.Stat(file); statErr == nil {
+					// Acquire read lock to prevent race condition with concurrent writes
+					lock, lockErr := yamlFileLock(file, false) // false = read lock
+					if lockErr != nil {
+						return fmt.Errorf("failed to acquire read lock for dry-run: %w", lockErr)
+					}
+					var readErr error
+					data, readErr = readYAMLAsMap(file)
+					lock.Unlock()
+					if readErr != nil {
+						return fmt.Errorf("failed to read config file: %w", readErr)
+					}
+				} else {
+					data = make(map[string]interface{})
+				}
+
 				var changes []dryRunChange
 				for _, pair := range pairs {
 					var typedValue interface{} = pair.value
@@ -626,6 +637,18 @@ Examples:
 					})
 				}
 				return outputMultiDryRunPreview(cmd, file, changes, jsonOutput, minOutput)
+			}
+
+			// Read file for actual update
+			var data map[string]interface{}
+			var err error
+			if _, statErr := os.Stat(file); statErr == nil {
+				data, err = readYAMLAsMap(file)
+				if err != nil {
+					return fmt.Errorf("failed to read config file: %w", err)
+				}
+			} else {
+				data = make(map[string]interface{})
 			}
 
 			// Acquire write lock
