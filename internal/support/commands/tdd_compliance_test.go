@@ -440,3 +440,204 @@ func TestTDDComplianceRemediation(t *testing.T) {
 		t.Error("violation should have remediation suggestion")
 	}
 }
+
+// TestTDDComplianceLongContent tests handling of multi-line git log content
+func TestTDDComplianceLongContent(t *testing.T) {
+	content := `abc1234|John Doe|2026-01-15|test: add tests|auth_test.go
+def5678|John Doe|2026-01-15|feat: implement auth|auth.go
+ghi9012|Jane Doe|2026-01-16|test: add more tests|user_test.go
+jkl3456|Jane Doe|2026-01-16|feat: implement user|user.go`
+
+	cmd := newTddComplianceCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", content, "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result TDDComplianceResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if result.TotalCommits != 4 {
+		t.Errorf("total_commits = %d, want 4", result.TotalCommits)
+	}
+}
+
+// TestTDDComplianceMinimalOutput tests minimal output mode
+func TestTDDComplianceMinimalOutput(t *testing.T) {
+	gitLog := `abc1234|John Doe|2026-01-15|test: add tests|auth_test.go`
+
+	cmd := newTddComplianceCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", gitLog, "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if buf.Len() == 0 {
+		t.Error("expected some output in minimal mode")
+	}
+}
+
+// TestTDDComplianceNoInput tests error when no input provided
+func TestTDDComplianceNoInput(t *testing.T) {
+	cmd := newTddComplianceCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--json"})
+
+	err := cmd.Execute()
+	// Should run but with empty results (no commits analyzed)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result TDDComplianceResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if result.TotalCommits != 0 {
+		t.Errorf("total_commits = %d, want 0", result.TotalCommits)
+	}
+}
+
+// TestTDDComplianceIsCodeFile tests code file detection
+func TestTDDComplianceIsCodeFile(t *testing.T) {
+	tests := []struct {
+		name   string
+		file   string
+		isCode bool
+	}{
+		{"Go source", "main.go", true},
+		{"TypeScript", "app.ts", true},
+		{"Python", "script.py", true},
+		{"README", "README.md", false},
+		{"Config", "config.json", false},
+		{"Makefile", "Makefile", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isCodeFile(tt.file)
+			if result != tt.isCode {
+				t.Errorf("isCodeFile(%s) = %v, want %v", tt.file, result, tt.isCode)
+			}
+		})
+	}
+}
+
+// TestTDDComplianceIsNonCodeFile tests non-code file detection
+func TestTDDComplianceIsNonCodeFile(t *testing.T) {
+	tests := []struct {
+		name      string
+		file      string
+		isNonCode bool
+	}{
+		{"README.md", "README.md", true},
+		{"Markdown doc", "docs/guide.md", true},
+		{"LICENSE file", "LICENSE", true},
+		{"CHANGELOG", "CHANGELOG.md", true},
+		{"gitignore", ".gitignore", true},
+		{"Go source", "main.go", false},
+		{"Go test", "main_test.go", false},
+		{"Config JSON (treated as code)", "config.json", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isNonCodeFile(tt.file)
+			if result != tt.isNonCode {
+				t.Errorf("isNonCodeFile(%s) = %v, want %v", tt.file, result, tt.isNonCode)
+			}
+		})
+	}
+}
+
+// TestGetImplementationFile tests test-to-implementation file mapping
+func TestGetImplementationFile(t *testing.T) {
+	tests := []struct {
+		name         string
+		testFile     string
+		expectedImpl string
+	}{
+		{"Go test file", "auth_test.go", "auth.go"},
+		{"Go test with dir", "pkg/auth_test.go", "pkg/auth.go"},
+		{"TypeScript .test.ts", "auth.test.ts", "auth.ts"},
+		{"TypeScript .spec.ts", "auth.spec.ts", "auth.ts"},
+		{"TypeScript .test.tsx", "component.test.tsx", "component.tsx"},
+		{"TypeScript .spec.tsx", "component.spec.tsx", "component.tsx"},
+		{"JavaScript .test.js", "utils.test.js", "utils.js"},
+		{"JavaScript .spec.js", "utils.spec.js", "utils.js"},
+		{"JavaScript .test.jsx", "App.test.jsx", "App.jsx"},
+		{"JavaScript .spec.jsx", "App.spec.jsx", "App.jsx"},
+		{"Python test_ prefix", "test_auth.py", "auth.py"},
+		{"Python _test suffix", "auth_test.py", "auth.py"},
+		{"Unknown format", "unknown.xyz", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getImplementationFile(tt.testFile)
+			if result != tt.expectedImpl {
+				t.Errorf("getImplementationFile(%s) = %q, want %q", tt.testFile, result, tt.expectedImpl)
+			}
+		})
+	}
+}
+
+// TestSuggestTestFile tests implementation-to-test file suggestion
+func TestSuggestTestFile(t *testing.T) {
+	tests := []struct {
+		name         string
+		implFile     string
+		expectedTest string
+	}{
+		{"Go file", "auth.go", "auth_test.go"},
+		{"Go with dir", "pkg/auth.go", "pkg/auth_test.go"},
+		{"TypeScript .ts", "auth.ts", "auth.test.ts"},
+		{"TypeScript .tsx", "Component.tsx", "Component.test.tsx"},
+		{"JavaScript .js", "utils.js", "utils.test.js"},
+		{"JavaScript .jsx", "App.jsx", "App.test.jsx"},
+		{"Python", "auth.py", "test_auth.py"},
+		{"Unknown extension", "file.rb", "file_test.rb"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := suggestTestFile(tt.implFile)
+			if result != tt.expectedTest {
+				t.Errorf("suggestTestFile(%s) = %q, want %q", tt.implFile, result, tt.expectedTest)
+			}
+		})
+	}
+}
+
+// TestTDDComplianceHumanReadableOutput tests human-readable output mode
+func TestTDDComplianceHumanReadableOutput(t *testing.T) {
+	gitLog := `abc1234|John Doe|2026-01-15|test: add tests|auth_test.go
+def5678|John Doe|2026-01-15|feat: implement auth|auth.go`
+
+	cmd := newTddComplianceCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", gitLog})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if output == "" {
+		t.Error("expected output in human-readable mode")
+	}
+}

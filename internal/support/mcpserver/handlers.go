@@ -1683,6 +1683,9 @@ func buildAlignmentCheckArgs(args map[string]interface{}) []string {
 	if stories, ok := args["stories"].(string); ok {
 		cmdArgs = append(cmdArgs, "--stories", stories)
 	}
+	if tasks, ok := args["tasks"].(string); ok {
+		cmdArgs = append(cmdArgs, "--tasks", tasks)
+	}
 	return cmdArgs
 }
 

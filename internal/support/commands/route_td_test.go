@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -461,5 +462,199 @@ func TestRouteTDFloatEstMinutes(t *testing.T) {
 	// 30.0 and 30.1 >= 30 -> backlog
 	if len(result.Backlog) != 2 {
 		t.Errorf("backlog = %d, want 2 (30.0 and 30.1 >= 30)", len(result.Backlog))
+	}
+}
+
+// TestRouteTDFromFile tests reading input from a file
+func TestRouteTDFromFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputFile := tmpDir + "/td.json"
+	content := `{"rows": [{"ID": "TD-001", "EST_MINUTES": 15}]}`
+	if err := os.WriteFile(inputFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to create input file: %v", err)
+	}
+
+	cmd := newRouteTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--file", inputFile, "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result RouteTDResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if len(result.QuickWins) != 1 {
+		t.Errorf("quick_wins = %d, want 1", len(result.QuickWins))
+	}
+}
+
+// TestRouteTDMinimalOutput tests minimal output mode
+func TestRouteTDMinimalOutput(t *testing.T) {
+	input := `{"rows": [{"ID": "TD-001", "EST_MINUTES": 15}]}`
+
+	cmd := newRouteTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Just verify it runs without error
+	if buf.Len() == 0 {
+		t.Error("expected some output in minimal mode")
+	}
+}
+
+// TestRouteTDMissingFile tests error for non-existent file
+func TestRouteTDMissingFile(t *testing.T) {
+	cmd := newRouteTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--file", "/nonexistent/td.json", "--json"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+// TestRouteTDInvalidJSON tests error for invalid JSON input
+func TestRouteTDInvalidJSON(t *testing.T) {
+	input := `not valid json`
+
+	cmd := newRouteTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--content", input, "--json"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+// TestRouteTDHumanReadableOutput tests human-readable output mode
+func TestRouteTDHumanReadableOutput(t *testing.T) {
+	input := `{
+		"rows": [
+			{"ID": "TD-001", "CATEGORY": "perf", "EST_MINUTES": 15},
+			{"ID": "TD-002", "CATEGORY": "sec", "EST_MINUTES": 120},
+			{"ID": "TD-003", "CATEGORY": "arch", "EST_MINUTES": 3000}
+		]
+	}`
+
+	cmd := newRouteTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Should contain human-readable labels
+	if !strings.Contains(output, "ROUTING_SUMMARY") && !strings.Contains(output, "QUICK_WINS") {
+		t.Errorf("expected human-readable output, got: %s", output)
+	}
+}
+
+// TestExtractEstMinutesTypes tests extractEstMinutes with different types
+func TestExtractEstMinutesTypes(t *testing.T) {
+	tests := []struct {
+		name      string
+		row       map[string]interface{}
+		expected  float64
+		expectErr bool
+	}{
+		{
+			name:     "float64",
+			row:      map[string]interface{}{"EST_MINUTES": float64(30.5)},
+			expected: 30.5,
+		},
+		{
+			name:     "int",
+			row:      map[string]interface{}{"EST_MINUTES": int(45)},
+			expected: 45.0,
+		},
+		{
+			name:     "int64",
+			row:      map[string]interface{}{"EST_MINUTES": int64(60)},
+			expected: 60.0,
+		},
+		{
+			name:     "string parseable as float",
+			row:      map[string]interface{}{"EST_MINUTES": "75.5"},
+			expected: 75.5,
+		},
+		{
+			name:     "string parseable as int",
+			row:      map[string]interface{}{"EST_MINUTES": "90"},
+			expected: 90.0,
+		},
+		{
+			name:      "missing field",
+			row:       map[string]interface{}{"ID": "TD-001"},
+			expectErr: true,
+		},
+		{
+			name:      "invalid string",
+			row:       map[string]interface{}{"EST_MINUTES": "not_a_number"},
+			expectErr: true,
+		},
+		{
+			name:      "invalid type (bool)",
+			row:       map[string]interface{}{"EST_MINUTES": true},
+			expectErr: true,
+		},
+		{
+			name:     "json.Number valid",
+			row:      map[string]interface{}{"EST_MINUTES": json.Number("123")},
+			expected: 123.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, err := extractEstMinutes(tt.row)
+			if tt.expectErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if val != tt.expected {
+					t.Errorf("value = %v, want %v", val, tt.expected)
+				}
+			}
+		})
+	}
+}
+
+// TestRouteTDNoInput tests error when no input is provided
+func TestRouteTDNoInput(t *testing.T) {
+	cmd := newRouteTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--json"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("expected error when no input provided")
 	}
 }

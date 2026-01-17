@@ -1777,3 +1777,346 @@ optional2: value4
 		t.Errorf("expected VALID: TRUE, got: %s", output)
 	}
 }
+
+// ============================================================================
+// Helper Function Tests for parseArrayIndex and array paths
+// ============================================================================
+
+func TestParseArrayIndex(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected int
+	}{
+		{"0", 0},
+		{"1", 1},
+		{"10", 10},
+		{"[0]", 0},
+		{"[5]", 5},
+		{"abc", -1},
+		{"", -1},
+		{"[abc]", -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := parseArrayIndex(tt.input)
+			if result != tt.expected {
+				t.Errorf("parseArrayIndex(%q) = %d, want %d", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetValueAtPath_ArrayAccess(t *testing.T) {
+	// Test getting values from arrays using getValueAtPath directly
+	data := map[string]interface{}{
+		"items": []interface{}{"first", "second", "third"},
+		"nested": map[string]interface{}{
+			"array": []interface{}{"a", "b", "c"},
+		},
+	}
+
+	// Test valid array index
+	val, found := getValueAtPath(data, "items.0")
+	if !found {
+		t.Fatal("expected to find items.0")
+	}
+	if val != "first" {
+		t.Errorf("expected 'first', got: %v", val)
+	}
+
+	// Test invalid array index (out of bounds)
+	_, found = getValueAtPath(data, "items.10")
+	if found {
+		t.Error("expected not to find items.10")
+	}
+
+	// Test negative array index
+	_, found = getValueAtPath(data, "items.-1")
+	if found {
+		t.Error("expected not to find items.-1")
+	}
+
+	// Test empty path returns full data
+	val, found = getValueAtPath(data, "")
+	if !found {
+		t.Fatal("expected to find empty path")
+	}
+	if _, ok := val.(map[string]interface{}); !ok {
+		t.Errorf("expected map, got: %T", val)
+	}
+}
+
+func TestGetValueAtPath_MapInterfaceInterface(t *testing.T) {
+	// Test with map[interface{}]interface{} which can occur from some YAML parsers
+	inner := map[interface{}]interface{}{
+		"key1": "value1",
+		"key2": "value2",
+	}
+	data := map[string]interface{}{
+		"outer": inner,
+	}
+
+	val, found := getValueAtPath(data, "outer.key1")
+	if !found {
+		t.Fatal("expected to find outer.key1")
+	}
+	if val != "value1" {
+		t.Errorf("expected 'value1', got: %v", val)
+	}
+}
+
+func TestSetValueAtPath_MapInterfaceInterface(t *testing.T) {
+	// Test setting value when intermediate node is map[interface{}]interface{}
+	inner := map[interface{}]interface{}{
+		"existing": "value",
+	}
+	data := map[string]interface{}{
+		"outer": inner,
+	}
+
+	err := setValueAtPath(data, "outer.new", "newvalue")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val, found := getValueAtPath(data, "outer.new")
+	if !found {
+		t.Fatal("expected to find outer.new")
+	}
+	if val != "newvalue" {
+		t.Errorf("expected 'newvalue', got: %v", val)
+	}
+}
+
+func TestSetValueAtPath_ReplaceScalarWithMap(t *testing.T) {
+	// Test replacing a scalar value with a nested map
+	data := map[string]interface{}{
+		"key": "scalar_value",
+	}
+
+	err := setValueAtPath(data, "key.nested.deep", "newvalue")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	val, found := getValueAtPath(data, "key.nested.deep")
+	if !found {
+		t.Fatal("expected to find key.nested.deep")
+	}
+	if val != "newvalue" {
+		t.Errorf("expected 'newvalue', got: %v", val)
+	}
+}
+
+func TestSetValueAtPath_EmptyPath(t *testing.T) {
+	data := map[string]interface{}{}
+	err := setValueAtPath(data, "", "value")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestDeleteValueAtPath_EmptyPath(t *testing.T) {
+	data := map[string]interface{}{"key": "value"}
+	err := deleteValueAtPath(data, "")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestDeleteValueAtPath_MapInterfaceInterface(t *testing.T) {
+	// Test deleting when intermediate node is map[interface{}]interface{}
+	inner := map[interface{}]interface{}{
+		"target": "delete_me",
+		"keep":   "this",
+	}
+	data := map[string]interface{}{
+		"outer": inner,
+	}
+
+	err := deleteValueAtPath(data, "outer.target")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDeleteValueAtPath_NonTraversable(t *testing.T) {
+	// Test error when path goes through a non-map value
+	data := map[string]interface{}{
+		"scalar": "value",
+	}
+
+	err := deleteValueAtPath(data, "scalar.nested.key")
+	if err == nil {
+		t.Fatal("expected error for non-traversable path")
+	}
+	if !strings.Contains(err.Error(), "not traversable") {
+		t.Errorf("expected 'not traversable' error, got: %v", err)
+	}
+}
+
+func TestFlattenKeys_MapInterfaceInterface(t *testing.T) {
+	// Test flattenKeys with map[interface{}]interface{}
+	inner := map[interface{}]interface{}{
+		"nested": "value",
+	}
+	data := map[string]interface{}{
+		"outer": inner,
+	}
+
+	keys := flattenKeys(data, "")
+	if len(keys) != 1 {
+		t.Errorf("expected 1 key, got %d", len(keys))
+	}
+	if keys[0] != "outer.nested" {
+		t.Errorf("expected 'outer.nested', got: %s", keys[0])
+	}
+}
+
+func TestFlattenKeysWithValues_MapInterfaceInterface(t *testing.T) {
+	// Test flattenKeysWithValues with map[interface{}]interface{}
+	inner := map[interface{}]interface{}{
+		"nested": "value",
+	}
+	data := map[string]interface{}{
+		"outer": inner,
+	}
+
+	result := flattenKeysWithValues(data, "")
+	if val, ok := result["outer.nested"]; !ok || val != "value" {
+		t.Errorf("expected outer.nested=value, got: %v", result)
+	}
+}
+
+func TestCountKeys_MapInterfaceInterface(t *testing.T) {
+	// Test countKeys with map[interface{}]interface{}
+	inner := map[interface{}]interface{}{
+		"key1": "value1",
+		"key2": "value2",
+	}
+	data := map[string]interface{}{
+		"outer":  inner,
+		"simple": "value",
+	}
+
+	count := countKeys(data)
+	if count != 3 {
+		t.Errorf("expected 3 keys, got %d", count)
+	}
+}
+
+func TestConvertDotPathToYAMLPath(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"", "$"},
+		{"key", "$.key"},
+		{"nested.key", "$.nested.key"},
+		{"a.b.c.d", "$.a.b.c.d"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := convertDotPathToYAMLPath(tt.input)
+			if result != tt.expected {
+				t.Errorf("convertDotPathToYAMLPath(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestParseDotPath_EscapedDots(t *testing.T) {
+	// Test parsing paths with escaped dots
+	tests := []struct {
+		input    string
+		expected []string
+	}{
+		{"a.b.c", []string{"a", "b", "c"}},
+		{`a\.b.c`, []string{"a.b", "c"}},
+		{`a\.b\.c`, []string{"a.b.c"}},
+		{"", nil},
+		{"single", []string{"single"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := parseDotPath(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("parseDotPath(%q) = %v, want %v", tt.input, result, tt.expected)
+				return
+			}
+			for i := range result {
+				if result[i] != tt.expected[i] {
+					t.Errorf("parseDotPath(%q)[%d] = %q, want %q", tt.input, i, result[i], tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGetTopLevelSections(t *testing.T) {
+	data := map[string]interface{}{
+		"section1": map[string]interface{}{"key": "value"},
+		"section2": "simple",
+		"section3": []interface{}{"a", "b"},
+	}
+
+	sections := getTopLevelSections(data)
+	if len(sections) != 3 {
+		t.Errorf("expected 3 sections, got %d", len(sections))
+	}
+}
+
+func TestYamlGet_ArrayElement(t *testing.T) {
+	// Test getting array element via command
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - first
+  - second
+  - third
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"get", "--file", configPath, "items.0", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := strings.TrimSpace(buf.String())
+	if output != "first" {
+		t.Errorf("expected 'first', got: %s", output)
+	}
+}
+
+func TestYamlGet_NestedArrayElement(t *testing.T) {
+	// Test getting nested array element
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+data:
+  items:
+    - one
+    - two
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"get", "--file", configPath, "data.items.1", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := strings.TrimSpace(buf.String())
+	if output != "two" {
+		t.Errorf("expected 'two', got: %s", output)
+	}
+}

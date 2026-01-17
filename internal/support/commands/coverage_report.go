@@ -33,6 +33,7 @@ type CoverageReportResult struct {
 	CoverageByStory       map[string][]string `json:"coverage_by_story"`
 	RequirementsFile      string              `json:"requirements_file"`
 	StoriesDirectory      string              `json:"stories_directory"`
+	ReadErrors            []string            `json:"read_errors,omitempty"`
 }
 
 // newCoverageReportCmd creates the coverage-report command
@@ -90,13 +91,13 @@ func runCoverageReport(cmd *cobra.Command, args []string) error {
 	}
 
 	// Scan user stories for coverage
-	coverageByStory, err := scanStoriesForCoverage(coverageReportStories, requirements)
+	coverageByStory, readErrors, err := scanStoriesForCoverage(coverageReportStories, requirements)
 	if err != nil {
 		return fmt.Errorf("failed to scan stories: %w", err)
 	}
 
 	// Calculate coverage
-	result := calculateCoverage(requirements, coverageByStory, coverageReportRequirements, coverageReportStories)
+	result := calculateCoverage(requirements, coverageByStory, readErrors, coverageReportRequirements, coverageReportStories)
 
 	formatter := output.New(coverageReportJSON, coverageReportMinimal, cmd.OutOrStdout())
 	return formatter.Print(result, func(w io.Writer, data interface{}) {
@@ -110,6 +111,12 @@ func runCoverageReport(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(w, "  Uncovered Requirements:\n")
 			for _, req := range r.UncoveredRequirements {
 				fmt.Fprintf(w, "    - %s\n", req)
+			}
+		}
+		if len(r.ReadErrors) > 0 {
+			fmt.Fprintf(w, "  Read Errors: %d\n", len(r.ReadErrors))
+			for _, e := range r.ReadErrors {
+				fmt.Fprintf(w, "    - %s\n", e)
 			}
 		}
 	})
@@ -141,8 +148,9 @@ func extractRequirementsFromFile(filePath string) ([]string, error) {
 }
 
 // scanStoriesForCoverage scans markdown files in a directory for requirement references
-func scanStoriesForCoverage(storiesDir string, requirements []string) (map[string][]string, error) {
+func scanStoriesForCoverage(storiesDir string, requirements []string) (map[string][]string, []string, error) {
 	coverageByStory := make(map[string][]string)
+	var readErrors []string
 
 	// Create a set of requirements for quick lookup
 	reqSet := make(map[string]bool)
@@ -152,7 +160,7 @@ func scanStoriesForCoverage(storiesDir string, requirements []string) (map[strin
 
 	entries, err := os.ReadDir(storiesDir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	for _, entry := range entries {
@@ -169,7 +177,8 @@ func scanStoriesForCoverage(storiesDir string, requirements []string) (map[strin
 		filePath := filepath.Join(storiesDir, name)
 		content, err := os.ReadFile(filePath)
 		if err != nil {
-			continue // Skip files we can't read
+			readErrors = append(readErrors, fmt.Sprintf("%s: %v", filePath, err))
+			continue
 		}
 
 		// Find all requirement references in this story
@@ -192,11 +201,11 @@ func scanStoriesForCoverage(storiesDir string, requirements []string) (map[strin
 		}
 	}
 
-	return coverageByStory, nil
+	return coverageByStory, readErrors, nil
 }
 
 // calculateCoverage computes coverage metrics from requirements and story coverage
-func calculateCoverage(requirements []string, coverageByStory map[string][]string, reqsFile, storiesDir string) CoverageReportResult {
+func calculateCoverage(requirements []string, coverageByStory map[string][]string, readErrors []string, reqsFile, storiesDir string) CoverageReportResult {
 	// Build set of covered requirements
 	covered := make(map[string]bool)
 	for _, reqs := range coverageByStory {
@@ -206,7 +215,7 @@ func calculateCoverage(requirements []string, coverageByStory map[string][]strin
 	}
 
 	// Find uncovered requirements
-	var uncovered []string
+	uncovered := []string{}
 	for _, req := range requirements {
 		if !covered[req] {
 			uncovered = append(uncovered, req)
@@ -227,6 +236,7 @@ func calculateCoverage(requirements []string, coverageByStory map[string][]strin
 		CoverageByStory:       coverageByStory,
 		RequirementsFile:      reqsFile,
 		StoriesDirectory:      storiesDir,
+		ReadErrors:            readErrors,
 	}
 }
 

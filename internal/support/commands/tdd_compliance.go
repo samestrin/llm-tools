@@ -1,11 +1,14 @@
 package commands
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/samestrin/llm-tools/pkg/output"
@@ -157,16 +160,20 @@ Examples:
 
 func runTddCompliance(cmd *cobra.Command, args []string) error {
 	var commits []CommitInfo
+	var err error
 
 	if tddComplianceContent != "" {
 		// Parse from content flag
 		commits = parseGitLogContent(tddComplianceContent)
 	} else if tddCompliancePath != "" {
-		// TODO: Execute git log command on path
-		// For now, return empty result
-		commits = []CommitInfo{}
+		// Execute git log command on path
+		commits, err = getGitLogFromPath(tddCompliancePath, tddComplianceSince, tddComplianceUntil, tddComplianceCount)
+		if err != nil {
+			return fmt.Errorf("failed to get git log: %w", err)
+		}
 	} else {
-		// Default to current directory
+		// No input provided - return empty result
+		// Use --path or --content to specify input
 		commits = []CommitInfo{}
 	}
 
@@ -214,6 +221,99 @@ func parseGitLogContent(content string) []CommitInfo {
 		files := strings.Split(parts[4], ",")
 		for i := range files {
 			files[i] = strings.TrimSpace(files[i])
+		}
+
+		commits = append(commits, CommitInfo{
+			Hash:    parts[0],
+			Author:  parts[1],
+			Date:    parts[2],
+			Message: parts[3],
+			Files:   files,
+		})
+	}
+
+	return commits
+}
+
+// getGitLogFromPath executes git log in the specified directory and returns commits
+func getGitLogFromPath(path, since, until string, count int) ([]CommitInfo, error) {
+	// Build git log command arguments
+	// Use a custom format with a delimiter that won't appear in messages
+	const recordSep = "<<COMMIT>>"
+	const fieldSep = "<<FIELD>>"
+
+	args := []string{
+		"log",
+		"--pretty=format:" + recordSep + "%H" + fieldSep + "%an" + fieldSep + "%ai" + fieldSep + "%s",
+		"--name-only",
+	}
+
+	// Add date range filters
+	if since != "" {
+		args = append(args, "--since="+since)
+	}
+	if until != "" {
+		args = append(args, "--until="+until)
+	}
+
+	// Add count limit
+	if count > 0 {
+		args = append(args, "-n", strconv.Itoa(count))
+	}
+
+	// Execute git command
+	cmd := exec.Command("git", args...)
+	cmd.Dir = path
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// Check if it's just an empty repo or no commits
+		if strings.Contains(stderr.String(), "does not have any commits") ||
+			strings.Contains(stderr.String(), "bad revision") {
+			return []CommitInfo{}, nil
+		}
+		return nil, fmt.Errorf("git log failed: %s", stderr.String())
+	}
+
+	// Parse the output
+	return parseGitLogOutput(stdout.String(), recordSep, fieldSep), nil
+}
+
+// parseGitLogOutput parses git log output with custom separators
+func parseGitLogOutput(output, recordSep, fieldSep string) []CommitInfo {
+	var commits []CommitInfo
+
+	// Split by commit records
+	records := strings.Split(output, recordSep)
+
+	for _, record := range records {
+		record = strings.TrimSpace(record)
+		if record == "" {
+			continue
+		}
+
+		// Split into lines - first line is the formatted header, rest are files
+		lines := strings.Split(record, "\n")
+		if len(lines) == 0 {
+			continue
+		}
+
+		// Parse header line
+		parts := strings.Split(lines[0], fieldSep)
+		if len(parts) < 4 {
+			continue
+		}
+
+		// Collect file names (remaining non-empty lines)
+		var files []string
+		for i := 1; i < len(lines); i++ {
+			file := strings.TrimSpace(lines[i])
+			if file != "" {
+				files = append(files, file)
+			}
 		}
 
 		commits = append(commits, CommitInfo{

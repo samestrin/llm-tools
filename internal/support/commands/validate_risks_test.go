@@ -557,3 +557,126 @@ func TestValidateRisksPotentialRisksSection(t *testing.T) {
 		t.Errorf("risks_identified = %d, want 1", result.RisksIdentified)
 	}
 }
+
+// TestValidateRisksMinimalOutput tests minimal output mode
+func TestValidateRisksMinimalOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	designFile := filepath.Join(tmpDir, "sprint-design.md")
+	designContent := `## Risk Analysis
+| Risk | Impact |
+|------|--------|
+| R-1: Test | High |
+`
+	if err := os.WriteFile(designFile, []byte(designContent), 0644); err != nil {
+		t.Fatalf("failed to create design file: %v", err)
+	}
+
+	storiesDir := filepath.Join(tmpDir, "user-stories")
+	if err := os.MkdirAll(storiesDir, 0755); err != nil {
+		t.Fatalf("failed to create stories dir: %v", err)
+	}
+
+	cmd := newValidateRisksCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--design", designFile, "--stories", storiesDir, "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if buf.Len() == 0 {
+		t.Error("expected some output in minimal mode")
+	}
+}
+
+// TestValidateRisksHumanReadableOutput tests human-readable output mode
+func TestValidateRisksHumanReadableOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	designFile := filepath.Join(tmpDir, "sprint-design.md")
+	designContent := `## Risk Analysis
+| Risk | Impact |
+|------|--------|
+| R-1: Test | High |
+`
+	if err := os.WriteFile(designFile, []byte(designContent), 0644); err != nil {
+		t.Fatalf("failed to create design file: %v", err)
+	}
+
+	storiesDir := filepath.Join(tmpDir, "user-stories")
+	if err := os.MkdirAll(storiesDir, 0755); err != nil {
+		t.Fatalf("failed to create stories dir: %v", err)
+	}
+
+	cmd := newValidateRisksCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--design", designFile, "--stories", storiesDir})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if len(output) == 0 {
+		t.Error("expected some output in human-readable mode")
+	}
+}
+
+// TestValidateRisksMissingInputs tests error when required inputs are missing
+func TestValidateRisksMissingInputs(t *testing.T) {
+	cmd := newValidateRisksCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--json"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("expected error for missing inputs")
+	}
+}
+
+// TestValidateRisksNumberedRiskFormat tests numbered list risk format
+func TestValidateRisksNumberedRiskFormat(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	designFile := filepath.Join(tmpDir, "sprint-design.md")
+	designContent := `## Risk Analysis
+
+1. R-1: Performance degradation under high load
+2. R-2: Memory leaks in background processes
+3. R-3: Race conditions in concurrent code
+`
+	if err := os.WriteFile(designFile, []byte(designContent), 0644); err != nil {
+		t.Fatalf("failed to create design file: %v", err)
+	}
+
+	storiesDir := filepath.Join(tmpDir, "user-stories")
+	if err := os.MkdirAll(storiesDir, 0755); err != nil {
+		t.Fatalf("failed to create stories dir: %v", err)
+	}
+
+	cmd := newValidateRisksCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--design", designFile, "--stories", storiesDir, "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result ValidateRisksResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if result.RisksIdentified != 3 {
+		t.Errorf("risks_identified = %d, want 3", result.RisksIdentified)
+	}
+}

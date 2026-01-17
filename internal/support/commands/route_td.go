@@ -23,8 +23,9 @@ var (
 
 // Default threshold constants
 const (
-	defaultQuickWinsMax = 30   // Issues < 30 min go to quick_wins
-	defaultBacklogMax   = 2880 // Issues >= 2880 min (2 days) go to td_files
+	defaultQuickWinsMax = 30               // Issues < 30 min go to quick_wins
+	defaultBacklogMax   = 2880             // Issues >= 2880 min (2 days) go to td_files
+	routeTDMaxInputSize = 10 * 1024 * 1024 // 10MB max input size to prevent OOM
 )
 
 // RouteTDInput represents the expected input structure
@@ -133,15 +134,26 @@ func runRouteTD(cmd *cobra.Command, args []string) error {
 func getRouteTDInput(cmd *cobra.Command) (string, error) {
 	// Priority: --content flag, then --file flag, then stdin
 	if routeTDContent != "" {
+		if len(routeTDContent) > routeTDMaxInputSize {
+			return "", fmt.Errorf("content exceeds maximum size of %d bytes", routeTDMaxInputSize)
+		}
 		return routeTDContent, nil
 	}
 
 	if routeTDFile != "" {
-		data, err := os.ReadFile(routeTDFile)
+		// Check file size before reading to prevent OOM
+		info, err := os.Stat(routeTDFile)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return "", fmt.Errorf("file not found: %s", routeTDFile)
 			}
+			return "", fmt.Errorf("failed to stat file: %w", err)
+		}
+		if info.Size() > routeTDMaxInputSize {
+			return "", fmt.Errorf("file size %d exceeds maximum of %d bytes", info.Size(), routeTDMaxInputSize)
+		}
+		data, err := os.ReadFile(routeTDFile)
+		if err != nil {
 			return "", fmt.Errorf("failed to read file: %w", err)
 		}
 		return string(data), nil
@@ -150,9 +162,14 @@ func getRouteTDInput(cmd *cobra.Command) (string, error) {
 	// Try to read from stdin if available
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) == 0 {
-		data, err := io.ReadAll(os.Stdin)
+		// Use LimitReader to prevent OOM on large stdin input
+		limitedReader := io.LimitReader(os.Stdin, routeTDMaxInputSize+1)
+		data, err := io.ReadAll(limitedReader)
 		if err != nil {
 			return "", fmt.Errorf("failed to read stdin: %w", err)
+		}
+		if len(data) > routeTDMaxInputSize {
+			return "", fmt.Errorf("stdin input exceeds maximum size of %d bytes", routeTDMaxInputSize)
 		}
 		if len(data) > 0 {
 			return string(data), nil

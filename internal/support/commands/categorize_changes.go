@@ -218,8 +218,30 @@ func runCategorizeChanges(cmd *cobra.Command, args []string) error {
 	// Parse git status
 	files := parseGitStatusPorcelain(input)
 
+	// Parse custom sensitive patterns if provided
+	var customPatterns []*regexp.Regexp
+	if categorizeChangesSensitivePatterns != "" {
+		patterns := strings.Split(categorizeChangesSensitivePatterns, ",")
+		for _, p := range patterns {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			// Convert glob-like pattern to regex
+			// Replace * with .* and ? with .
+			regexPattern := regexp.QuoteMeta(p)
+			regexPattern = strings.ReplaceAll(regexPattern, `\*`, `.*`)
+			regexPattern = strings.ReplaceAll(regexPattern, `\?`, `.`)
+			re, err := regexp.Compile("(?i)" + regexPattern)
+			if err != nil {
+				return fmt.Errorf("invalid sensitive pattern '%s': %w", p, err)
+			}
+			customPatterns = append(customPatterns, re)
+		}
+	}
+
 	// Categorize files
-	result := categorizeFiles(files)
+	result := categorizeFiles(files, customPatterns)
 
 	return outputResult(cmd, result)
 }
@@ -318,7 +340,7 @@ func parseGitStatusPorcelain(input string) []GitStatusEntry {
 }
 
 // categorizeFiles categorizes git status entries
-func categorizeFiles(entries []GitStatusEntry) CategorizeChangesResult {
+func categorizeFiles(entries []GitStatusEntry, customSensitivePatterns []*regexp.Regexp) CategorizeChangesResult {
 	result := CategorizeChangesResult{
 		Categories:     Categories{},
 		Counts:         CategoryCounts{},
@@ -351,7 +373,7 @@ func categorizeFiles(entries []GitStatusEntry) CategorizeChangesResult {
 		}
 
 		// Check for sensitive files
-		if isSensitiveFile(entry.Path) {
+		if isSensitiveFile(entry.Path, customSensitivePatterns) {
 			result.SensitiveFiles = append(result.SensitiveFiles, entry.Path)
 		}
 	}
@@ -425,11 +447,19 @@ func determineCategory(path string) FileCategory {
 }
 
 // isSensitiveFile checks if a file matches sensitive file patterns
-func isSensitiveFile(path string) bool {
+func isSensitiveFile(path string, customPatterns []*regexp.Regexp) bool {
 	base := filepath.Base(path)
 
+	// Check default patterns
 	for _, pattern := range defaultSensitivePatterns {
 		if pattern.MatchString(base) {
+			return true
+		}
+	}
+
+	// Check custom patterns (if any)
+	for _, pattern := range customPatterns {
+		if pattern.MatchString(base) || pattern.MatchString(path) {
 			return true
 		}
 	}

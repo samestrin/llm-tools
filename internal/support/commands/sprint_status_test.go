@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -415,5 +416,148 @@ func TestSprintStatusReasons(t *testing.T) {
 
 	if len(result.Reasons) == 0 {
 		t.Error("reasons should not be empty for FAILED status")
+	}
+}
+
+// TestSprintStatusMinimalOutput tests minimal output mode
+func TestSprintStatusMinimalOutput(t *testing.T) {
+	cmd := newSprintStatusCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--tasks-total", "10",
+		"--tasks-completed", "10",
+		"--tests-passed", "true",
+		"--coverage", "85.0",
+		"--critical-issues", "0",
+		"--min",
+	})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if buf.Len() == 0 {
+		t.Error("expected some output in minimal mode")
+	}
+}
+
+// TestSprintStatusHumanReadableOutput tests human-readable (non-JSON) output
+func TestSprintStatusHumanReadableOutput(t *testing.T) {
+	cmd := newSprintStatusCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--tasks-total", "10",
+		"--tasks-completed", "10",
+		"--tests-passed", "true",
+		"--coverage", "85.0",
+		"--critical-issues", "0",
+	})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "SPRINT_STATUS") || !strings.Contains(output, "COMPLETED") {
+		t.Errorf("expected human-readable output with SPRINT_STATUS, got: %s", output)
+	}
+}
+
+// TestSprintStatusNegativeTasks tests error for negative task counts
+func TestSprintStatusNegativeTasks(t *testing.T) {
+	cmd := newSprintStatusCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{
+		"--tasks-total", "-5",
+		"--tasks-completed", "0",
+		"--tests-passed", "true",
+		"--coverage", "80.0",
+		"--critical-issues", "0",
+	})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("expected error for negative task count")
+	}
+}
+
+// TestSprintStatusCompletedExceedsTotal tests error when completed > total
+func TestSprintStatusCompletedExceedsTotal(t *testing.T) {
+	cmd := newSprintStatusCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{
+		"--tasks-total", "10",
+		"--tasks-completed", "15",
+		"--tests-passed", "true",
+		"--coverage", "80.0",
+		"--critical-issues", "0",
+	})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("expected error when completed > total")
+	}
+}
+
+// TestSprintStatusWithReasons tests that reasons are populated in human-readable output
+func TestSprintStatusWithReasons(t *testing.T) {
+	cmd := newSprintStatusCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--tasks-total", "10",
+		"--tasks-completed", "5",
+		"--tests-passed", "false",
+		"--coverage", "50.0",
+		"--critical-issues", "2",
+	})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "Reasons") {
+		t.Errorf("expected reasons in output for FAILED status, got: %s", output)
+	}
+}
+
+// TestSprintStatusPartialThreshold tests partial threshold customization
+func TestSprintStatusPartialThreshold(t *testing.T) {
+	cmd := newSprintStatusCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--tasks-total", "10",
+		"--tasks-completed", "4",
+		"--tests-passed", "true",
+		"--coverage", "80.0",
+		"--critical-issues", "0",
+		"--partial-threshold", "0.3",
+		"--json",
+	})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result SprintStatusResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	// 40% is above 30% partial threshold, so should be PARTIAL not FAILED
+	if result.Status != "PARTIAL" {
+		t.Errorf("status = %s, want PARTIAL (40%% >= 30%% threshold)", result.Status)
 	}
 }

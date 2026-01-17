@@ -1983,6 +1983,10 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "string",
 						"description": "Path to user stories directory"
 					},
+					"tasks": {
+						"type": "string",
+						"description": "Path to tasks directory (optional, scanned for additional traceability)"
+					},
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"

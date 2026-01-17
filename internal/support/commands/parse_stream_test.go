@@ -418,3 +418,103 @@ TD-001|performance
 		t.Errorf("row_count = %d, want 1", result.RowCount)
 	}
 }
+
+// TestParseStreamHumanReadableOutput tests human-readable output mode
+func TestParseStreamHumanReadableOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	pipeData := `ID|CATEGORY|EST_MINUTES
+TD-001|performance|30
+TD-002|security|120
+`
+	pipeFile := filepath.Join(tmpDir, "human.txt")
+	os.WriteFile(pipeFile, []byte(pipeData), 0644)
+
+	cmd := newParseStreamCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--file", pipeFile, "--format", "pipe"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Should contain human-readable labels
+	if !strings.Contains(output, "FORMAT") && !strings.Contains(output, "ROW_COUNT") {
+		t.Errorf("expected human-readable output, got: %s", output)
+	}
+}
+
+// TestParseStreamAutoDetectMarkdown tests auto-detection of markdown checklist format
+func TestParseStreamAutoDetectMarkdown(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	checklistData := `- [x] Task one
+- [ ] Task two
+- [x] Task three
+`
+	checklistFile := filepath.Join(tmpDir, "checklist.md")
+	os.WriteFile(checklistFile, []byte(checklistData), 0644)
+
+	cmd := newParseStreamCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--file", checklistFile, "--format", "auto", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result ParseStreamResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON output: %v", err)
+	}
+
+	if result.Format != "markdown-checklist" {
+		t.Errorf("auto-detected format = %q, want markdown-checklist", result.Format)
+	}
+}
+
+// TestParseStreamNoInput tests error when no input provided
+func TestParseStreamNoInput(t *testing.T) {
+	cmd := newParseStreamCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--json"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("expected error when no input provided")
+	}
+}
+
+// TestParseStreamWhitespaceOnlyInput tests handling of whitespace-only input
+func TestParseStreamWhitespaceOnlyInput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	whitespaceFile := filepath.Join(tmpDir, "whitespace.txt")
+	os.WriteFile(whitespaceFile, []byte("   \n\n   \n"), 0644)
+
+	cmd := newParseStreamCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--file", whitespaceFile, "--format", "pipe", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result ParseStreamResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON output: %v", err)
+	}
+
+	if result.RowCount != 0 {
+		t.Errorf("row_count = %d, want 0 for whitespace-only input", result.RowCount)
+	}
+}

@@ -3,6 +3,9 @@ package commands
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -376,9 +379,37 @@ func TestCategorizeChangesSensitivePatterns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isSensitiveFile(tt.filename)
+			result := isSensitiveFile(tt.filename, nil)
 			if result != tt.isSensitive {
 				t.Errorf("isSensitiveFile(%s) = %v, want %v", tt.filename, result, tt.isSensitive)
+			}
+		})
+	}
+}
+
+// TestCustomSensitivePatterns tests custom sensitive pattern matching
+func TestCustomSensitivePatterns(t *testing.T) {
+	customPatterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)\.private$`),
+		regexp.MustCompile(`(?i)internal\.`),
+	}
+
+	tests := []struct {
+		name        string
+		path        string
+		isSensitive bool
+	}{
+		{"matches custom .private", "config.private", true},
+		{"matches custom internal prefix", "internal.config", true},
+		{"matches default .env", ".env", true},
+		{"no match", "main.go", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isSensitiveFile(tt.path, customPatterns)
+			if result != tt.isSensitive {
+				t.Errorf("isSensitiveFile(%s) = %v, want %v", tt.path, result, tt.isSensitive)
 			}
 		})
 	}
@@ -420,5 +451,229 @@ func TestCategorizeChangesFileCategories(t *testing.T) {
 				t.Errorf("determineCategory(%s) = %s, want %s", tt.path, result, tt.expected)
 			}
 		})
+	}
+}
+
+// TestCategorizeChangesWithSensitivePatternsFlag tests the --sensitive-patterns flag via command
+func TestCategorizeChangesWithSensitivePatternsFlag(t *testing.T) {
+	input := `M  config.private
+A  internal.settings
+M  main.go`
+
+	cmd := newCategorizeChangesCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", input,
+		"--sensitive-patterns", "*.private,internal.*",
+		"--json",
+	})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result CategorizeChangesResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nOutput: %s", err, buf.String())
+	}
+
+	// Both config.private and internal.settings should be detected as sensitive
+	if len(result.SensitiveFiles) != 2 {
+		t.Errorf("sensitive_files count = %d, want 2. Got: %v", len(result.SensitiveFiles), result.SensitiveFiles)
+	}
+}
+
+// TestCategorizeChangesFromFile tests reading input from a file
+func TestCategorizeChangesFromFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	inputFile := tmpDir + "/changes.txt"
+	content := `M  src/main.go
+A  tests/main_test.go
+M  docs/README.md`
+	if err := os.WriteFile(inputFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to create input file: %v", err)
+	}
+
+	cmd := newCategorizeChangesCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--file", inputFile, "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result CategorizeChangesResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if result.Total != 3 {
+		t.Errorf("total = %d, want 3", result.Total)
+	}
+	if result.Counts.Source != 1 {
+		t.Errorf("source count = %d, want 1", result.Counts.Source)
+	}
+	if result.Counts.Test != 1 {
+		t.Errorf("test count = %d, want 1", result.Counts.Test)
+	}
+	if result.Counts.Docs != 1 {
+		t.Errorf("docs count = %d, want 1", result.Counts.Docs)
+	}
+}
+
+// TestCategorizeChangesWithEmptySensitivePatterns tests empty patterns in --sensitive-patterns
+func TestCategorizeChangesWithEmptySensitivePatterns(t *testing.T) {
+	input := `M  main.go`
+	cmd := newCategorizeChangesCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--sensitive-patterns", ",,", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result CategorizeChangesResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	// Empty patterns should just be ignored
+	if result.Total != 1 {
+		t.Errorf("total = %d, want 1", result.Total)
+	}
+}
+
+// TestCategorizeChangesMinimalOutput tests minimal output mode
+func TestCategorizeChangesMinimalOutput(t *testing.T) {
+	input := `M  main.go`
+
+	cmd := newCategorizeChangesCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Just verify it runs without error in minimal mode
+	if buf.Len() == 0 {
+		t.Error("expected some output in minimal mode")
+	}
+}
+
+// TestCategorizeChangesHumanReadableWithSensitive tests human-readable output with sensitive files
+func TestCategorizeChangesHumanReadableWithSensitive(t *testing.T) {
+	input := `M  .env
+M  config.yaml
+M  main.go`
+
+	cmd := newCategorizeChangesCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "SENSITIVE") {
+		t.Errorf("expected sensitive files warning in output, got: %s", output)
+	}
+}
+
+// TestCategorizeChangesEmptyContent tests handling of empty content
+func TestCategorizeChangesEmptyContent(t *testing.T) {
+	cmd := newCategorizeChangesCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", "", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result CategorizeChangesResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if result.Total != 0 {
+		t.Errorf("total = %d, want 0 for empty input", result.Total)
+	}
+}
+
+// TestCategorizeChangesMissingFile tests error for non-existent file
+func TestCategorizeChangesMissingFile(t *testing.T) {
+	cmd := newCategorizeChangesCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--file", "/nonexistent/changes.txt", "--json"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+// TestCategorizeChangesRenamedFilesArrow tests handling of renamed files with arrow notation
+func TestCategorizeChangesRenamedFilesArrow(t *testing.T) {
+	input := `R  old.go -> new.go
+A  feature.go`
+
+	cmd := newCategorizeChangesCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result CategorizeChangesResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	// Both renamed and added files should be counted as source
+	if result.Counts.Source != 2 {
+		t.Errorf("source count = %d, want 2", result.Counts.Source)
+	}
+}
+
+// TestCategorizeChangesUntrackedFiles tests handling of untracked files
+func TestCategorizeChangesUntrackedFiles(t *testing.T) {
+	input := `?? new_file.go
+?? test_data.json`
+
+	cmd := newCategorizeChangesCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result CategorizeChangesResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if result.Total != 2 {
+		t.Errorf("total = %d, want 2", result.Total)
 	}
 }

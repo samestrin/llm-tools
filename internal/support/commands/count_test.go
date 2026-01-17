@@ -225,3 +225,129 @@ func TestCountMinimalJSONOutput(t *testing.T) {
 		t.Errorf("minimal JSON output should contain checked count, got: %q", output)
 	}
 }
+
+// TestCountLinesInDirectory tests line counting in a directory
+func TestCountLinesInDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create files with different line counts
+	os.WriteFile(filepath.Join(tmpDir, "a.txt"), []byte("line1\nline2\n"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "b.txt"), []byte("line1\nline2\nline3\n"), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", tmpDir, "--mode", "lines"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// 2 + 3 = 5 lines total
+	if !strings.Contains(output, "COUNT: 5") {
+		t.Errorf("output %q should contain COUNT: 5", output)
+	}
+}
+
+// TestCountLinesRecursive tests recursive line counting in directories
+func TestCountLinesRecursive(t *testing.T) {
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "sub")
+	os.Mkdir(subDir, 0755)
+
+	// Create files with different line counts
+	os.WriteFile(filepath.Join(tmpDir, "root.txt"), []byte("line1\nline2\n"), 0644)
+	os.WriteFile(filepath.Join(subDir, "sub.txt"), []byte("line1\nline2\nline3\n"), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", tmpDir, "--mode", "lines", "-r"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// 2 + 3 = 5 lines total
+	if !strings.Contains(output, "COUNT: 5") {
+		t.Errorf("output %q should contain COUNT: 5", output)
+	}
+}
+
+// TestCountLinesFileWithoutTrailingNewline tests files without trailing newline
+func TestCountLinesFileWithoutTrailingNewline(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create file without trailing newline
+	os.WriteFile(filepath.Join(tmpDir, "no_newline.txt"), []byte("line1\nline2"), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", filepath.Join(tmpDir, "no_newline.txt"), "--mode", "lines"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Should count 2 lines even without trailing newline
+	if !strings.Contains(output, "COUNT: 2") {
+		t.Errorf("output %q should contain COUNT: 2", output)
+	}
+}
+
+// TestCountLinesHumanReadableOutput tests human-readable output for line counting
+func TestCountLinesHumanReadableOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("line1\nline2\nline3\n"), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	// Neither --json nor --min means human-readable
+	cmd.SetArgs([]string{"--path", filepath.Join(tmpDir, "test.txt"), "--mode", "lines"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Human-readable should have COUNT:
+	if !strings.Contains(output, "COUNT:") {
+		t.Errorf("output %q should contain COUNT:", output)
+	}
+}
+
+// TestCountFilesWithPattern tests file counting with glob pattern
+func TestCountFilesWithPattern(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create files of different types
+	os.WriteFile(filepath.Join(tmpDir, "a.txt"), []byte("content"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "b.txt"), []byte("content"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "c.md"), []byte("content"), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", tmpDir, "--mode", "files", "--pattern", "*.txt"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Should count only .txt files
+	if !strings.Contains(output, "COUNT: 2") {
+		t.Errorf("output %q should contain COUNT: 2", output)
+	}
+}

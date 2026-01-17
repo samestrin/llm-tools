@@ -536,3 +536,109 @@ func TestCoverageReportNonMarkdownFiles(t *testing.T) {
 		t.Errorf("covered_count = %d, want 0 (txt files should be ignored)", result.CoveredCount)
 	}
 }
+
+// TestCoverageReportMinimalOutput tests minimal output mode
+func TestCoverageReportMinimalOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	reqsFile := filepath.Join(tmpDir, "requirements.md")
+	reqsContent := `## REQ-1: First`
+	if err := os.WriteFile(reqsFile, []byte(reqsContent), 0644); err != nil {
+		t.Fatalf("failed to create requirements file: %v", err)
+	}
+
+	storiesDir := filepath.Join(tmpDir, "stories")
+	if err := os.MkdirAll(storiesDir, 0755); err != nil {
+		t.Fatalf("failed to create stories dir: %v", err)
+	}
+
+	cmd := newCoverageReportCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--requirements", reqsFile, "--stories", storiesDir, "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Just verify it runs without error
+	if buf.Len() == 0 {
+		t.Error("expected some output in minimal mode")
+	}
+}
+
+// TestCoverageReportHumanReadableOutput tests human-readable output mode
+func TestCoverageReportHumanReadableOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	reqsFile := filepath.Join(tmpDir, "requirements.md")
+	reqsContent := `## REQ-1: First
+## REQ-2: Second`
+	if err := os.WriteFile(reqsFile, []byte(reqsContent), 0644); err != nil {
+		t.Fatalf("failed to create requirements file: %v", err)
+	}
+
+	storiesDir := filepath.Join(tmpDir, "stories")
+	if err := os.MkdirAll(storiesDir, 0755); err != nil {
+		t.Fatalf("failed to create stories dir: %v", err)
+	}
+
+	storyFile := filepath.Join(storiesDir, "story.md")
+	storyContent := `Covers REQ-1.`
+	if err := os.WriteFile(storyFile, []byte(storyContent), 0644); err != nil {
+		t.Fatalf("failed to create story: %v", err)
+	}
+
+	cmd := newCoverageReportCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--requirements", reqsFile, "--stories", storiesDir})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Should contain human-readable labels
+	if output == "" {
+		t.Error("expected output in human-readable mode")
+	}
+}
+
+// TestCoverageReportMissingInputs tests error when required inputs are missing
+func TestCoverageReportMissingInputs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "missing requirements",
+			args: []string{"--stories", "/tmp/stories"},
+		},
+		{
+			name: "missing stories",
+			args: []string{"--requirements", "/tmp/reqs.md"},
+		},
+		{
+			name: "missing both",
+			args: []string{"--json"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newCoverageReportCmd()
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+			cmd.SetErr(buf)
+			cmd.SetArgs(tt.args)
+
+			err := cmd.Execute()
+			if err == nil {
+				t.Error("expected error for missing inputs")
+			}
+		})
+	}
+}
