@@ -2991,3 +2991,237 @@ b: 2
 		t.Errorf("expected empty output with --quiet --json, got: %q", buf.String())
 	}
 }
+
+// ============================================================================
+// Task 05: Required Keys from File Tests
+// ============================================================================
+
+func TestParseRequiredKeysFile(t *testing.T) {
+	// Create temp file with test content
+	content := `# Database config
+db.host
+db.port
+db.name
+
+# API config
+api.url
+api.key  # inline comment
+
+# Empty lines above ignored
+`
+	tmpFile, err := os.CreateTemp("", "required-keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.WriteString(content)
+	tmpFile.Close()
+
+	keys, err := parseRequiredKeysFile(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	expected := []string{"db.host", "db.port", "db.name", "api.url", "api.key"}
+	if !reflect.DeepEqual(keys, expected) {
+		t.Errorf("expected %v, got %v", expected, keys)
+	}
+}
+
+func TestParseRequiredKeysFile_NotFound(t *testing.T) {
+	_, err := parseRequiredKeysFile("nonexistent-file-12345.txt")
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestYamlMultiget_RequiredFile(t *testing.T) {
+	// Create YAML file
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+db:
+  host: localhost
+  port: 5432
+api:
+  url: https://api.example.com
+`)
+
+	// Create required keys file
+	keysFile, err := os.CreateTemp("", "keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create keys file: %v", err)
+	}
+	defer os.Remove(keysFile.Name())
+	keysFile.WriteString("db.host\ndb.port\napi.url\n")
+	keysFile.Close()
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "--required-file", keysFile.Name()})
+
+	err = cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "localhost") {
+		t.Errorf("expected output to contain 'localhost', got: %s", output)
+	}
+	if !strings.Contains(output, "5432") {
+		t.Errorf("expected output to contain '5432', got: %s", output)
+	}
+	if !strings.Contains(output, "https://api.example.com") {
+		t.Errorf("expected output to contain 'https://api.example.com', got: %s", output)
+	}
+}
+
+func TestYamlMultiget_RequiredFileMissingKey(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+db:
+  host: localhost
+`)
+
+	// Create required keys file with a key that doesn't exist
+	keysFile, err := os.CreateTemp("", "keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create keys file: %v", err)
+	}
+	defer os.Remove(keysFile.Name())
+	keysFile.WriteString("db.host\ndb.port\n") // db.port doesn't exist
+	keysFile.Close()
+
+	cmd := newYamlCmd()
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "--required-file", keysFile.Name()})
+
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for missing key")
+	}
+	if !strings.Contains(err.Error(), "db.port") {
+		t.Errorf("expected error to mention 'db.port', got: %v", err)
+	}
+}
+
+func TestYamlMultiget_CombinedSources(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+c: 3
+`)
+
+	// Create required keys file with "a"
+	keysFile, err := os.CreateTemp("", "keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create keys file: %v", err)
+	}
+	defer os.Remove(keysFile.Name())
+	keysFile.WriteString("a\n")
+	keysFile.Close()
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	// Combine: positional "b" and "c", --required-file has "a"
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "b", "c", "--required-file", keysFile.Name()})
+
+	err = cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := buf.String()
+	// All three keys should be present
+	if !strings.Contains(output, "b=2") {
+		t.Errorf("expected output to contain 'b=2', got: %s", output)
+	}
+	if !strings.Contains(output, "c=3") {
+		t.Errorf("expected output to contain 'c=3', got: %s", output)
+	}
+	if !strings.Contains(output, "a=1") {
+		t.Errorf("expected output to contain 'a=1', got: %s", output)
+	}
+}
+
+func TestYamlUniqueStrings(t *testing.T) {
+	input := []string{"a", "b", "a", "c", "b", "d"}
+	expected := []string{"a", "b", "c", "d"}
+	result := yamlUniqueStrings(input)
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("expected %v, got %v", expected, result)
+	}
+}
+
+func TestYamlMultiget_DuplicateKeys(t *testing.T) {
+	// Verify duplicate keys are handled correctly
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+`)
+
+	// Create required keys file with duplicates
+	keysFile, err := os.CreateTemp("", "keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create keys file: %v", err)
+	}
+	defer os.Remove(keysFile.Name())
+	keysFile.WriteString("a\nb\na\n") // "a" appears twice
+	keysFile.Close()
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "--required-file", keysFile.Name()})
+
+	err = cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := buf.String()
+	// Each key should appear only once in output
+	count := strings.Count(output, "a=1")
+	if count != 1 {
+		t.Errorf("expected 'a=1' to appear once, appeared %d times in: %s", count, output)
+	}
+}
+
+func TestYamlMultiget_RequiredFileWithBracketNotation(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+items:
+  - name: first
+  - name: second
+`)
+
+	// Create required keys file with bracket notation
+	keysFile, err := os.CreateTemp("", "keys-*.txt")
+	if err != nil {
+		t.Fatalf("failed to create keys file: %v", err)
+	}
+	defer os.Remove(keysFile.Name())
+	keysFile.WriteString("items[0].name\nitems[1].name\n")
+	keysFile.Close()
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiget", "--file", configPath, "--required-file", keysFile.Name()})
+
+	err = cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "first") {
+		t.Errorf("expected output to contain 'first', got: %s", output)
+	}
+	if !strings.Contains(output, "second") {
+		t.Errorf("expected output to contain 'second', got: %s", output)
+	}
+}

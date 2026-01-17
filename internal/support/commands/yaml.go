@@ -407,13 +407,18 @@ func newYamlMultigetCmd() *cobra.Command {
 	var separator string
 	var jsonOutput bool
 	var minOutput bool
+	var requiredFile string
 
 	cmd := &cobra.Command{
-		Use:   "multiget KEY1 [KEY2 ...]",
+		Use:   "multiget [KEY1 KEY2 ...]",
 		Short: "Retrieve multiple values",
 		Long: `Retrieve multiple values from the YAML config file in a single operation.
 
 Values are returned in argument order.
+
+Keys can be specified via:
+  - Positional arguments
+  - --required-file (one key per line, # comments supported)
 
 Output Formats:
   default: key=value (one per line)
@@ -423,11 +428,34 @@ Output Formats:
 Examples:
   yaml multiget --file config.yaml helper.llm project.type
   yaml multiget --file config.yaml helper.llm missing.key --defaults '{"missing.key": "default"}'
-  yaml multiget --file config.yaml helper.llm project.type --min`,
-		Args: cobra.MinimumNArgs(1),
+  yaml multiget --file config.yaml helper.llm project.type --min
+  yaml multiget --file config.yaml --required-file keys.txt`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if file == "" {
 				return fmt.Errorf("--file flag is required")
+			}
+
+			// Collect keys from all sources
+			var keys []string
+
+			// From positional args
+			keys = append(keys, args...)
+
+			// From --required-file
+			if requiredFile != "" {
+				fileKeys, err := parseRequiredKeysFile(requiredFile)
+				if err != nil {
+					return fmt.Errorf("failed to read required keys file: %w", err)
+				}
+				keys = append(keys, fileKeys...)
+			}
+
+			// Deduplicate keys while preserving order
+			keys = yamlUniqueStrings(keys)
+
+			if len(keys) == 0 {
+				return fmt.Errorf("no keys specified (use positional args or --required-file)")
 			}
 
 			// Parse defaults if provided
@@ -457,7 +485,7 @@ Examples:
 			// Get all values
 			results := make(map[string]string)
 			var orderedKeys []string
-			for _, key := range args {
+			for _, key := range keys {
 				orderedKeys = append(orderedKeys, key)
 				value, found := getValueAtPath(data, key)
 				if found {
@@ -507,6 +535,7 @@ Examples:
 	cmd.Flags().StringVar(&separator, "separator", "\n", "Value separator for --min output")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output (values only)")
+	cmd.Flags().StringVar(&requiredFile, "required-file", "", "File containing required keys (one per line, # comments supported)")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
