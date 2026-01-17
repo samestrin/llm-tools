@@ -95,7 +95,7 @@ func ErrStorageFailure(operation string, cause error) *SemanticError {
 		Type:    ErrTypeUnknown,
 		Message: fmt.Sprintf("storage %s failed", operation),
 		Cause:   cause,
-		Hint:    "The index may be corrupted. Try: rm -rf .llm-index && llm-semantic index .",
+		Hint:    "The index may be corrupted. Try: rm -rf .index && llm-semantic index .",
 	}
 }
 

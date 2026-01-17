@@ -34,7 +34,7 @@ type QdrantConfig struct {
 	URL            string // Full URL like https://abc123.qdrant.io:6334
 	CollectionName string
 	EmbeddingDim   int
-	FTSDataDir     string // Directory for parallel FTS database (default: ~/.llm-semantic/)
+	FTSDataDir     string // Directory for parallel FTS database (should be project's .index/)
 	InMemoryFTS    bool   // Use in-memory FTS (for testing)
 }
 
@@ -129,7 +129,7 @@ func NewQdrantStorage(config QdrantConfig) (*QdrantStorage, error) {
 		ftsPath = getFTSPath(config.CollectionName, config.FTSDataDir)
 		if ftsPath == "" {
 			client.Close()
-			return nil, fmt.Errorf("failed to determine FTS database path: cannot get home directory")
+			return nil, fmt.Errorf("failed to determine FTS database path: FTSDataDir is required")
 		}
 	}
 

@@ -96,7 +96,7 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", getDefaultAPIURL(), "Embedding API URL (OpenAI-compatible)")
 	rootCmd.PersistentFlags().StringVar(&model, "model", getDefaultModel(), "Embedding model name (or set LLM_SEMANTIC_MODEL env var)")
 	rootCmd.PersistentFlags().StringVar(&apiKey, "api-key", "", "API key (or set LLM_SEMANTIC_API_KEY env var)")
-	rootCmd.PersistentFlags().StringVar(&indexDir, "index-dir", ".llm-index", "Directory for semantic index")
+	rootCmd.PersistentFlags().StringVar(&indexDir, "index-dir", ".index", "Directory for semantic index")
 	rootCmd.PersistentFlags().StringVar(&storageType, "storage", "sqlite", "Storage backend: sqlite (default) or qdrant")
 	rootCmd.PersistentFlags().StringVar(&collectionName, "collection", "", "Qdrant collection name (default: QDRANT_COLLECTION env or 'llm_semantic')")
 	rootCmd.PersistentFlags().StringVar(&embedderType, "embedder", "openai", "Embedding provider: openai (default), cohere, huggingface, openrouter")
@@ -128,7 +128,7 @@ func getAPIKey() string {
 // resolveCollectionName returns the Qdrant collection name using this priority:
 // 1. --collection flag if specified
 // 2. Profile-specific config value (e.g., code_collection)
-// 3. Derived from --index-dir (e.g., ".llm-index/code" → "code", ".llm-index/docs" → "docs")
+// 3. Derived from --index-dir (e.g., ".index/code" → "code", ".index/docs" → "docs")
 // 4. QDRANT_COLLECTION environment variable
 // 5. Default: "llm_semantic"
 func resolveCollectionName() string {
@@ -146,9 +146,9 @@ func resolveCollectionName() string {
 	}
 
 	// Priority 3: derive from index-dir if non-default
-	if indexDir != "" && indexDir != ".llm-index" {
+	if indexDir != "" && indexDir != ".index" {
 		// Extract the last path component as collection name
-		// e.g., ".llm-index/code" → "code", "indexes/docs" → "docs"
+		// e.g., ".index/code" → "code", "indexes/docs" → "docs"
 		derived := deriveCollectionFromPath(indexDir)
 		if derived != "" {
 			return derived
@@ -204,8 +204,8 @@ func deriveCollectionFromPath(path string) string {
 		name = path
 	}
 
-	// Skip if it's just ".llm-index" or similar default
-	if name == ".llm-index" || name == "llm-index" || name == "" {
+	// Skip if it's just ".index" or similar default
+	if name == ".index" || name == "index" || name == "" {
 		return ""
 	}
 
@@ -345,7 +345,7 @@ func ResetGlobalsForTesting() {
 	apiURL = getDefaultAPIURL()
 	model = getDefaultModel()
 	apiKey = ""
-	indexDir = ".llm-index"
+	indexDir = ".index"
 	storageType = "sqlite"
 	collectionName = ""
 	embedderType = "openai"
