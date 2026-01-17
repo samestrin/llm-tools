@@ -219,6 +219,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildCompleteArgs(args), nil
 	case "parse_stream":
 		return buildParseStreamArgs(args), nil
+	case "route_td":
+		return buildRouteTDArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1581,6 +1583,23 @@ func buildParseStreamArgs(args map[string]interface{}) []string {
 	}
 	if headers, ok := args["headers"].(string); ok {
 		cmdArgs = append(cmdArgs, "--headers", headers)
+	}
+	return cmdArgs
+}
+
+func buildRouteTDArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"route-td"}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+	if content, ok := args["content"].(string); ok {
+		cmdArgs = append(cmdArgs, "--content", content)
+	}
+	if quickWinsMax, ok := getInt(args, "quick_wins_max"); ok {
+		cmdArgs = append(cmdArgs, "--quick-wins-max", strconv.Itoa(quickWinsMax))
+	}
+	if backlogMax, ok := getInt(args, "backlog_max"); ok {
+		cmdArgs = append(cmdArgs, "--backlog-max", strconv.Itoa(backlogMax))
 	}
 	return cmdArgs
 }

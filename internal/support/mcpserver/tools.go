@@ -1829,7 +1829,42 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 
-		// 48. Parse structured data streams
+		// 48. Route technical debt issues
+		{
+			Name:        ToolPrefix + "route_td",
+			Description: "Route parsed technical debt issues to appropriate destinations based on EST_MINUTES thresholds. Routes to quick_wins (<30min), backlog (30-2879min), or td_files (>=2880min). Returns arrays for each destination plus routing_summary with counts. Ensures zero data loss.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Input JSON file path"
+					},
+					"content": {
+						"type": "string",
+						"description": "Direct JSON content input"
+					},
+					"quick_wins_max": {
+						"type": "integer",
+						"description": "Max minutes for quick_wins routing (default: 30)"
+					},
+					"backlog_max": {
+						"type": "integer",
+						"description": "Min minutes for td_files routing (default: 2880)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
+
+		// 49. Parse structured data streams
 		{
 			Name:        ToolPrefix + "parse_stream",
 			Description: "Parse structured data streams (pipe-delimited, markdown checklists) into JSON. Eliminates LLM parsing inconsistency and context compaction data loss. Returns format, headers, rows, row_count, and parse_errors.",
