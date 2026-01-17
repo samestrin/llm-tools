@@ -17,6 +17,9 @@ import (
 	"github.com/qdrant/go-client/qdrant"
 )
 
+// loggerMu protects global slog.Default() modifications during Qdrant client creation
+var loggerMu sync.Mutex
+
 // stringToUUID converts an arbitrary string to a valid UUID format using SHA256
 func stringToUUID(s string) string {
 	hash := sha256.Sum256([]byte(s))
@@ -77,6 +80,12 @@ func NewQdrantStorage(config QdrantConfig) (*QdrantStorage, error) {
 	// If QDRANT_INSECURE=true and not using TLS, suppress the API key warning
 	// from the Qdrant client. This is useful for local/trusted networks.
 	suppressWarning := os.Getenv("QDRANT_INSECURE") == "true" && !useTLS && config.APIKey != ""
+
+	// Use mutex to protect global logger modification (thread-safety)
+	if suppressWarning {
+		loggerMu.Lock()
+	}
+
 	var oldHandler slog.Handler
 	if suppressWarning {
 		oldHandler = slog.Default().Handler()
@@ -90,9 +99,10 @@ func NewQdrantStorage(config QdrantConfig) (*QdrantStorage, error) {
 		UseTLS: useTLS,
 	})
 
-	// Restore the original logger
+	// Restore the original logger and release lock
 	if suppressWarning {
 		slog.SetDefault(slog.New(oldHandler))
+		loggerMu.Unlock()
 	}
 
 	if err != nil {
@@ -1105,6 +1115,12 @@ func (s *QdrantStorage) SetFileHash(ctx context.Context, filePath string, hash s
 
 // chunkToPoint converts a Chunk to a Qdrant point
 func (s *QdrantStorage) chunkToPoint(chunk Chunk, embedding []float32) *qdrant.PointStruct {
+	// Default domain to "code" if not set
+	domain := chunk.Domain
+	if domain == "" {
+		domain = "code"
+	}
+
 	return &qdrant.PointStruct{
 		Id:      qdrant.NewID(stringToUUID(chunk.ID)),
 		Vectors: qdrant.NewVectors(embedding...),
@@ -1118,6 +1134,7 @@ func (s *QdrantStorage) chunkToPoint(chunk Chunk, embedding []float32) *qdrant.P
 			"start_line": qdrant.NewValueInt(int64(chunk.StartLine)),
 			"end_line":   qdrant.NewValueInt(int64(chunk.EndLine)),
 			"language":   qdrant.NewValueString(chunk.Language),
+			"domain":     qdrant.NewValueString(domain),
 		},
 	}
 }
@@ -1166,6 +1183,13 @@ func payloadToChunk(payload map[string]*qdrant.Value, pointID *qdrant.PointId) C
 	}
 	if v, ok := payload["language"]; ok {
 		chunk.Language = v.GetStringValue()
+	}
+	if v, ok := payload["domain"]; ok {
+		chunk.Domain = v.GetStringValue()
+	}
+	// Default domain to "code" if not present (backward compatibility)
+	if chunk.Domain == "" {
+		chunk.Domain = "code"
 	}
 
 	return chunk
