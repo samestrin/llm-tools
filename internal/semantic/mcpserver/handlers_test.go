@@ -526,6 +526,37 @@ func TestResolveProfileSettings_MemoryProfile(t *testing.T) {
 	}
 }
 
+func TestResolveProfileSettings_SprintsProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  sprints_collection: llm-tools-sprints
+  sprints_storage: sqlite
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	args := map[string]interface{}{
+		"query":   "test",
+		"profile": "sprints",
+		"config":  configPath,
+	}
+
+	err := resolveProfileSettings(args)
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	if args["collection"] != "llm-tools-sprints" {
+		t.Errorf("resolveProfileSettings() collection = %v, want llm-tools-sprints", args["collection"])
+	}
+	if args["storage"] != "sqlite" {
+		t.Errorf("resolveProfileSettings() storage = %v, want sqlite", args["storage"])
+	}
+}
+
 func TestResolveProfileSettings_ExplicitOverride(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := tmpDir + "/config.yaml"
@@ -1202,5 +1233,237 @@ func TestBuildMemoryDeleteArgs_AllParams(t *testing.T) {
 		if !found {
 			t.Errorf("buildMemoryDeleteArgs() missing flag %s", flag)
 		}
+	}
+}
+
+// Test search with profiles parameter
+func TestBuildSearchArgs_Profiles(t *testing.T) {
+	args := map[string]interface{}{
+		"query":    "authentication",
+		"profiles": []interface{}{"code", "docs"},
+	}
+
+	result := buildSearchArgs(args)
+
+	if result[0] != "search" {
+		t.Errorf("buildSearchArgs() should start with 'search', got %s", result[0])
+	}
+
+	// Check --profiles flag is present with joined value
+	found := false
+	for i, arg := range result {
+		if arg == "--profiles" && i+1 < len(result) && result[i+1] == "code,docs" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("buildSearchArgs() should have --profiles code,docs, got %v", result)
+	}
+}
+
+// Test getStringSlice helper
+func TestGetStringSlice(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]interface{}
+		key      string
+		expected []string
+	}{
+		{
+			name:     "interface slice",
+			args:     map[string]interface{}{"profiles": []interface{}{"code", "docs", "memory"}},
+			key:      "profiles",
+			expected: []string{"code", "docs", "memory"},
+		},
+		{
+			name:     "string slice",
+			args:     map[string]interface{}{"profiles": []string{"code", "docs"}},
+			key:      "profiles",
+			expected: []string{"code", "docs"},
+		},
+		{
+			name:     "missing key",
+			args:     map[string]interface{}{},
+			key:      "profiles",
+			expected: nil,
+		},
+		{
+			name:     "empty slice",
+			args:     map[string]interface{}{"profiles": []interface{}{}},
+			key:      "profiles",
+			expected: []string{},
+		},
+		{
+			name:     "filters empty strings",
+			args:     map[string]interface{}{"profiles": []interface{}{"code", "", "docs"}},
+			key:      "profiles",
+			expected: []string{"code", "docs"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getStringSlice(tt.args, tt.key)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("getStringSlice() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+// Test multisearch validation
+func TestValidateMultisearchArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    map[string]interface{}
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid single query",
+			args:    map[string]interface{}{"queries": []interface{}{"auth"}},
+			wantErr: false,
+		},
+		{
+			name:    "valid multiple queries",
+			args:    map[string]interface{}{"queries": []interface{}{"auth", "jwt", "login"}},
+			wantErr: false,
+		},
+		{
+			name:    "empty queries",
+			args:    map[string]interface{}{"queries": []interface{}{}},
+			wantErr: true,
+			errMsg:  "at least one query",
+		},
+		{
+			name:    "missing queries",
+			args:    map[string]interface{}{},
+			wantErr: true,
+			errMsg:  "at least one query",
+		},
+		{
+			name:    "too many queries",
+			args:    map[string]interface{}{"queries": []interface{}{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}},
+			wantErr: true,
+			errMsg:  "up to 10 queries",
+		},
+		{
+			name:    "empty query in list",
+			args:    map[string]interface{}{"queries": []interface{}{"auth", "", "login"}},
+			wantErr: true,
+			errMsg:  "cannot be empty",
+		},
+		{
+			name:    "whitespace-only query",
+			args:    map[string]interface{}{"queries": []interface{}{"auth", "   ", "login"}},
+			wantErr: true,
+			errMsg:  "cannot be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateMultisearchArgs(tt.args)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateMultisearchArgs() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errMsg != "" {
+				if err == nil || !contains(err.Error(), tt.errMsg) {
+					t.Errorf("validateMultisearchArgs() error = %v, want error containing %q", err, tt.errMsg)
+				}
+			}
+		})
+	}
+}
+
+// helper for string contains check
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// Test multisearch args building
+func TestBuildMultisearchArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]interface{}
+		contains []string
+	}{
+		{
+			name: "basic queries",
+			args: map[string]interface{}{
+				"queries": []interface{}{"auth", "jwt"},
+			},
+			contains: []string{"multisearch", "auth", "jwt"},
+		},
+		{
+			name: "with all options",
+			args: map[string]interface{}{
+				"queries":    []interface{}{"auth", "login"},
+				"top_k":      float64(20),
+				"threshold":  0.5,
+				"profiles":   []interface{}{"code", "docs"},
+				"no_boost":   true,
+				"no_dedupe":  true,
+				"output":     "by_query",
+				"storage":    "qdrant",
+				"collection": "test_coll",
+			},
+			contains: []string{"multisearch", "auth", "login", "--top", "20", "--threshold", "--profiles", "code,docs", "--no-boost", "--no-dedupe", "--output", "by_query", "--storage", "qdrant", "--collection", "test_coll"},
+		},
+		{
+			name: "output format by_collection",
+			args: map[string]interface{}{
+				"queries": []interface{}{"test"},
+				"output":  "by_collection",
+			},
+			contains: []string{"multisearch", "--output", "by_collection"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildMultisearchArgs(tt.args)
+
+			for _, expected := range tt.contains {
+				found := false
+				for _, arg := range result {
+					if arg == expected {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("buildMultisearchArgs() missing %q in %v", expected, result)
+				}
+			}
+		})
+	}
+}
+
+// Test multisearch in command registry
+func TestBuildArgs_MultisearchCommand(t *testing.T) {
+	args := map[string]interface{}{
+		"queries": []interface{}{"authentication", "authorization"},
+	}
+
+	result, err := buildArgs("multisearch", args)
+	if err != nil {
+		t.Errorf("buildArgs(multisearch) error = %v", err)
+		return
+	}
+
+	if result[0] != "multisearch" {
+		t.Errorf("buildArgs(multisearch) first arg = %s, want 'multisearch'", result[0])
 	}
 }

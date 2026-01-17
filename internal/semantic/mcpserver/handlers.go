@@ -32,6 +32,7 @@ type argBuilder struct {
 // and makes it easy to see which commands exist.
 var commandRegistry = map[string]argBuilder{
 	"search":         {build: buildSearchArgs, validate: validateSearchArgs},
+	"multisearch":    {build: buildMultisearchArgs, validate: validateMultisearchArgs},
 	"index":          {build: buildIndexArgs, validate: nil},
 	"index_status":   {build: buildStatusArgs, validate: nil},
 	"index_update":   {build: buildUpdateArgs, validate: nil},
@@ -70,12 +71,14 @@ func init() {
 
 // SemanticConfig represents the semantic section of config.yaml
 type SemanticConfig struct {
-	CodeCollection   string `yaml:"code_collection"`
-	CodeStorage      string `yaml:"code_storage"`
-	DocsCollection   string `yaml:"docs_collection"`
-	DocsStorage      string `yaml:"docs_storage"`
-	MemoryCollection string `yaml:"memory_collection"`
-	MemoryStorage    string `yaml:"memory_storage"`
+	CodeCollection    string `yaml:"code_collection"`
+	CodeStorage       string `yaml:"code_storage"`
+	DocsCollection    string `yaml:"docs_collection"`
+	DocsStorage       string `yaml:"docs_storage"`
+	MemoryCollection  string `yaml:"memory_collection"`
+	MemoryStorage     string `yaml:"memory_storage"`
+	SprintsCollection string `yaml:"sprints_collection"`
+	SprintsStorage    string `yaml:"sprints_storage"`
 }
 
 // Config represents the root config.yaml structure
@@ -128,8 +131,11 @@ func resolveProfileSettings(args map[string]interface{}) error {
 	case "memory":
 		collection = cfg.Semantic.MemoryCollection
 		storage = cfg.Semantic.MemoryStorage
+	case "sprints":
+		collection = cfg.Semantic.SprintsCollection
+		storage = cfg.Semantic.SprintsStorage
 	default:
-		return fmt.Errorf("unknown profile: %s (valid profiles: code, docs, memory)", profile)
+		return fmt.Errorf("unknown profile: %s (valid profiles: code, docs, memory, sprints)", profile)
 	}
 
 	// Apply profile values as defaults (only if not explicitly set)
@@ -245,6 +251,26 @@ func validateMemorySearchArgs(args map[string]interface{}) error {
 	return nil
 }
 
+// validateMultisearchArgs validates multisearch command arguments
+func validateMultisearchArgs(args map[string]interface{}) error {
+	// Get raw queries (don't use getStringSlice which filters empties)
+	queriesRaw, ok := args["queries"].([]interface{})
+	if !ok || len(queriesRaw) == 0 {
+		return fmt.Errorf("multisearch requires at least one query")
+	}
+	if len(queriesRaw) > 10 {
+		return fmt.Errorf("multisearch supports up to 10 queries, got %d", len(queriesRaw))
+	}
+	// Check for empty queries
+	for i, q := range queriesRaw {
+		s, ok := q.(string)
+		if !ok || strings.TrimSpace(s) == "" {
+			return fmt.Errorf("query at index %d cannot be empty", i)
+		}
+	}
+	return nil
+}
+
 func buildSearchArgs(args map[string]interface{}) []string {
 	cmdArgs := []string{"search"}
 
@@ -291,6 +317,52 @@ func buildSearchArgs(args map[string]interface{}) []string {
 	}
 	if recencyDecay, ok := getInt(args, "recency_decay"); ok {
 		cmdArgs = append(cmdArgs, "--recency-decay", strconv.Itoa(recencyDecay))
+	}
+
+	// Multi-profile search
+	if profiles := getStringSlice(args, "profiles"); len(profiles) > 0 {
+		cmdArgs = append(cmdArgs, "--profiles", strings.Join(profiles, ","))
+	}
+
+	return cmdArgs
+}
+
+func buildMultisearchArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"multisearch"}
+
+	// Add queries as positional arguments
+	if queries := getStringSlice(args, "queries"); len(queries) > 0 {
+		cmdArgs = append(cmdArgs, queries...)
+	}
+
+	if topK, ok := getInt(args, "top_k"); ok {
+		cmdArgs = append(cmdArgs, "--top", strconv.Itoa(topK))
+	}
+	if threshold, ok := getThreshold(args); ok {
+		cmdArgs = append(cmdArgs, "--threshold", fmt.Sprintf("%.4f", threshold))
+	}
+	// Handle both "profiles" (array) and "profile" (single string) parameters
+	// "profiles" takes precedence if both are specified
+	if profiles := getStringSlice(args, "profiles"); len(profiles) > 0 {
+		cmdArgs = append(cmdArgs, "--profiles", strings.Join(profiles, ","))
+	} else if profile, ok := args["profile"].(string); ok && profile != "" {
+		// Single profile specified - convert to profiles flag
+		cmdArgs = append(cmdArgs, "--profiles", profile)
+	}
+	if getBool(args, "no_boost") {
+		cmdArgs = append(cmdArgs, "--no-boost")
+	}
+	if getBool(args, "no_dedupe") {
+		cmdArgs = append(cmdArgs, "--no-dedupe")
+	}
+	if output, ok := args["output"].(string); ok && output != "" {
+		cmdArgs = append(cmdArgs, "--output", output)
+	}
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
 	}
 
 	return cmdArgs
@@ -437,6 +509,24 @@ func getThreshold(args map[string]interface{}) (float64, bool) {
 		return threshold, true
 	}
 	return 0, false
+}
+
+// getStringSlice extracts a string slice from args
+// Handles both []interface{} (from JSON) and []string
+func getStringSlice(args map[string]interface{}, key string) []string {
+	switch v := args[key].(type) {
+	case []interface{}:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				result = append(result, s)
+			}
+		}
+		return result
+	case []string:
+		return v
+	}
+	return nil
 }
 
 // Memory command builders

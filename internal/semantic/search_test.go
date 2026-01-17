@@ -2,6 +2,7 @@ package semantic
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 )
@@ -687,6 +688,349 @@ func TestSearch_PercentileFallback(t *testing.T) {
 	if lowCount < 1 {
 		t.Errorf("Expected at least 1 low result, got %d", lowCount)
 	}
+}
+
+// ===== Multi-Profile Search Tests (Sprint 8.13) =====
+// These tests verify the Profiles parameter in SearchOptions
+
+// TestSearchOptions_Profiles verifies that SearchOptions supports the Profiles field.
+func TestSearchOptions_Profiles(t *testing.T) {
+	tests := []struct {
+		name     string
+		profiles []string
+		wantLen  int
+	}{
+		{"single profile", []string{"code"}, 1},
+		{"multiple profiles", []string{"code", "docs"}, 2},
+		{"three profiles", []string{"code", "docs", "memory"}, 3},
+		{"empty profiles", []string{}, 0},
+		{"nil profiles", nil, 0},
+		{"duplicate profiles", []string{"code", "code"}, 2}, // duplicates allowed at struct level
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := SearchOptions{Profiles: tt.profiles}
+			if len(opts.Profiles) != tt.wantLen {
+				t.Errorf("got len %d, want %d", len(opts.Profiles), tt.wantLen)
+			}
+			// Verify values are preserved
+			for i, p := range tt.profiles {
+				if opts.Profiles[i] != p {
+					t.Errorf("profile[%d] = %q, want %q", i, opts.Profiles[i], p)
+				}
+			}
+		})
+	}
+}
+
+// TestSearchOptions_Profiles_JSONSerialization verifies JSON serialization of Profiles field.
+func TestSearchOptions_Profiles_JSONSerialization(t *testing.T) {
+	tests := []struct {
+		name     string
+		opts     SearchOptions
+		wantJSON string
+		wantOmit bool // true if profiles should be omitted from JSON
+	}{
+		{
+			name:     "single profile",
+			opts:     SearchOptions{Profiles: []string{"code"}, TopK: 10},
+			wantJSON: `"profiles":["code"]`,
+		},
+		{
+			name:     "multiple profiles",
+			opts:     SearchOptions{Profiles: []string{"code", "docs"}, TopK: 10},
+			wantJSON: `"profiles":["code","docs"]`,
+		},
+		{
+			name:     "nil profiles omitted",
+			opts:     SearchOptions{Profiles: nil, TopK: 10},
+			wantOmit: true,
+		},
+		{
+			name:     "empty profiles omitted",
+			opts:     SearchOptions{Profiles: []string{}, TopK: 10},
+			wantOmit: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := json.Marshal(tt.opts)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			jsonStr := string(data)
+			if tt.wantOmit {
+				if stringContains(jsonStr, "profiles") {
+					t.Errorf("JSON should omit profiles, got: %s", jsonStr)
+				}
+			} else {
+				if !stringContains(jsonStr, tt.wantJSON) {
+					t.Errorf("JSON = %s, want to contain %s", jsonStr, tt.wantJSON)
+				}
+			}
+		})
+	}
+}
+
+// TestSearchOptions_Profiles_JSONDeserialization verifies JSON deserialization of Profiles field.
+func TestSearchOptions_Profiles_JSONDeserialization(t *testing.T) {
+	tests := []struct {
+		name     string
+		jsonStr  string
+		wantLen  int
+		wantProf []string
+	}{
+		{
+			name:     "single profile",
+			jsonStr:  `{"profiles":["code"],"top_k":10}`,
+			wantLen:  1,
+			wantProf: []string{"code"},
+		},
+		{
+			name:     "multiple profiles",
+			jsonStr:  `{"profiles":["code","docs"],"top_k":10}`,
+			wantLen:  2,
+			wantProf: []string{"code", "docs"},
+		},
+		{
+			name:     "no profiles field",
+			jsonStr:  `{"top_k":10}`,
+			wantLen:  0,
+			wantProf: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var opts SearchOptions
+			err := json.Unmarshal([]byte(tt.jsonStr), &opts)
+			if err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+			if len(opts.Profiles) != tt.wantLen {
+				t.Errorf("got profiles len %d, want %d", len(opts.Profiles), tt.wantLen)
+			}
+			for i, p := range tt.wantProf {
+				if i < len(opts.Profiles) && opts.Profiles[i] != p {
+					t.Errorf("profile[%d] = %q, want %q", i, opts.Profiles[i], p)
+				}
+			}
+		})
+	}
+}
+
+// TestSearchOptions_Profiles_NilVsEmpty verifies nil and empty slices are distinguishable.
+func TestSearchOptions_Profiles_NilVsEmpty(t *testing.T) {
+	nilOpts := SearchOptions{Profiles: nil}
+	emptyOpts := SearchOptions{Profiles: []string{}}
+
+	// Both should have length 0
+	if len(nilOpts.Profiles) != 0 {
+		t.Errorf("nil profiles len = %d, want 0", len(nilOpts.Profiles))
+	}
+	if len(emptyOpts.Profiles) != 0 {
+		t.Errorf("empty profiles len = %d, want 0", len(emptyOpts.Profiles))
+	}
+
+	// But nil check should distinguish them
+	if nilOpts.Profiles != nil {
+		t.Error("nil profiles should be nil")
+	}
+	if emptyOpts.Profiles == nil {
+		t.Error("empty profiles should not be nil")
+	}
+}
+
+// TestSearchOptions_BackwardCompatibility_WithProfiles verifies existing code continues to work.
+func TestSearchOptions_BackwardCompatibility_WithProfiles(t *testing.T) {
+	// Existing code creates SearchOptions without Profiles field
+	// This should still compile and work
+	opts := SearchOptions{
+		TopK:       10,
+		Threshold:  0.5,
+		Type:       "function",
+		PathFilter: "internal/",
+	}
+
+	// Profiles should default to nil
+	if opts.Profiles != nil {
+		t.Errorf("Profiles should default to nil, got %v", opts.Profiles)
+	}
+
+	// All existing fields should be accessible
+	if opts.TopK != 10 {
+		t.Errorf("TopK = %d, want 10", opts.TopK)
+	}
+	if opts.Threshold != 0.5 {
+		t.Errorf("Threshold = %f, want 0.5", opts.Threshold)
+	}
+	if opts.Type != "function" {
+		t.Errorf("Type = %q, want 'function'", opts.Type)
+	}
+	if opts.PathFilter != "internal/" {
+		t.Errorf("PathFilter = %q, want 'internal/'", opts.PathFilter)
+	}
+}
+
+// TestSearch_BackwardCompatibility_NilProfiles verifies Search works with nil Profiles.
+func TestSearch_BackwardCompatibility_NilProfiles(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{embedding: []float32{0.1, 0.2, 0.3, 0.4}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add test data
+	storage.Create(ctx, Chunk{ID: "1", Name: "Test"}, []float32{0.1, 0.2, 0.3, 0.4})
+
+	// Search with nil Profiles (original API pattern)
+	results, err := searcher.Search(ctx, "test", SearchOptions{
+		TopK:     10,
+		Profiles: nil, // explicitly nil
+	})
+	if err != nil {
+		t.Fatalf("Search() with nil Profiles error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("Search() with nil Profiles returned %d results, want 1", len(results))
+	}
+}
+
+// TestSearch_BackwardCompatibility_EmptyProfiles verifies Search works with empty Profiles.
+func TestSearch_BackwardCompatibility_EmptyProfiles(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{embedding: []float32{0.1, 0.2, 0.3, 0.4}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add test data
+	storage.Create(ctx, Chunk{ID: "1", Name: "Test"}, []float32{0.1, 0.2, 0.3, 0.4})
+
+	// Search with empty Profiles slice
+	results, err := searcher.Search(ctx, "test", SearchOptions{
+		TopK:     10,
+		Profiles: []string{}, // explicitly empty
+	})
+	if err != nil {
+		t.Fatalf("Search() with empty Profiles error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("Search() with empty Profiles returned %d results, want 1", len(results))
+	}
+}
+
+// TestSearch_BackwardCompatibility_SingleProfile verifies Search works with single Profile.
+func TestSearch_BackwardCompatibility_SingleProfile(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{embedding: []float32{0.1, 0.2, 0.3, 0.4}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add test data
+	storage.Create(ctx, Chunk{ID: "1", Name: "Test"}, []float32{0.1, 0.2, 0.3, 0.4})
+
+	// Search with single Profile (new API pattern)
+	results, err := searcher.Search(ctx, "test", SearchOptions{
+		TopK:     10,
+		Profiles: []string{"code"},
+	})
+	if err != nil {
+		t.Fatalf("Search() with single Profile error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("Search() with single Profile returned %d results, want 1", len(results))
+	}
+}
+
+// TestSearch_ExistingCallsStillWork verifies that all existing Search call patterns work unchanged.
+func TestSearch_ExistingCallsStillWork(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{embedding: []float32{0.1, 0.2, 0.3, 0.4}}
+	searcher := NewSearcher(storage, embedder)
+	ctx := context.Background()
+
+	// Add test data
+	storage.Create(ctx, Chunk{ID: "1", FilePath: "internal/foo.go", Name: "Foo", Type: ChunkFunction}, []float32{0.1, 0.2, 0.3, 0.4})
+	storage.Create(ctx, Chunk{ID: "2", FilePath: "cmd/main.go", Name: "Main", Type: ChunkMethod}, []float32{0.1, 0.2, 0.3, 0.4})
+
+	// Pattern 1: Zero-value options (common for quick searches)
+	t.Run("zero-value options", func(t *testing.T) {
+		results, err := searcher.Search(ctx, "test", SearchOptions{})
+		if err != nil {
+			t.Fatalf("Search() error = %v", err)
+		}
+		if len(results) != 2 {
+			t.Errorf("got %d results, want 2", len(results))
+		}
+	})
+
+	// Pattern 2: Partial options (TopK only)
+	t.Run("TopK only", func(t *testing.T) {
+		results, err := searcher.Search(ctx, "test", SearchOptions{TopK: 1})
+		if err != nil {
+			t.Fatalf("Search() error = %v", err)
+		}
+		if len(results) != 1 {
+			t.Errorf("got %d results, want 1", len(results))
+		}
+	})
+
+	// Pattern 3: Full options without Profiles
+	t.Run("full options without Profiles", func(t *testing.T) {
+		results, err := searcher.Search(ctx, "test", SearchOptions{
+			TopK:       10,
+			Threshold:  0.0,
+			Type:       "function",
+			PathFilter: "internal/",
+		})
+		if err != nil {
+			t.Fatalf("Search() error = %v", err)
+		}
+		if len(results) != 1 {
+			t.Errorf("got %d results, want 1", len(results))
+		}
+	})
+
+	// Pattern 4: HybridSearch options
+	t.Run("HybridSearch options", func(t *testing.T) {
+		results, err := searcher.HybridSearch(ctx, "test", HybridSearchOptions{
+			SearchOptions: SearchOptions{TopK: 10},
+		})
+		if err != nil {
+			t.Fatalf("HybridSearch() error = %v", err)
+		}
+		if len(results) != 2 {
+			t.Errorf("got %d results, want 2", len(results))
+		}
+	})
+}
+
+// helper function for string contains check (test only)
+func stringContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // TestThreshold_BehaviorPreserved verifies that threshold filtering works correctly.

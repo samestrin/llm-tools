@@ -231,6 +231,23 @@ func (s *Searcher) SearchMultiple(ctx context.Context, queries []string, opts Se
 	return results, nil
 }
 
+// ApplyPercentileRelevanceLabels applies percentile-based relevance labels to results.
+// This is useful for multi-profile search where calibration data is not available.
+func ApplyPercentileRelevanceLabels(results []SearchResult) {
+	if len(results) == 0 {
+		return
+	}
+	allScores := make([]float32, len(results))
+	for i, r := range results {
+		allScores[i] = r.Score
+	}
+	labels := LabelAllByPercentile(allScores)
+	for i := range results {
+		results[i].Relevance = labels[i]
+		results[i].Preview = results[i].Chunk.Preview()
+	}
+}
+
 // applyRelevanceLabels applies relevance labels and previews to search results.
 // Uses calibration thresholds if available, otherwise falls back to percentile-based labeling.
 func (s *Searcher) applyRelevanceLabels(ctx context.Context, results []SearchResult) {

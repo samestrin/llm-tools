@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/samestrin/llm-tools/internal/semantic"
+	"github.com/samestrin/llm-tools/internal/semantic/config"
 	"github.com/spf13/cobra"
 )
 
@@ -26,6 +27,7 @@ func searchCmd() *cobra.Command {
 		recencyBoost  bool
 		recencyFactor float64
 		recencyDecay  float64
+		profiles      []string // Multi-profile search
 	)
 
 	cmd := &cobra.Command{
@@ -35,7 +37,10 @@ func searchCmd() *cobra.Command {
 Returns ranked results based on semantic similarity.
 
 With --hybrid, performs combined dense (vector) and lexical (FTS5) search
-using Reciprocal Rank Fusion (RRF) for improved recall.`,
+using Reciprocal Rank Fusion (RRF) for improved recall.
+
+With --profiles, searches across multiple collections (e.g., code,docs) and
+merges results sorted by score. Each result includes its source profile.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := args[0]
@@ -67,6 +72,13 @@ using Reciprocal Rank Fusion (RRF) for improved recall.`,
 				}
 			}
 
+			// Validate profile names
+			for _, p := range profiles {
+				if !config.IsValidProfile(p) {
+					return fmt.Errorf("invalid profile: %s (valid: %s)", p, strings.Join(config.ValidProfiles(), ", "))
+				}
+			}
+
 			return runSearch(cmd.Context(), query, searchOpts{
 				topK:          topK,
 				threshold:     float32(threshold),
@@ -80,6 +92,7 @@ using Reciprocal Rank Fusion (RRF) for improved recall.`,
 				recencyBoost:  recencyBoost,
 				recencyFactor: recencyFactor,
 				recencyDecay:  recencyDecay,
+				profiles:      profiles,
 			})
 		},
 	}
@@ -96,6 +109,7 @@ using Reciprocal Rank Fusion (RRF) for improved recall.`,
 	cmd.Flags().BoolVar(&recencyBoost, "recency-boost", false, "Enable recency boost (recently modified files ranked higher)")
 	cmd.Flags().Float64Var(&recencyFactor, "recency-factor", 0.5, "Recency boost factor (max boost = 1+factor)")
 	cmd.Flags().Float64Var(&recencyDecay, "recency-decay", 7, "Recency half-life in days (higher = slower decay)")
+	cmd.Flags().StringSliceVar(&profiles, "profiles", nil, "Profiles to search across (comma-separated, e.g., code,docs)")
 
 	return cmd
 }
@@ -113,64 +127,38 @@ type searchOpts struct {
 	recencyBoost  bool
 	recencyFactor float64
 	recencyDecay  float64
+	profiles      []string
 }
 
 func runSearch(ctx context.Context, query string, opts searchOpts) error {
-	// Find index path (only needed for sqlite)
-	indexPath := ""
-	if storageType == "" || storageType == "sqlite" {
-		indexPath = findIndexPath()
-		if indexPath == "" {
-			return fmt.Errorf("semantic index not found. Run 'llm-semantic index' first")
-		}
-	}
-
-	// Create embedder based on --embedder flag
-	embedder, err := createEmbedder()
+	// Initialize common search components
+	components, cleanup, err := initSearchComponents(ctx, createStorage)
 	if err != nil {
-		return fmt.Errorf("failed to create embedder: %w", err)
+		return err
 	}
-
-	// For Qdrant, we need to probe the embedder to get dimensions
-	embeddingDim := 0
-	if storageType == "qdrant" {
-		testEmbed, err := embedder.Embed(ctx, "test")
-		if err != nil {
-			return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
-		}
-		embeddingDim = len(testEmbed)
-	}
-
-	// Open storage
-	storage, err := createStorage(indexPath, embeddingDim)
-	if err != nil {
-		return fmt.Errorf("failed to open index: %w", err)
-	}
-	defer storage.Close()
+	defer cleanup()
 
 	// Create searcher
-	searcher := semantic.NewSearcher(storage, embedder)
+	searcher := semantic.NewSearcher(components.Storage, components.Embedder)
 
 	// Perform search (hybrid or dense-only)
 	var results []semantic.SearchResult
+	searchOpts := semantic.SearchOptions{
+		TopK:       opts.topK,
+		Threshold:  opts.threshold,
+		Type:       opts.typeFilter,
+		PathFilter: opts.pathFilter,
+		Profiles:   opts.profiles,
+	}
+
 	if opts.hybrid {
 		results, err = searcher.HybridSearch(ctx, query, semantic.HybridSearchOptions{
-			SearchOptions: semantic.SearchOptions{
-				TopK:       opts.topK,
-				Threshold:  opts.threshold,
-				Type:       opts.typeFilter,
-				PathFilter: opts.pathFilter,
-			},
-			FusionK:     opts.fusionK,
-			FusionAlpha: opts.fusionAlpha,
+			SearchOptions: searchOpts,
+			FusionK:       opts.fusionK,
+			FusionAlpha:   opts.fusionAlpha,
 		})
 	} else {
-		results, err = searcher.Search(ctx, query, semantic.SearchOptions{
-			TopK:       opts.topK,
-			Threshold:  opts.threshold,
-			Type:       opts.typeFilter,
-			PathFilter: opts.pathFilter,
-		})
+		results, err = searcher.Search(ctx, query, searchOpts)
 	}
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
