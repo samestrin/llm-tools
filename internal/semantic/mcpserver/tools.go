@@ -166,9 +166,84 @@ func GetToolDefinitions() []ToolDefinition {
 					"recency_decay": {
 						"type": "integer",
 						"description": "Recency half-life in days (default: 7)"
+					},
+					"profiles": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Profiles to search across (e.g., ['code', 'docs']). Searches each profile's collection in parallel and merges results."
 					}
 				},
 				"required": ["query"]
+			}`),
+		},
+
+		// 1b. Multisearch - batch semantic search with deduplication and boosting
+		{
+			Name:        ToolPrefix + "multisearch",
+			Description: "Execute multiple semantic queries with intelligent deduplication and multi-match boosting. Results matching multiple queries receive boosted scores. Supports multiple output formats.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"queries": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "1-10 search queries to execute in parallel (e.g., ['authentication', 'JWT tokens'])"
+					},
+					"top_k": {
+						"type": "integer",
+						"description": "Maximum total results to return after deduplication (default: 15)"
+					},
+					"threshold": {
+						"type": "number",
+						"minimum": 0.0,
+						"maximum": 1.0,
+						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
+					},
+					"profiles": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Profiles to search across (e.g., ['code', 'docs'])"
+					},
+					"no_boost": {
+						"type": "boolean",
+						"description": "Disable multi-match score boosting (default: false)"
+					},
+					"no_dedupe": {
+						"type": "boolean",
+						"description": "Disable result deduplication (default: false)"
+					},
+					"output": {
+						"type": "string",
+						"enum": ["blended", "by_query", "by_collection"],
+						"description": "Output format: blended (flat list sorted by score), by_query (grouped by query), by_collection (grouped by profile)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON (default: true for MCP)"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - only essential fields"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					},
+					"profile": {
+						"type": "string",
+						"description": "Single profile to search (alternative to 'profiles' array; 'profiles' takes precedence if both specified)"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings"
+					}
+				},
+				"required": ["queries"]
 			}`),
 		},
 

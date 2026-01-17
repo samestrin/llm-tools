@@ -1,0 +1,347 @@
+package semantic
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"sync"
+
+	"golang.org/x/sync/errgroup"
+)
+
+// MultiProfileSearcher orchestrates search across multiple storage profiles (collections).
+// It executes queries in parallel across configured profiles and merges results.
+//
+// Thread Safety: The storageMap is treated as immutable after construction and must not
+// be modified after NewMultiProfileSearcher returns. Only defaultProfile is protected by
+// mutex and can be changed via SetDefaultProfile.
+type MultiProfileSearcher struct {
+	embedder       EmbedderInterface
+	storageMap     map[string]Storage // IMMUTABLE after construction - do not modify
+	defaultProfile string
+	mu             sync.RWMutex // Protects defaultProfile only
+}
+
+// NewMultiProfileSearcher creates a new MultiProfileSearcher with the given storage mapping.
+// storageMap maps profile names (e.g., "code", "docs") to their Storage instances.
+//
+// IMPORTANT: The storageMap is stored by reference and must not be modified after this call.
+// The caller should not modify the map after passing it to this function.
+func NewMultiProfileSearcher(embedder EmbedderInterface, storageMap map[string]Storage) *MultiProfileSearcher {
+	return &MultiProfileSearcher{
+		embedder:       embedder,
+		storageMap:     storageMap,
+		defaultProfile: "code", // default fallback
+	}
+}
+
+// SetDefaultProfile sets the profile to use when Profiles is nil or empty.
+func (mps *MultiProfileSearcher) SetDefaultProfile(profile string) {
+	mps.mu.Lock()
+	defer mps.mu.Unlock()
+	mps.defaultProfile = profile
+}
+
+// GetDefaultProfile returns the current default profile.
+func (mps *MultiProfileSearcher) GetDefaultProfile() string {
+	mps.mu.RLock()
+	defer mps.mu.RUnlock()
+	return mps.defaultProfile
+}
+
+// Search performs semantic search across specified profiles in parallel.
+// If opts.Profiles is nil or empty, the default profile is used.
+// Results are deduplicated by Chunk.ID (keeping highest score), merged, and sorted by score.
+func (mps *MultiProfileSearcher) Search(ctx context.Context, query string, opts SearchOptions) ([]SearchResult, error) {
+	if query == "" {
+		return nil, fmt.Errorf("query cannot be empty")
+	}
+	if opts.TopK < 0 {
+		return nil, fmt.Errorf("top_k cannot be negative")
+	}
+	if opts.Threshold < 0 || opts.Threshold > 1 {
+		return nil, fmt.Errorf("threshold must be between 0.0 and 1.0")
+	}
+
+	// Resolve profiles to search
+	profiles := opts.Profiles
+	if len(profiles) == 0 {
+		mps.mu.RLock()
+		profiles = []string{mps.defaultProfile}
+		mps.mu.RUnlock()
+	}
+
+	// Validate profile count
+	const maxProfiles = 10
+	if len(profiles) > maxProfiles {
+		return nil, fmt.Errorf("profile count exceeds maximum of %d", maxProfiles)
+	}
+
+	// Validate all profiles exist
+	for _, profile := range profiles {
+		if _, ok := mps.storageMap[profile]; !ok {
+			return nil, fmt.Errorf("unknown profile: '%s'", profile)
+		}
+	}
+
+	// Generate query embedding once
+	queryEmbedding, err := mps.embedder.Embed(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate embedding: %w", err)
+	}
+
+	// Single profile - no parallel overhead
+	if len(profiles) == 1 {
+		storage := mps.storageMap[profiles[0]]
+		results, err := storage.Search(ctx, queryEmbedding, opts)
+		if err != nil {
+			return nil, err
+		}
+		// Tag results with profile
+		for i := range results {
+			if results[i].Chunk.Domain == "" {
+				results[i].Chunk.Domain = profiles[0]
+			}
+		}
+		return results, nil
+	}
+
+	// Multiple profiles - parallel execution with errgroup
+	type profileResult struct {
+		profile string
+		results []SearchResult
+		err     error
+	}
+
+	resultChan := make(chan profileResult, len(profiles))
+	g, gctx := errgroup.WithContext(ctx)
+
+	for _, profile := range profiles {
+		profile := profile // capture for goroutine
+		storage := mps.storageMap[profile]
+
+		g.Go(func() error {
+			results, err := storage.Search(gctx, queryEmbedding, opts)
+			if err != nil {
+				// Log error but don't fail the group - allow partial results
+				slog.Warn("profile query failed", "profile", profile, "error", err)
+				resultChan <- profileResult{profile: profile, err: err}
+				return nil // Don't propagate error to allow partial results
+			}
+
+			// Tag results with profile
+			for i := range results {
+				if results[i].Chunk.Domain == "" {
+					results[i].Chunk.Domain = profile
+				}
+			}
+
+			resultChan <- profileResult{profile: profile, results: results}
+			return nil
+		})
+	}
+
+	// Wait for all goroutines and then close channel
+	go func() {
+		g.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results and merge
+	resultMap := make(map[string]SearchResult)
+	var successCount int
+
+	for pr := range resultChan {
+		if pr.err != nil {
+			continue // Skip failed profiles
+		}
+		successCount++
+
+		// Merge results, keeping highest score for each chunk ID
+		for _, result := range pr.results {
+			existing, ok := resultMap[result.Chunk.ID]
+			if !ok || result.Score > existing.Score {
+				resultMap[result.Chunk.ID] = result
+			}
+		}
+	}
+
+	// Check if all queries failed
+	if successCount == 0 {
+		return nil, fmt.Errorf("all profile queries failed")
+	}
+
+	// Convert map to slice
+	merged := make([]SearchResult, 0, len(resultMap))
+	for _, result := range resultMap {
+		merged = append(merged, result)
+	}
+
+	// Sort by score descending
+	sortResultsByScore(merged)
+
+	// Apply TopK limit
+	if opts.TopK > 0 && len(merged) > opts.TopK {
+		merged = merged[:opts.TopK]
+	}
+
+	// Apply relevance labels (using percentile-based since no single calibration source)
+	ApplyPercentileRelevanceLabels(merged)
+
+	return merged, nil
+}
+
+// Multisearch performs batch search across multiple queries and profiles.
+// Uses the underlying Multisearch implementation with multi-profile support.
+func (mps *MultiProfileSearcher) Multisearch(ctx context.Context, opts MultisearchOptions) (*MultisearchResult, error) {
+	// Validate options
+	if err := opts.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Resolve profiles
+	profiles := opts.Profiles
+	if len(profiles) == 0 {
+		mps.mu.RLock()
+		profiles = []string{mps.defaultProfile}
+		mps.mu.RUnlock()
+	}
+
+	// Validate profile count
+	const maxProfiles = 10
+	if len(profiles) > maxProfiles {
+		return nil, fmt.Errorf("profile count exceeds maximum of %d", maxProfiles)
+	}
+
+	// Validate all profiles exist
+	for _, profile := range profiles {
+		if _, ok := mps.storageMap[profile]; !ok {
+			return nil, fmt.Errorf("unknown profile: '%s'", profile)
+		}
+	}
+
+	// Generate embeddings for all queries in batch
+	embeddings, err := mps.embedder.EmbedBatch(ctx, opts.Queries)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate embeddings: %w", err)
+	}
+
+	// Create search options for storage queries
+	searchOpts := SearchOptions{
+		TopK:      0, // Don't limit per-query, limit after merge
+		Threshold: opts.Threshold,
+	}
+
+	// Track results per query with matched query tracking (same pattern as Searcher.Multisearch)
+	resultMap := make(map[string]*enhancedResultEntry)
+	queriesMatched := make(map[string]int)
+	var mu sync.Mutex
+	var successCount int
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	// Execute all queries across all profiles in parallel
+	for i, embedding := range embeddings {
+		queryIdx := i
+		emb := embedding
+		query := opts.Queries[queryIdx]
+
+		for _, profile := range profiles {
+			profile := profile
+			storage := mps.storageMap[profile]
+
+			g.Go(func() error {
+				results, err := storage.Search(gctx, emb, searchOpts)
+				if err != nil {
+					slog.Warn("query failed", "query", query, "profile", profile, "error", err)
+					return nil // Allow partial results
+				}
+
+				mu.Lock()
+				successCount++
+				queriesMatched[query] += len(results)
+				for _, result := range results {
+					if result.Chunk.Domain == "" {
+						result.Chunk.Domain = profile
+					}
+					entry, ok := resultMap[result.Chunk.ID]
+					if !ok {
+						// New entry
+						resultMap[result.Chunk.ID] = &enhancedResultEntry{
+							result:         result,
+							matchedQueries: map[string]bool{query: true},
+						}
+					} else {
+						// Existing entry - update score if higher and track query
+						if result.Score > entry.result.Score {
+							entry.result = result
+						}
+						entry.matchedQueries[query] = true
+					}
+				}
+				mu.Unlock()
+
+				return nil
+			})
+		}
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Check if all queries failed
+	if successCount == 0 {
+		return nil, fmt.Errorf("all queries failed across all profiles")
+	}
+
+	// Convert map to enhanced results with boosting
+	boostEnabled := opts.IsBoostEnabled()
+	results := make([]EnhancedResult, 0, len(resultMap))
+	for _, entry := range resultMap {
+		// Convert matched queries set to slice (preserve query order)
+		matchedList := make([]string, 0, len(entry.matchedQueries))
+		for _, q := range opts.Queries {
+			if entry.matchedQueries[q] {
+				matchedList = append(matchedList, q)
+			}
+		}
+
+		// Calculate boosted score
+		boostedScore := entry.result.Score
+		if boostEnabled {
+			boostedScore = CalculateBoostedScore(entry.result.Score, len(matchedList))
+		}
+
+		results = append(results, EnhancedResult{
+			SearchResult:   entry.result,
+			MatchedQueries: matchedList,
+			BoostedScore:   boostedScore,
+		})
+	}
+
+	// Sort by boosted score descending
+	sortEnhancedResultsByScore(results)
+
+	// Apply TopK limit
+	if opts.TopK > 0 && len(results) > opts.TopK {
+		results = results[:opts.TopK]
+	}
+
+	// Apply relevance labels to the embedded SearchResults
+	searchResults := make([]SearchResult, len(results))
+	for i := range results {
+		searchResults[i] = results[i].SearchResult
+	}
+	ApplyPercentileRelevanceLabels(searchResults)
+	for i := range results {
+		results[i].SearchResult = searchResults[i]
+	}
+
+	return &MultisearchResult{
+		Results:        results,
+		TotalQueries:   len(opts.Queries),
+		TotalResults:   len(results),
+		QueriesMatched: queriesMatched,
+	}, nil
+}
