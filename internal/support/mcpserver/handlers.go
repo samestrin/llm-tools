@@ -227,6 +227,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildValidateRisksArgs(args), nil
 	case "sprint_status":
 		return buildSprintStatusArgs(args), nil
+	case "alignment_check":
+		return buildAlignmentCheckArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1665,6 +1667,17 @@ func buildSprintStatusArgs(args map[string]interface{}) []string {
 	}
 	if thresh, ok := args["coverage_threshold"].(float64); ok {
 		cmdArgs = append(cmdArgs, "--coverage-threshold", strconv.FormatFloat(thresh, 'f', 1, 64))
+	}
+	return cmdArgs
+}
+
+func buildAlignmentCheckArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"alignment-check"}
+	if requirements, ok := args["requirements"].(string); ok {
+		cmdArgs = append(cmdArgs, "--requirements", requirements)
+	}
+	if stories, ok := args["stories"].(string); ok {
+		cmdArgs = append(cmdArgs, "--stories", stories)
 	}
 	return cmdArgs
 }

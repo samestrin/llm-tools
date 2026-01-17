@@ -1968,7 +1968,35 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 
-		// 52. Sprint status determination
+		// 52. Alignment check for requirements
+		{
+			Name:        ToolPrefix + "alignment_check",
+			Description: "Verify requirements alignment with delivered work. Compares requirements file against user stories, calculating alignment score with met/partial/unmet counts, gaps array, and scope creep detection.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"requirements": {
+						"type": "string",
+						"description": "Path to requirements markdown file"
+					},
+					"stories": {
+						"type": "string",
+						"description": "Path to user stories directory"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["requirements", "stories"]
+			}`),
+		},
+
+		// 53. Sprint status determination
 		{
 			Name:        ToolPrefix + "sprint_status",
 			Description: "Determine sprint completion status (COMPLETED/PARTIAL/FAILED) from completion data. Evaluates tasks completed, tests passed, coverage percentage, and critical issues count. Default thresholds: 90% for COMPLETED, 50% for PARTIAL, 60% minimum coverage.",
