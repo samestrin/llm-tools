@@ -231,6 +231,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildAlignmentCheckArgs(args), nil
 	case "tdd_compliance":
 		return buildTddComplianceArgs(args), nil
+	case "categorize_changes":
+		return buildCategorizeChangesArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1700,6 +1702,20 @@ func buildTddComplianceArgs(args map[string]interface{}) []string {
 	}
 	if count, ok := getInt(args, "count"); ok {
 		cmdArgs = append(cmdArgs, "--count", strconv.Itoa(count))
+	}
+	return cmdArgs
+}
+
+func buildCategorizeChangesArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"categorize-changes"}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+	if content, ok := args["content"].(string); ok {
+		cmdArgs = append(cmdArgs, "--content", content)
+	}
+	if patterns, ok := args["sensitive_patterns"].(string); ok {
+		cmdArgs = append(cmdArgs, "--sensitive-patterns", patterns)
 	}
 	return cmdArgs
 }

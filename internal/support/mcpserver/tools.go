@@ -2086,5 +2086,36 @@ func GetToolDefinitions() []ToolDefinition {
 				}
 			}`),
 		},
+
+		// 55. Categorize git changes
+		{
+			Name:        ToolPrefix + "categorize_changes",
+			Description: "Categorize git status output by file type. Parses git status --porcelain format and groups files into categories: source, test, config, docs, generated, other. Detects sensitive files (.env, credentials, keys) that should not be committed.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Path to file containing git status output"
+					},
+					"content": {
+						"type": "string",
+						"description": "Git status porcelain content directly"
+					},
+					"sensitive_patterns": {
+						"type": "string",
+						"description": "Additional sensitive file patterns (comma-separated globs)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
 	}
 }
