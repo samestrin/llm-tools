@@ -280,6 +280,7 @@ func newYamlSetCmd() *cobra.Command {
 	var jsonOutput bool
 	var minOutput bool
 	var dryRun bool
+	var quiet bool
 
 	cmd := &cobra.Command{
 		Use:   "set KEY VALUE",
@@ -291,6 +292,7 @@ Preserves comments where possible.
 
 Use '-' as VALUE to read from stdin (for piping values or multi-line input).
 Use --dry-run to preview changes without writing to the file.
+Use --quiet to suppress success messages (errors still output).
 
 Examples:
   yaml set --file config.yaml helper.llm claude
@@ -359,6 +361,11 @@ Examples:
 				return fmt.Errorf("failed to set value: %w", err)
 			}
 
+			// Skip success output if quiet
+			if quiet {
+				return nil
+			}
+
 			// Output
 			if jsonOutput {
 				if minOutput {
@@ -387,6 +394,7 @@ Examples:
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing to file")
+	cmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress success messages (errors still output)")
 	cmd.MarkFlagRequired("file")
 
 	return cmd
@@ -511,6 +519,7 @@ func newYamlMultisetCmd() *cobra.Command {
 	var jsonOutput bool
 	var minOutput bool
 	var dryRun bool
+	var quiet bool
 
 	cmd := &cobra.Command{
 		Use:   "multiset KEY1 VALUE1 [KEY2 VALUE2 ...]",
@@ -520,6 +529,7 @@ func newYamlMultisetCmd() *cobra.Command {
 All keys are validated before any writes occur.
 Arguments must be in KEY VALUE pairs.
 Use --dry-run to preview changes without writing to the file.
+Use --quiet to suppress success messages (errors still output).
 
 Examples:
   yaml multiset --file config.yaml helper.llm claude helper.max_lines 2500
@@ -615,6 +625,11 @@ Examples:
 				return fmt.Errorf("failed to write config file: %w", err)
 			}
 
+			// Skip success output if quiet
+			if quiet {
+				return nil
+			}
+
 			// Output
 			// NOTE: Output format intentionally matches context_multiset for consistency
 			if jsonOutput {
@@ -644,6 +659,7 @@ Examples:
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without writing to file")
+	cmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress success messages (errors still output)")
 	cmd.MarkFlagRequired("file")
 
 	return cmd

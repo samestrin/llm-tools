@@ -2831,3 +2831,163 @@ b: 2
 		t.Errorf("expected 2 changes, got: %v", result["changes"])
 	}
 }
+
+// ============================================================================
+// Task 04: Quiet Flag Tests
+// ============================================================================
+
+func TestYamlSet_Quiet(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new", "--quiet"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Verify NO output on success
+	if buf.String() != "" {
+		t.Errorf("expected empty output with --quiet, got: %q", buf.String())
+	}
+
+	// But file WAS modified
+	content, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(content), "new") {
+		t.Error("expected file to contain 'new'")
+	}
+}
+
+func TestYamlSet_QuietStillReturnsErrors(t *testing.T) {
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", "/nonexistent/path/config.yaml", "key", "value", "--quiet"})
+
+	err := cmd.Execute()
+	// Errors still returned
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+}
+
+func TestYamlMultiset_Quiet(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiset", "--file", configPath, "a", "10", "b", "20", "--quiet"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// No output
+	if buf.String() != "" {
+		t.Errorf("expected empty output with --quiet, got: %q", buf.String())
+	}
+
+	// File modified
+	content, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(content), "a: 10") {
+		t.Error("expected file to contain 'a: 10'")
+	}
+}
+
+func TestYamlSet_QuietWithJSON(t *testing.T) {
+	// --quiet should take precedence over --json for success output
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new", "--quiet", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Even with --json, quiet suppresses output
+	if buf.String() != "" {
+		t.Errorf("expected empty output with --quiet --json, got: %q", buf.String())
+	}
+}
+
+func TestYamlSet_QuietWithMin(t *testing.T) {
+	// --quiet should take precedence over --min for success output
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new", "--quiet", "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Even with --min, quiet suppresses output
+	if buf.String() != "" {
+		t.Errorf("expected empty output with --quiet --min, got: %q", buf.String())
+	}
+}
+
+func TestYamlSet_QuietDoesNotSuppressDryRun(t *testing.T) {
+	// Dry-run output should NOT be suppressed by quiet
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `key: original`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "key", "new", "--quiet", "--dry-run"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Dry-run preview is still output even with --quiet
+	// (quiet only suppresses success messages, dry-run is informational)
+	output := buf.String()
+	if !strings.Contains(output, "DRY RUN") {
+		t.Errorf("expected dry-run output even with --quiet, got: %q", output)
+	}
+}
+
+func TestYamlMultiset_QuietWithJSON(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `
+a: 1
+b: 2
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiset", "--file", configPath, "a", "10", "b", "20", "--quiet", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	// Even with --json, quiet suppresses output
+	if buf.String() != "" {
+		t.Errorf("expected empty output with --quiet --json, got: %q", buf.String())
+	}
+}
