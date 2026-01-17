@@ -20,6 +20,10 @@ var (
 	parseStreamHeaders   string
 	parseStreamJSON      bool
 	parseStreamMinimal   bool
+
+	// Compiled regex patterns for performance
+	checklistDetectPattern = regexp.MustCompile(`^[\s]*[-*+]\s*\[[xX ]\]`)
+	checklistParsePattern  = regexp.MustCompile(`^([\s]*)([-*+])\s*\[([xX ])\]\s*(.*)$`)
 )
 
 // ParseError represents a parsing error at a specific location
@@ -151,9 +155,8 @@ func detectFormat(content string) string {
 	}
 
 	// Check for markdown checklist pattern
-	checklistPattern := regexp.MustCompile(`^[\s]*[-*+]\s*\[[xX ]\]`)
 	for _, line := range lines {
-		if checklistPattern.MatchString(line) {
+		if checklistDetectPattern.MatchString(line) {
 			return "markdown-checklist"
 		}
 	}
@@ -259,9 +262,6 @@ func parseMarkdownChecklist(content string) (ParseStreamResult, error) {
 		ParseErrors: []ParseError{},
 	}
 
-	// Pattern to match markdown checklists: - [ ], - [x], * [ ], + [ ], etc.
-	checklistPattern := regexp.MustCompile(`^([\s]*)([-*+])\s*\[([xX ])\]\s*(.*)$`)
-
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	lineNum := 0
 
@@ -269,7 +269,7 @@ func parseMarkdownChecklist(content string) (ParseStreamResult, error) {
 		lineNum++
 		line := scanner.Text()
 
-		matches := checklistPattern.FindStringSubmatch(line)
+		matches := checklistParsePattern.FindStringSubmatch(line)
 		if matches == nil {
 			continue
 		}
