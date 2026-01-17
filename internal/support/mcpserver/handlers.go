@@ -225,6 +225,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildCoverageReportArgs(args), nil
 	case "validate_risks":
 		return buildValidateRisksArgs(args), nil
+	case "sprint_status":
+		return buildSprintStatusArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1632,6 +1634,37 @@ func buildValidateRisksArgs(args map[string]interface{}) []string {
 	}
 	if ac, ok := args["acceptance_criteria"].(string); ok {
 		cmdArgs = append(cmdArgs, "--acceptance-criteria", ac)
+	}
+	return cmdArgs
+}
+
+func buildSprintStatusArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"sprint-status"}
+	if tasksTotal, ok := getInt(args, "tasks_total"); ok {
+		cmdArgs = append(cmdArgs, "--tasks-total", strconv.Itoa(tasksTotal))
+	}
+	if tasksCompleted, ok := getInt(args, "tasks_completed"); ok {
+		cmdArgs = append(cmdArgs, "--tasks-completed", strconv.Itoa(tasksCompleted))
+	}
+	if getBool(args, "tests_passed") {
+		cmdArgs = append(cmdArgs, "--tests-passed")
+	} else {
+		cmdArgs = append(cmdArgs, "--tests-passed=false")
+	}
+	if coverage, ok := args["coverage"].(float64); ok {
+		cmdArgs = append(cmdArgs, "--coverage", strconv.FormatFloat(coverage, 'f', 1, 64))
+	}
+	if issues, ok := getInt(args, "critical_issues"); ok {
+		cmdArgs = append(cmdArgs, "--critical-issues", strconv.Itoa(issues))
+	}
+	if thresh, ok := args["completed_threshold"].(float64); ok {
+		cmdArgs = append(cmdArgs, "--completed-threshold", strconv.FormatFloat(thresh, 'f', 2, 64))
+	}
+	if thresh, ok := args["partial_threshold"].(float64); ok {
+		cmdArgs = append(cmdArgs, "--partial-threshold", strconv.FormatFloat(thresh, 'f', 2, 64))
+	}
+	if thresh, ok := args["coverage_threshold"].(float64); ok {
+		cmdArgs = append(cmdArgs, "--coverage-threshold", strconv.FormatFloat(thresh, 'f', 1, 64))
 	}
 	return cmdArgs
 }

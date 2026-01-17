@@ -1967,5 +1967,57 @@ func GetToolDefinitions() []ToolDefinition {
 				"required": ["design"]
 			}`),
 		},
+
+		// 52. Sprint status determination
+		{
+			Name:        ToolPrefix + "sprint_status",
+			Description: "Determine sprint completion status (COMPLETED/PARTIAL/FAILED) from completion data. Evaluates tasks completed, tests passed, coverage percentage, and critical issues count. Default thresholds: 90% for COMPLETED, 50% for PARTIAL, 60% minimum coverage.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"tasks_total": {
+						"type": "integer",
+						"description": "Total number of tasks"
+					},
+					"tasks_completed": {
+						"type": "integer",
+						"description": "Number of completed tasks"
+					},
+					"tests_passed": {
+						"type": "boolean",
+						"description": "Whether tests passed"
+					},
+					"coverage": {
+						"type": "number",
+						"description": "Coverage percentage"
+					},
+					"critical_issues": {
+						"type": "integer",
+						"description": "Number of critical issues"
+					},
+					"completed_threshold": {
+						"type": "number",
+						"description": "Completion threshold for COMPLETED status (0.0-1.0, default: 0.90)"
+					},
+					"partial_threshold": {
+						"type": "number",
+						"description": "Completion threshold for PARTIAL status (0.0-1.0, default: 0.50)"
+					},
+					"coverage_threshold": {
+						"type": "number",
+						"description": "Minimum coverage to avoid FAILED (default: 60)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["tests_passed"]
+			}`),
+		},
 	}
 }
