@@ -290,10 +290,10 @@ func (s *SQLiteStorage) Read(ctx context.Context, id string) (*Chunk, error) {
 	var typeStr string
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, file_path, type, name, signature, content, start_line, end_line, language
+		SELECT id, file_path, type, name, signature, content, start_line, end_line, language, COALESCE(domain, 'code')
 		FROM chunks WHERE id = ?
 	`, id).Scan(&chunk.ID, &chunk.FilePath, &typeStr, &chunk.Name, &chunk.Signature,
-		&chunk.Content, &chunk.StartLine, &chunk.EndLine, &chunk.Language)
+		&chunk.Content, &chunk.StartLine, &chunk.EndLine, &chunk.Language, &chunk.Domain)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -321,15 +321,20 @@ func (s *SQLiteStorage) Update(ctx context.Context, chunk Chunk, embedding []flo
 		return fmt.Errorf("failed to encode embedding: %w", err)
 	}
 
+	domain := chunk.Domain
+	if domain == "" {
+		domain = "code"
+	}
+
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE chunks SET
 			file_path = ?, type = ?, name = ?, signature = ?, content = ?,
 			start_line = ?, end_line = ?, language = ?, embedding = ?,
-			file_mtime = ?, updated_at = CURRENT_TIMESTAMP
+			file_mtime = ?, domain = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
 	`, chunk.FilePath, chunk.Type.String(), chunk.Name, chunk.Signature,
 		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language, embeddingBytes,
-		chunk.FileMtime, chunk.ID)
+		chunk.FileMtime, domain, chunk.ID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update chunk: %w", err)
