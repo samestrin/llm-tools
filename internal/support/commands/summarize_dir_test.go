@@ -283,3 +283,103 @@ func TestSummarizeDirHeadersHierarchy(t *testing.T) {
 		}
 	}
 }
+
+// TestSummarizeDirTreeFormat tests the tree format
+func TestSummarizeDirTreeFormat(t *testing.T) {
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "subdir")
+	os.MkdirAll(subDir, 0755)
+
+	os.WriteFile(filepath.Join(tmpDir, "file1.txt"), []byte("content"), 0644)
+	os.WriteFile(filepath.Join(subDir, "file2.txt"), []byte("content"), 0644)
+
+	cmd := newSummarizeDirCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", tmpDir, "--format", "tree", "--no-gitignore"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Should contain tree structure
+	if !strings.Contains(output, "file1.txt") || !strings.Contains(output, "subdir") {
+		t.Errorf("output should contain tree structure, got: %s", output)
+	}
+}
+
+// TestSummarizeDirFullFormat tests the full format
+func TestSummarizeDirFullFormat(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	os.WriteFile(filepath.Join(tmpDir, "doc.md"), []byte("# Title\n\nContent here."), 0644)
+
+	cmd := newSummarizeDirCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", tmpDir, "--format", "full", "--no-gitignore"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Full format should include file content
+	if !strings.Contains(output, "doc.md") {
+		t.Errorf("output should contain doc.md, got: %s", output)
+	}
+}
+
+// TestSummarizeDirRecursive tests recursive summarization
+func TestSummarizeDirRecursive(t *testing.T) {
+	tmpDir := t.TempDir()
+	subDir := filepath.Join(tmpDir, "subdir")
+	os.MkdirAll(subDir, 0755)
+
+	os.WriteFile(filepath.Join(tmpDir, "root.md"), []byte("# Root"), 0644)
+	os.WriteFile(filepath.Join(subDir, "sub.md"), []byte("# Sub"), 0644)
+
+	cmd := newSummarizeDirCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", tmpDir, "--recursive", "--no-gitignore"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Should find files in both directories
+	if !strings.Contains(output, "root.md") || !strings.Contains(output, "sub.md") {
+		t.Errorf("recursive should find files in subdirectories, got: %s", output)
+	}
+}
+
+// TestSummarizeDirWithGlob tests glob pattern filtering
+func TestSummarizeDirWithGlob(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	os.WriteFile(filepath.Join(tmpDir, "test.md"), []byte("# Markdown"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "test.txt"), []byte("Text file"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "test.go"), []byte("package main"), 0644)
+
+	cmd := newSummarizeDirCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", tmpDir, "--glob", "*.md", "--no-gitignore"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Should only include .md files
+	if !strings.Contains(output, "test.md") {
+		t.Errorf("output should contain test.md, got: %s", output)
+	}
+}

@@ -84,3 +84,96 @@ func TestHashCommand(t *testing.T) {
 		})
 	}
 }
+
+// TestHashSHA512 tests SHA512 algorithm
+func TestHashSHA512(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(testFile, []byte("hello world\n"), 0644)
+
+	cmd := newHashCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{testFile, "-a", "sha512"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// SHA512 produces 128 hex characters - output should contain the hash
+	if len(output) < 128 {
+		t.Errorf("expected SHA512 hash in output (128+ chars), got: %s", output)
+	}
+}
+
+// TestHashJSONOutput tests JSON output mode
+func TestHashJSONOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(testFile, []byte("hello world\n"), 0644)
+
+	cmd := newHashCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{testFile, "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, `"hash"`) && !strings.Contains(output, `"algorithm"`) {
+		t.Errorf("JSON output should contain hash or algorithm keys, got: %s", output)
+	}
+}
+
+// TestHashMinimalOutput tests minimal output mode
+func TestHashMinimalOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "test.txt")
+	os.WriteFile(testFile, []byte("hello world\n"), 0644)
+
+	cmd := newHashCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{testFile, "--min"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Minimal output should be more compact
+	if len(output) == 0 {
+		t.Error("expected output for minimal mode")
+	}
+}
+
+// TestHashMultipleFiles tests hashing multiple files
+func TestHashMultipleFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile1 := filepath.Join(tmpDir, "file1.txt")
+	testFile2 := filepath.Join(tmpDir, "file2.txt")
+	os.WriteFile(testFile1, []byte("content1"), 0644)
+	os.WriteFile(testFile2, []byte("content2"), 0644)
+
+	cmd := newHashCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{testFile1, testFile2})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Should contain hashes for both files
+	if !strings.Contains(output, "file1.txt") || !strings.Contains(output, "file2.txt") {
+		t.Errorf("output should contain both filenames, got: %s", output)
+	}
+}

@@ -375,3 +375,58 @@ func TestDepsEmptyPackageJSON(t *testing.T) {
 		t.Errorf("expected 0 dependencies for empty package.json, got: %d", len(result.Dependencies))
 	}
 }
+
+// TestDepsMinimalOutput tests minimal output mode
+func TestDepsMinimalOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	pkgJSON := filepath.Join(tmpDir, "package.json")
+	content := `{"dependencies": {"express": "^4.18.0"}}`
+	os.WriteFile(pkgJSON, []byte(content), 0644)
+
+	cmd := newDepsCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{pkgJSON, "--min"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Minimal output should contain dependencies
+	if !strings.Contains(output, "express") {
+		t.Errorf("minimal output should contain 'express', got: %s", output)
+	}
+}
+
+// TestDepsPyprojectTomlWithPoetry tests pyproject.toml with Poetry format
+func TestDepsPyprojectTomlWithPoetry(t *testing.T) {
+	tmpDir := t.TempDir()
+	pyproject := filepath.Join(tmpDir, "pyproject.toml")
+	content := `[tool.poetry]
+name = "test-app"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+requests = "^2.28.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.0"
+`
+	os.WriteFile(pyproject, []byte(content), 0644)
+
+	cmd := newDepsCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{pyproject, "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Should parse Poetry format
+	if !strings.Contains(output, "pyproject.toml") {
+		t.Errorf("output should contain pyproject.toml, got: %s", output)
+	}
+}

@@ -353,6 +353,128 @@ status: active
 	}
 }
 
+// TestValidatePlanMinimalOutput tests minimal output mode
+func TestValidatePlanMinimalOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	planDir := filepath.Join(tmpDir, "test-plan")
+
+	createValidPlanStructure(t, planDir)
+
+	cmd := newValidatePlanCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", planDir, "--min"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Minimal output should have key info
+	if !strings.Contains(output, "VALID") {
+		t.Errorf("minimal output should contain VALID, got: %s", output)
+	}
+}
+
+// TestValidatePlanWithTasks tests plan with tasks directory
+func TestValidatePlanWithTasks(t *testing.T) {
+	tmpDir := t.TempDir()
+	planDir := filepath.Join(tmpDir, "test-plan")
+
+	createValidPlanStructure(t, planDir)
+
+	// Add tasks directory
+	os.MkdirAll(filepath.Join(planDir, "tasks"), 0755)
+	os.WriteFile(filepath.Join(planDir, "tasks", "01-task.md"), []byte("# Task 01"), 0644)
+
+	cmd := newValidatePlanCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", planDir, "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result PlanValidationResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if !result.Valid {
+		t.Error("expected valid=true in JSON output")
+	}
+	// Check that tasks directory is in optional files and exists
+	foundTasks := false
+	for _, f := range result.OptionalFiles {
+		if f.Path == "tasks/" && f.Exists {
+			foundTasks = true
+			break
+		}
+	}
+	if !foundTasks {
+		t.Error("expected tasks/ to be detected in optional files")
+	}
+}
+
+// TestValidatePlanMultipleUserStories tests plan with multiple user stories
+func TestValidatePlanMultipleUserStories(t *testing.T) {
+	tmpDir := t.TempDir()
+	planDir := filepath.Join(tmpDir, "test-plan")
+
+	os.MkdirAll(filepath.Join(planDir, "user-stories"), 0755)
+	os.MkdirAll(filepath.Join(planDir, "acceptance-criteria"), 0755)
+
+	os.WriteFile(filepath.Join(planDir, "plan.md"), []byte("# Plan"), 0644)
+	os.WriteFile(filepath.Join(planDir, "original-requirements.md"), []byte("# Requirements"), 0644)
+
+	// Create multiple stories
+	os.WriteFile(filepath.Join(planDir, "user-stories", "01-story.md"), []byte("# Story 1"), 0644)
+	os.WriteFile(filepath.Join(planDir, "user-stories", "02-story.md"), []byte("# Story 2"), 0644)
+	os.WriteFile(filepath.Join(planDir, "user-stories", "03-story.md"), []byte("# Story 3"), 0644)
+
+	// Create acceptance criteria for each
+	os.WriteFile(filepath.Join(planDir, "acceptance-criteria", "01-01-ac.md"), []byte("# AC"), 0644)
+	os.WriteFile(filepath.Join(planDir, "acceptance-criteria", "02-01-ac.md"), []byte("# AC"), 0644)
+	os.WriteFile(filepath.Join(planDir, "acceptance-criteria", "03-01-ac.md"), []byte("# AC"), 0644)
+
+	cmd := newValidatePlanCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", planDir, "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result PlanValidationResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	// Check that the plan is valid
+	if !result.Valid {
+		t.Error("expected valid=true for plan with multiple stories")
+	}
+	// Verify user-stories/ and acceptance-criteria/ are in required files and exist
+	foundUS := false
+	foundAC := false
+	for _, f := range result.RequiredFiles {
+		if f.Path == "user-stories/" && f.Exists {
+			foundUS = true
+		}
+		if f.Path == "acceptance-criteria/" && f.Exists {
+			foundAC = true
+		}
+	}
+	if !foundUS {
+		t.Error("expected user-stories/ to exist")
+	}
+	if !foundAC {
+		t.Error("expected acceptance-criteria/ to exist")
+	}
+}
+
 // Helper function
 func createValidPlanStructure(t *testing.T, planDir string) {
 	t.Helper()

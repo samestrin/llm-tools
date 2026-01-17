@@ -306,3 +306,74 @@ func TestTreeBuilderHelpers(t *testing.T) {
 		}
 	})
 }
+
+// TestTreeMinimalOutput tests minimal output mode
+func TestTreeMinimalOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("content"), 0644)
+
+	resetTreeFlags()
+	cmd := newTreeCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", tmpDir, "--min", "--no-gitignore"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	// Minimal output should still have content
+	if len(output) == 0 {
+		t.Error("expected output for minimal mode")
+	}
+}
+
+// TestTreeJSONOutput tests JSON output mode
+func TestTreeJSONOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("content"), 0644)
+
+	resetTreeFlags()
+	cmd := newTreeCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", tmpDir, "--json", "--no-gitignore"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result TreeResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if result.Root == "" {
+		t.Error("expected root in JSON output")
+	}
+}
+
+// TestTreeEmptyDirectory tests behavior with empty directory
+func TestTreeEmptyDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	resetTreeFlags()
+	cmd := newTreeCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", tmpDir, "--no-gitignore"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should complete without error for empty directory
+	output := buf.String()
+	if len(output) == 0 {
+		t.Error("expected some output for empty directory")
+	}
+}

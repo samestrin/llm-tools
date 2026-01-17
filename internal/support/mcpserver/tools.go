@@ -1828,5 +1828,298 @@ func GetToolDefinitions() []ToolDefinition {
 				}
 			}`),
 		},
+
+		// 48. Route technical debt issues
+		{
+			Name:        ToolPrefix + "route_td",
+			Description: "Route parsed technical debt issues to appropriate destinations based on EST_MINUTES thresholds. Routes to quick_wins (<30min), backlog (30-2879min), or td_files (>=2880min). Returns arrays for each destination plus routing_summary with counts. Ensures zero data loss.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Input JSON file path"
+					},
+					"content": {
+						"type": "string",
+						"description": "Direct JSON content input"
+					},
+					"quick_wins_max": {
+						"type": "integer",
+						"description": "Max minutes for quick_wins routing (default: 30)"
+					},
+					"backlog_max": {
+						"type": "integer",
+						"description": "Min minutes for td_files routing (default: 2880)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
+
+		// 49. Parse structured data streams
+		{
+			Name:        ToolPrefix + "parse_stream",
+			Description: "Parse structured data streams (pipe-delimited, markdown checklists) into JSON. Eliminates LLM parsing inconsistency and context compaction data loss. Returns format, headers, rows, row_count, and parse_errors.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Input file path"
+					},
+					"content": {
+						"type": "string",
+						"description": "Direct content input (alternative to file)"
+					},
+					"format": {
+						"type": "string",
+						"enum": ["auto", "pipe", "markdown-checklist"],
+						"description": "Format: auto (detect), pipe (delimited), markdown-checklist"
+					},
+					"delimiter": {
+						"type": "string",
+						"description": "Delimiter for pipe format (default: |)"
+					},
+					"headers": {
+						"type": "string",
+						"description": "Comma-separated header names (overrides auto-detection)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
+
+		// 50. Coverage report for requirements
+		{
+			Name:        ToolPrefix + "coverage_report",
+			Description: "Calculate requirement coverage from user stories. Parses requirements file to extract IDs (REQ-#, R-#, REQUIREMENT-#), scans user story markdown files, and returns total, covered, uncovered requirements with coverage percentage and per-story mapping.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"requirements": {
+						"type": "string",
+						"description": "Path to requirements markdown file"
+					},
+					"stories": {
+						"type": "string",
+						"description": "Path to user stories directory"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["requirements", "stories"]
+			}`),
+		},
+
+		// 51. Validate risks coverage
+		{
+			Name:        ToolPrefix + "validate_risks",
+			Description: "Cross-reference sprint-design.md risks with user stories, tasks, or acceptance criteria. Parses the Risk Analysis section and checks if each risk (R-1, R-2, etc.) is addressed in work items. Returns risks identified, addressed, unaddressed, coverage percentage, and per-risk details.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"design": {
+						"type": "string",
+						"description": "Path to sprint-design.md file"
+					},
+					"stories": {
+						"type": "string",
+						"description": "Path to user stories directory"
+					},
+					"tasks": {
+						"type": "string",
+						"description": "Path to tasks directory"
+					},
+					"acceptance_criteria": {
+						"type": "string",
+						"description": "Path to acceptance criteria directory"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["design"]
+			}`),
+		},
+
+		// 52. Alignment check for requirements
+		{
+			Name:        ToolPrefix + "alignment_check",
+			Description: "Verify requirements alignment with delivered work. Compares requirements file against user stories, calculating alignment score with met/partial/unmet counts, gaps array, and scope creep detection.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"requirements": {
+						"type": "string",
+						"description": "Path to requirements markdown file"
+					},
+					"stories": {
+						"type": "string",
+						"description": "Path to user stories directory"
+					},
+					"tasks": {
+						"type": "string",
+						"description": "Path to tasks directory (optional, scanned for additional traceability)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["requirements", "stories"]
+			}`),
+		},
+
+		// 53. Sprint status determination
+		{
+			Name:        ToolPrefix + "sprint_status",
+			Description: "Determine sprint completion status (COMPLETED/PARTIAL/FAILED) from completion data. Evaluates tasks completed, tests passed, coverage percentage, and critical issues count. Default thresholds: 90% for COMPLETED, 50% for PARTIAL, 60% minimum coverage.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"tasks_total": {
+						"type": "integer",
+						"description": "Total number of tasks"
+					},
+					"tasks_completed": {
+						"type": "integer",
+						"description": "Number of completed tasks"
+					},
+					"tests_passed": {
+						"type": "boolean",
+						"description": "Whether tests passed"
+					},
+					"coverage": {
+						"type": "number",
+						"description": "Coverage percentage"
+					},
+					"critical_issues": {
+						"type": "integer",
+						"description": "Number of critical issues"
+					},
+					"completed_threshold": {
+						"type": "number",
+						"description": "Completion threshold for COMPLETED status (0.0-1.0, default: 0.90)"
+					},
+					"partial_threshold": {
+						"type": "number",
+						"description": "Completion threshold for PARTIAL status (0.0-1.0, default: 0.50)"
+					},
+					"coverage_threshold": {
+						"type": "number",
+						"description": "Minimum coverage to avoid FAILED (default: 60)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["tests_passed"]
+			}`),
+		},
+
+		// 54. TDD compliance analysis
+		{
+			Name:        ToolPrefix + "tdd_compliance",
+			Description: "Analyze git history for TDD compliance. Classifies commits as test-first, test-with, test-after, or no-test patterns. Calculates compliance score (0-100) with letter grade (A-F). Returns violations with remediation suggestions.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Path to git repository"
+					},
+					"content": {
+						"type": "string",
+						"description": "Git log content (pipe-delimited: hash|author|date|message|files)"
+					},
+					"since": {
+						"type": "string",
+						"description": "Analyze commits since date (YYYY-MM-DD)"
+					},
+					"until": {
+						"type": "string",
+						"description": "Analyze commits until date (YYYY-MM-DD)"
+					},
+					"count": {
+						"type": "integer",
+						"description": "Maximum number of commits to analyze"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
+
+		// 55. Categorize git changes
+		{
+			Name:        ToolPrefix + "categorize_changes",
+			Description: "Categorize git status output by file type. Parses git status --porcelain format and groups files into categories: source, test, config, docs, generated, other. Detects sensitive files (.env, credentials, keys) that should not be committed.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Path to file containing git status output"
+					},
+					"content": {
+						"type": "string",
+						"description": "Git status porcelain content directly"
+					},
+					"sensitive_patterns": {
+						"type": "string",
+						"description": "Additional sensitive file patterns (comma-separated globs)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
 	}
 }
