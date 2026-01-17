@@ -204,8 +204,8 @@ func (mps *MultiProfileSearcher) Multisearch(ctx context.Context, opts Multisear
 		Threshold: opts.Threshold,
 	}
 
-	// Track results per query and deduplicate
-	resultMap := make(map[string]SearchResult)
+	// Track results per query with matched query tracking (same pattern as Searcher.Multisearch)
+	resultMap := make(map[string]*enhancedResultEntry)
 	queriesMatched := make(map[string]int)
 	var mu sync.Mutex
 
@@ -234,9 +234,19 @@ func (mps *MultiProfileSearcher) Multisearch(ctx context.Context, opts Multisear
 					if result.Chunk.Domain == "" {
 						result.Chunk.Domain = profile
 					}
-					existing, ok := resultMap[result.Chunk.ID]
-					if !ok || result.Score > existing.Score {
-						resultMap[result.Chunk.ID] = result
+					entry, ok := resultMap[result.Chunk.ID]
+					if !ok {
+						// New entry
+						resultMap[result.Chunk.ID] = &enhancedResultEntry{
+							result:         result,
+							matchedQueries: map[string]bool{query: true},
+						}
+					} else {
+						// Existing entry - update score if higher and track query
+						if result.Score > entry.result.Score {
+							entry.result = result
+						}
+						entry.matchedQueries[query] = true
 					}
 				}
 				mu.Unlock()
@@ -250,14 +260,33 @@ func (mps *MultiProfileSearcher) Multisearch(ctx context.Context, opts Multisear
 		return nil, err
 	}
 
-	// Convert map to slice
-	results := make([]SearchResult, 0, len(resultMap))
-	for _, result := range resultMap {
-		results = append(results, result)
+	// Convert map to enhanced results with boosting
+	boostEnabled := opts.IsBoostEnabled()
+	results := make([]EnhancedResult, 0, len(resultMap))
+	for _, entry := range resultMap {
+		// Convert matched queries set to slice (preserve query order)
+		matchedList := make([]string, 0, len(entry.matchedQueries))
+		for _, q := range opts.Queries {
+			if entry.matchedQueries[q] {
+				matchedList = append(matchedList, q)
+			}
+		}
+
+		// Calculate boosted score
+		boostedScore := entry.result.Score
+		if boostEnabled {
+			boostedScore = CalculateBoostedScore(entry.result.Score, len(matchedList))
+		}
+
+		results = append(results, EnhancedResult{
+			SearchResult:   entry.result,
+			MatchedQueries: matchedList,
+			BoostedScore:   boostedScore,
+		})
 	}
 
-	// Sort by score descending
-	sortResultsByScore(results)
+	// Sort by boosted score descending
+	sortEnhancedResultsByScore(results)
 
 	// Apply TopK limit
 	if opts.TopK > 0 && len(results) > opts.TopK {
