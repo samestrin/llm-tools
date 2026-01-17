@@ -1931,5 +1931,41 @@ func GetToolDefinitions() []ToolDefinition {
 				"required": ["requirements", "stories"]
 			}`),
 		},
+
+		// 51. Validate risks coverage
+		{
+			Name:        ToolPrefix + "validate_risks",
+			Description: "Cross-reference sprint-design.md risks with user stories, tasks, or acceptance criteria. Parses the Risk Analysis section and checks if each risk (R-1, R-2, etc.) is addressed in work items. Returns risks identified, addressed, unaddressed, coverage percentage, and per-risk details.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"design": {
+						"type": "string",
+						"description": "Path to sprint-design.md file"
+					},
+					"stories": {
+						"type": "string",
+						"description": "Path to user stories directory"
+					},
+					"tasks": {
+						"type": "string",
+						"description": "Path to tasks directory"
+					},
+					"acceptance_criteria": {
+						"type": "string",
+						"description": "Path to acceptance criteria directory"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				},
+				"required": ["design"]
+			}`),
+		},
 	}
 }

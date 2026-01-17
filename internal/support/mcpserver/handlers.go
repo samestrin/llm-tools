@@ -223,6 +223,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildRouteTDArgs(args), nil
 	case "coverage_report":
 		return buildCoverageReportArgs(args), nil
+	case "validate_risks":
+		return buildValidateRisksArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1613,6 +1615,23 @@ func buildCoverageReportArgs(args map[string]interface{}) []string {
 	}
 	if stories, ok := args["stories"].(string); ok {
 		cmdArgs = append(cmdArgs, "--stories", stories)
+	}
+	return cmdArgs
+}
+
+func buildValidateRisksArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"validate-risks"}
+	if design, ok := args["design"].(string); ok {
+		cmdArgs = append(cmdArgs, "--design", design)
+	}
+	if stories, ok := args["stories"].(string); ok {
+		cmdArgs = append(cmdArgs, "--stories", stories)
+	}
+	if tasks, ok := args["tasks"].(string); ok {
+		cmdArgs = append(cmdArgs, "--tasks", tasks)
+	}
+	if ac, ok := args["acceptance_criteria"].(string); ok {
+		cmdArgs = append(cmdArgs, "--acceptance-criteria", ac)
 	}
 	return cmdArgs
 }
