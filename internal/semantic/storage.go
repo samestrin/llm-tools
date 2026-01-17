@@ -27,10 +27,11 @@ type ListOptions struct {
 
 // SearchOptions configures how vector search is performed
 type SearchOptions struct {
-	TopK       int     // Maximum number of results to return (0 = unlimited/all results)
-	Threshold  float32 // Minimum similarity score (0.0 - 1.0)
-	Type       string  // Filter by chunk type
-	PathFilter string  // Filter by file path pattern (glob)
+	TopK       int      `json:"top_k,omitempty"`       // Maximum number of results to return (0 = unlimited/all results)
+	Threshold  float32  `json:"threshold,omitempty"`   // Minimum similarity score (0.0 - 1.0)
+	Type       string   `json:"type,omitempty"`        // Filter by chunk type
+	PathFilter string   `json:"path_filter,omitempty"` // Filter by file path pattern (glob)
+	Profiles   []string `json:"profiles,omitempty"`    // Profiles (collections) to search across; if nil/empty, uses default profile
 }
 
 // ChunkWithEmbedding pairs a chunk with its embedding for batch operations
