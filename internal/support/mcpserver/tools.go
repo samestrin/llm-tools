@@ -1828,5 +1828,45 @@ func GetToolDefinitions() []ToolDefinition {
 				}
 			}`),
 		},
+
+		// 48. Parse structured data streams
+		{
+			Name:        ToolPrefix + "parse_stream",
+			Description: "Parse structured data streams (pipe-delimited, markdown checklists) into JSON. Eliminates LLM parsing inconsistency and context compaction data loss. Returns format, headers, rows, row_count, and parse_errors.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Input file path"
+					},
+					"content": {
+						"type": "string",
+						"description": "Direct content input (alternative to file)"
+					},
+					"format": {
+						"type": "string",
+						"enum": ["auto", "pipe", "markdown-checklist"],
+						"description": "Format: auto (detect), pipe (delimited), markdown-checklist"
+					},
+					"delimiter": {
+						"type": "string",
+						"description": "Delimiter for pipe format (default: |)"
+					},
+					"headers": {
+						"type": "string",
+						"description": "Comma-separated header names (overrides auto-detection)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
 	}
 }

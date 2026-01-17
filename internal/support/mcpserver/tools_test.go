@@ -8,9 +8,9 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Verify we have exactly 54 tools
-	if len(tools) != 54 {
-		t.Errorf("Expected 54 tools, got %d", len(tools))
+	// Verify we have exactly 55 tools
+	if len(tools) != 55 {
+		t.Errorf("Expected 55 tools, got %d", len(tools))
 	}
 
 	// Verify all tools have the correct prefix

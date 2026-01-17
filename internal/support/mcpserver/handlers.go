@@ -217,6 +217,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildRuntimeArgs(args), nil
 	case "complete":
 		return buildCompleteArgs(args), nil
+	case "parse_stream":
+		return buildParseStreamArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1560,5 +1562,25 @@ func buildRuntimeArgs(args map[string]interface{}) []string {
 		cmdArgs = append(cmdArgs, "--min")
 	}
 
+	return cmdArgs
+}
+
+func buildParseStreamArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"parse-stream"}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+	if content, ok := args["content"].(string); ok {
+		cmdArgs = append(cmdArgs, "--content", content)
+	}
+	if format, ok := args["format"].(string); ok {
+		cmdArgs = append(cmdArgs, "--format", format)
+	}
+	if delimiter, ok := args["delimiter"].(string); ok {
+		cmdArgs = append(cmdArgs, "--delimiter", delimiter)
+	}
+	if headers, ok := args["headers"].(string); ok {
+		cmdArgs = append(cmdArgs, "--headers", headers)
+	}
 	return cmdArgs
 }
