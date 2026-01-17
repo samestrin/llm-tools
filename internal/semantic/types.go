@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // ChunkType represents the type of code chunk
@@ -84,7 +85,7 @@ type Chunk struct {
 	StartLine int       `json:"start_line"`
 	EndLine   int       `json:"end_line"`
 	Language  string    `json:"language"`
-	Domain    string    `json:"domain,omitempty"`     // "code" or "docs" (for future multi-domain search)
+	Domain    string    `json:"domain,omitempty"`     // Source profile/collection (e.g., "code", "docs") - set during indexing based on profile
 	FileMtime int64     `json:"file_mtime,omitempty"` // Unix timestamp of file modification time
 }
 
@@ -115,9 +116,10 @@ func (c *Chunk) Preview() string {
 	text = strings.ReplaceAll(text, "\n", " ")
 	text = strings.ReplaceAll(text, "\t", " ")
 
-	// Truncate if necessary
-	if len(text) > maxLen {
-		return text[:maxLen] + "..."
+	// Truncate if necessary (count runes, not bytes, for proper UTF-8 handling)
+	if utf8.RuneCountInString(text) > maxLen {
+		runes := []rune(text)
+		return string(runes[:maxLen]) + "..."
 	}
 
 	return text

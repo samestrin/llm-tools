@@ -200,14 +200,15 @@ func (s *Searcher) SearchMultiple(ctx context.Context, queries []string, opts Se
 	wg.Wait()
 	close(errChan)
 
-	// Return first error if any
-	select {
-	case err := <-errChan:
+	// Collect all errors from goroutines
+	var errs []error
+	for err := range errChan {
 		if err != nil {
-			return nil, err
+			errs = append(errs, err)
 		}
-	default:
-		// No errors
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 
 	// Convert map to slice
@@ -252,14 +253,15 @@ func (s *Searcher) applyRelevanceLabels(ctx context.Context, results []SearchRes
 			results[i].Preview = results[i].Chunk.Preview()
 		}
 	} else {
-		// Fallback to percentile-based labeling
+		// Fallback to percentile-based labeling (O(n log n) batch processing)
 		slog.Debug("no calibration data available, using percentile-based relevance labeling")
 		allScores := make([]float32, len(results))
 		for i, r := range results {
 			allScores[i] = r.Score
 		}
+		labels := LabelAllByPercentile(allScores)
 		for i := range results {
-			results[i].Relevance = LabelByPercentile(results[i].Score, allScores)
+			results[i].Relevance = labels[i]
 			results[i].Preview = results[i].Chunk.Preview()
 		}
 	}

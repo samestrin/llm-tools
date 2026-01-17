@@ -17,6 +17,9 @@ import (
 	"github.com/qdrant/go-client/qdrant"
 )
 
+// loggerMu protects global slog.Default() modifications during Qdrant client creation
+var loggerMu sync.Mutex
+
 // stringToUUID converts an arbitrary string to a valid UUID format using SHA256
 func stringToUUID(s string) string {
 	hash := sha256.Sum256([]byte(s))
@@ -77,6 +80,12 @@ func NewQdrantStorage(config QdrantConfig) (*QdrantStorage, error) {
 	// If QDRANT_INSECURE=true and not using TLS, suppress the API key warning
 	// from the Qdrant client. This is useful for local/trusted networks.
 	suppressWarning := os.Getenv("QDRANT_INSECURE") == "true" && !useTLS && config.APIKey != ""
+
+	// Use mutex to protect global logger modification (thread-safety)
+	if suppressWarning {
+		loggerMu.Lock()
+	}
+
 	var oldHandler slog.Handler
 	if suppressWarning {
 		oldHandler = slog.Default().Handler()
@@ -90,9 +99,10 @@ func NewQdrantStorage(config QdrantConfig) (*QdrantStorage, error) {
 		UseTLS: useTLS,
 	})
 
-	// Restore the original logger
+	// Restore the original logger and release lock
 	if suppressWarning {
 		slog.SetDefault(slog.New(oldHandler))
+		loggerMu.Unlock()
 	}
 
 	if err != nil {
