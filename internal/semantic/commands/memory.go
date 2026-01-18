@@ -1040,6 +1040,11 @@ func runMemoryStats(ctx context.Context, opts memoryStatsOpts) error {
 }
 
 func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracker, storage semantic.Storage, opts memoryStatsOpts) error {
+	// Validate min-retrievals is non-negative
+	if opts.minRetrievals < 0 {
+		return fmt.Errorf("invalid value for --min-retrievals: must be a non-negative integer")
+	}
+
 	stats, err := tracker.GetAllMemoryStats(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve memory stats: %w", err)
@@ -1090,7 +1095,10 @@ func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracke
 	// Handle JSON output
 	if opts.jsonOutput || opts.minOutput {
 		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
+		if !opts.minOutput {
+			// Only apply indentation for full JSON output
+			enc.SetIndent("", "  ")
+		}
 		if opts.minOutput {
 			// Minimal JSON output with abbreviated keys
 			minRows := make([]map[string]interface{}, len(rows))
@@ -1165,7 +1173,7 @@ func runMemoryHistory(ctx context.Context, storage semantic.Storage, tracker sem
 	// Verify memory exists
 	mem, err := storage.GetMemory(ctx, opts.id)
 	if err != nil {
-		return fmt.Errorf("memory not found: %s (use 'llm-semantic memory list' to find IDs)", opts.id)
+		return fmt.Errorf("memory not found: %s (use 'llm-semantic memory list' to find IDs): %w", opts.id, err)
 	}
 
 	history, err := tracker.GetMemoryRetrievalHistory(ctx, opts.id, 50)
@@ -1176,7 +1184,9 @@ func runMemoryHistory(ctx context.Context, storage semantic.Storage, tracker sem
 	// Handle JSON output
 	if opts.jsonOutput || opts.minOutput {
 		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
+		if !opts.minOutput {
+			enc.SetIndent("", "  ")
+		}
 
 		if opts.minOutput {
 			// Minimal JSON output with abbreviated keys
@@ -1270,7 +1280,9 @@ func runMemoryPrune(ctx context.Context, tracker semantic.MemoryStatsTracker, op
 	// Handle JSON output
 	if opts.jsonOutput || opts.minOutput {
 		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
+		if !opts.minOutput {
+			enc.SetIndent("", "  ")
+		}
 
 		if opts.minOutput {
 			result := map[string]interface{}{
