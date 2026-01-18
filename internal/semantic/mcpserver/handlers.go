@@ -32,6 +32,9 @@ type argBuilder struct {
 // and makes it easy to see which commands exist.
 var commandRegistry = map[string]argBuilder{
 	"search":         {build: buildSearchArgs, validate: validateSearchArgs},
+	"search_code":    {build: buildSearchCodeArgs, validate: validateSearchArgs},
+	"search_docs":    {build: buildSearchDocsArgs, validate: validateSearchArgs},
+	"search_memory":  {build: buildSearchMemoryArgs, validate: validateSearchArgs},
 	"multisearch":    {build: buildMultisearchArgs, validate: validateMultisearchArgs},
 	"index":          {build: buildIndexArgs, validate: nil},
 	"index_status":   {build: buildStatusArgs, validate: nil},
@@ -328,6 +331,36 @@ func buildSearchArgs(args map[string]interface{}) []string {
 	}
 
 	return cmdArgs
+}
+
+// buildSearchCodeArgs builds args for search_code (convenience wrapper with code profile)
+func buildSearchCodeArgs(args map[string]interface{}) []string {
+	// Inject code profile and resolve settings
+	// Note: resolveProfileSettings was already called in ExecuteHandler before this,
+	// but at that point profile wasn't set yet. We need to resolve again.
+	args["profile"] = "code"
+	_ = resolveProfileSettings(args) // Resolve profile to collection/storage
+	return buildSearchArgs(args)
+}
+
+// buildSearchDocsArgs builds args for search_docs (convenience wrapper with docs profile)
+func buildSearchDocsArgs(args map[string]interface{}) []string {
+	// Inject docs profile and resolve settings
+	// Note: resolveProfileSettings was already called in ExecuteHandler before this,
+	// but at that point profile wasn't set yet. We need to resolve again.
+	args["profile"] = "docs"
+	_ = resolveProfileSettings(args) // Resolve profile to collection/storage
+	return buildSearchArgs(args)
+}
+
+// buildSearchMemoryArgs builds args for search_memory (convenience wrapper with memory profile)
+func buildSearchMemoryArgs(args map[string]interface{}) []string {
+	// Inject memory profile and resolve settings
+	// Note: resolveProfileSettings was already called in ExecuteHandler before this,
+	// but at that point profile wasn't set yet. We need to resolve again.
+	args["profile"] = "memory"
+	_ = resolveProfileSettings(args) // Resolve profile to collection/storage
+	return buildMemorySearchArgs(args)
 }
 
 func buildMultisearchArgs(args map[string]interface{}) []string {
