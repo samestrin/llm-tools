@@ -247,6 +247,130 @@ func GetToolDefinitions() []ToolDefinition {
 			}`),
 		},
 
+		// 1c. Search code - convenience wrapper with code profile pre-set
+		{
+			Name:        ToolPrefix + "search_code",
+			Description: "Search code repository using natural language. Convenience wrapper for search with 'code' profile pre-set. Requires config file with semantic.code_collection and semantic.code_storage defined.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {
+						"type": "string",
+						"description": "Natural language search query (e.g., 'authentication middleware' or 'database connection handling')"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+					},
+					"top_k": {
+						"type": "integer",
+						"description": "Maximum number of results to return (default: 10)"
+					},
+					"threshold": {
+						"type": "number",
+						"minimum": 0.0,
+						"maximum": 1.0,
+						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
+					},
+					"type": {
+						"type": "string",
+						"enum": ["function", "method", "struct", "interface", "file"],
+						"description": "Filter results by chunk type"
+					},
+					"path": {
+						"type": "string",
+						"description": "Filter results by path prefix"
+					},
+					"hybrid": {
+						"type": "boolean",
+						"description": "Enable hybrid search (dense + lexical with RRF fusion)"
+					},
+					"recency_boost": {
+						"type": "boolean",
+						"description": "Enable recency boost (recently modified files ranked higher)"
+					}
+				},
+				"required": ["query"]
+			}`),
+		},
+
+		// 1d. Search docs - convenience wrapper with docs profile pre-set
+		{
+			Name:        ToolPrefix + "search_docs",
+			Description: "Search documentation using natural language. Convenience wrapper for search with 'docs' profile pre-set. Requires config file with semantic.docs_collection and semantic.docs_storage defined.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {
+						"type": "string",
+						"description": "Natural language search query (e.g., 'API authentication' or 'configuration options')"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+					},
+					"top_k": {
+						"type": "integer",
+						"description": "Maximum number of results to return (default: 10)"
+					},
+					"threshold": {
+						"type": "number",
+						"minimum": 0.0,
+						"maximum": 1.0,
+						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
+					},
+					"path": {
+						"type": "string",
+						"description": "Filter results by path prefix"
+					},
+					"hybrid": {
+						"type": "boolean",
+						"description": "Enable hybrid search (dense + lexical with RRF fusion)"
+					}
+				},
+				"required": ["query"]
+			}`),
+		},
+
+		// 1e. Search memory - convenience wrapper with memory profile pre-set
+		{
+			Name:        ToolPrefix + "search_memory",
+			Description: "Search stored memories using natural language. Convenience wrapper for memory search with 'memory' profile pre-set. Requires config file with semantic.memory_collection and semantic.memory_storage defined.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"query": {
+						"type": "string",
+						"description": "Natural language search query (e.g., 'authentication decisions' or 'API design choices')"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+					},
+					"top_k": {
+						"type": "integer",
+						"description": "Maximum number of results to return (default: 10)"
+					},
+					"threshold": {
+						"type": "number",
+						"minimum": 0.0,
+						"maximum": 1.0,
+						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
+					},
+					"tags": {
+						"type": "string",
+						"description": "Filter by tags (comma-separated)"
+					},
+					"status": {
+						"type": "string",
+						"enum": ["pending", "promoted"],
+						"description": "Filter by status"
+					}
+				},
+				"required": ["query"]
+			}`),
+		},
+
 		// 2. Index status
 		{
 			Name:        ToolPrefix + "index_status",

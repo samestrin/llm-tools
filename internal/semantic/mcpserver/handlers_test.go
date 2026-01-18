@@ -1451,6 +1451,197 @@ func TestBuildMultisearchArgs(t *testing.T) {
 	}
 }
 
+// Test convenience wrapper functions
+func TestBuildSearchCodeArgs(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  code_collection: my-code-index
+  code_storage: qdrant
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	args := map[string]interface{}{
+		"query":  "authentication middleware",
+		"config": configPath,
+		"top_k":  float64(5),
+	}
+
+	result := buildSearchCodeArgs(args)
+
+	// Should start with search command
+	if result[0] != "search" {
+		t.Errorf("buildSearchCodeArgs() first arg = %s, want 'search'", result[0])
+	}
+
+	// Profile should be set to code
+	if args["profile"] != "code" {
+		t.Errorf("buildSearchCodeArgs() should set profile to 'code', got %v", args["profile"])
+	}
+
+	// Collection should be resolved from config
+	if args["collection"] != "my-code-index" {
+		t.Errorf("buildSearchCodeArgs() collection = %v, want 'my-code-index'", args["collection"])
+	}
+
+	// Storage should be resolved from config
+	if args["storage"] != "qdrant" {
+		t.Errorf("buildSearchCodeArgs() storage = %v, want 'qdrant'", args["storage"])
+	}
+}
+
+func TestBuildSearchDocsArgs(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  docs_collection: my-docs-index
+  docs_storage: sqlite
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	args := map[string]interface{}{
+		"query":  "API authentication",
+		"config": configPath,
+	}
+
+	result := buildSearchDocsArgs(args)
+
+	// Should start with search command
+	if result[0] != "search" {
+		t.Errorf("buildSearchDocsArgs() first arg = %s, want 'search'", result[0])
+	}
+
+	// Profile should be set to docs
+	if args["profile"] != "docs" {
+		t.Errorf("buildSearchDocsArgs() should set profile to 'docs', got %v", args["profile"])
+	}
+
+	// Collection should be resolved from config
+	if args["collection"] != "my-docs-index" {
+		t.Errorf("buildSearchDocsArgs() collection = %v, want 'my-docs-index'", args["collection"])
+	}
+}
+
+func TestBuildSearchMemoryArgs(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  memory_collection: my-memory-index
+  memory_storage: qdrant
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	args := map[string]interface{}{
+		"query":  "authentication decisions",
+		"config": configPath,
+		"tags":   "auth,security",
+	}
+
+	result := buildSearchMemoryArgs(args)
+
+	// Should start with memory search command
+	if result[0] != "memory" || result[1] != "search" {
+		t.Errorf("buildSearchMemoryArgs() should start with ['memory', 'search'], got %v", result[:2])
+	}
+
+	// Profile should be set to memory
+	if args["profile"] != "memory" {
+		t.Errorf("buildSearchMemoryArgs() should set profile to 'memory', got %v", args["profile"])
+	}
+
+	// Collection should be resolved from config
+	if args["collection"] != "my-memory-index" {
+		t.Errorf("buildSearchMemoryArgs() collection = %v, want 'my-memory-index'", args["collection"])
+	}
+}
+
+func TestBuildSearchCodeArgs_WithoutConfig(t *testing.T) {
+	// Test that it works even without config (just sets profile)
+	args := map[string]interface{}{
+		"query": "test query",
+	}
+
+	result := buildSearchCodeArgs(args)
+
+	if result[0] != "search" {
+		t.Errorf("buildSearchCodeArgs() first arg = %s, want 'search'", result[0])
+	}
+
+	if args["profile"] != "code" {
+		t.Errorf("buildSearchCodeArgs() should set profile to 'code', got %v", args["profile"])
+	}
+}
+
+func TestBuildArgs_ConvenienceWrappers(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.yaml"
+
+	configContent := `semantic:
+  code_collection: code-idx
+  code_storage: sqlite
+  docs_collection: docs-idx
+  docs_storage: qdrant
+  memory_collection: memory-idx
+  memory_storage: sqlite
+`
+	if err := writeTestFile(configPath, configContent); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	tests := []struct {
+		cmdName     string
+		args        map[string]interface{}
+		wantCommand string
+		wantProfile string
+	}{
+		{
+			cmdName:     "search_code",
+			args:        map[string]interface{}{"query": "test", "config": configPath},
+			wantCommand: "search",
+			wantProfile: "code",
+		},
+		{
+			cmdName:     "search_docs",
+			args:        map[string]interface{}{"query": "test", "config": configPath},
+			wantCommand: "search",
+			wantProfile: "docs",
+		},
+		{
+			cmdName:     "search_memory",
+			args:        map[string]interface{}{"query": "test", "config": configPath},
+			wantCommand: "memory",
+			wantProfile: "memory",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.cmdName, func(t *testing.T) {
+			result, err := buildArgs(tt.cmdName, tt.args)
+			if err != nil {
+				t.Errorf("buildArgs(%s) error = %v", tt.cmdName, err)
+				return
+			}
+
+			if result[0] != tt.wantCommand {
+				t.Errorf("buildArgs(%s) first arg = %s, want %s", tt.cmdName, result[0], tt.wantCommand)
+			}
+
+			if tt.args["profile"] != tt.wantProfile {
+				t.Errorf("buildArgs(%s) profile = %v, want %s", tt.cmdName, tt.args["profile"], tt.wantProfile)
+			}
+		})
+	}
+}
+
 // Test multisearch in command registry
 func TestBuildArgs_MultisearchCommand(t *testing.T) {
 	args := map[string]interface{}{
