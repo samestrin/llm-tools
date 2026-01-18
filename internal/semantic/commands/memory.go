@@ -930,6 +930,8 @@ func memoryStatsCmd() *cobra.Command {
 		pruneMode     bool
 		olderThan     int
 		skipConfirm   bool
+		jsonOutput    bool
+		minOutput     bool
 	)
 
 	cmd := &cobra.Command{
@@ -955,6 +957,8 @@ Examples:
 				pruneMode:     pruneMode,
 				olderThan:     olderThan,
 				skipConfirm:   skipConfirm,
+				jsonOutput:    jsonOutput,
+				minOutput:     minOutput,
 			})
 		},
 	}
@@ -965,6 +969,8 @@ Examples:
 	cmd.Flags().BoolVar(&pruneMode, "prune", false, "Run prune operation")
 	cmd.Flags().IntVar(&olderThan, "older-than", 0, "Prune logs older than N days")
 	cmd.Flags().BoolVar(&skipConfirm, "yes", false, "Skip confirmation for prune")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output format")
 
 	// Require flags together
 	cmd.MarkFlagsRequiredTogether("history", "id")
@@ -980,6 +986,8 @@ type memoryStatsOpts struct {
 	pruneMode     bool
 	olderThan     int
 	skipConfirm   bool
+	jsonOutput    bool
+	minOutput     bool
 }
 
 func runMemoryStats(ctx context.Context, opts memoryStatsOpts) error {
@@ -1079,6 +1087,31 @@ func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracke
 		})
 	}
 
+	// Handle JSON output
+	if opts.jsonOutput || opts.minOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if opts.minOutput {
+			// Minimal JSON output with abbreviated keys
+			minRows := make([]map[string]interface{}, len(rows))
+			for i, row := range rows {
+				minRows[i] = map[string]interface{}{
+					"id": row.ID,
+					"q":  truncateRuneAware(row.Question, 50),
+					"c":  row.Created,
+					"r":  row.Retrievals,
+					"l":  row.LastAccessed,
+				}
+				if row.AvgScore > 0 {
+					minRows[i]["a"] = row.AvgScore
+				}
+			}
+			return enc.Encode(minRows)
+		}
+		// Full JSON output
+		return enc.Encode(rows)
+	}
+
 	if len(rows) == 0 {
 		if opts.id != "" || opts.minRetrievals > 0 {
 			fmt.Println("No memories found matching filters.")
@@ -1140,6 +1173,40 @@ func runMemoryHistory(ctx context.Context, storage semantic.Storage, tracker sem
 		return fmt.Errorf("failed to retrieve history: %w", err)
 	}
 
+	// Handle JSON output
+	if opts.jsonOutput || opts.minOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+
+		if opts.minOutput {
+			// Minimal JSON output with abbreviated keys
+			minEntries := make([]map[string]interface{}, len(history))
+			for i, entry := range history {
+				minEntries[i] = map[string]interface{}{
+					"t": entry.Timestamp,
+					"q": truncateRuneAware(entry.Query, 47),
+					"s": entry.Score,
+				}
+			}
+			result := map[string]interface{}{
+				"i":  mem.ID,
+				"q":  truncateRuneAware(mem.Question, 100),
+				"rc": len(history),
+				"h":  minEntries,
+			}
+			return enc.Encode(result)
+		}
+
+		// Full JSON output
+		result := map[string]interface{}{
+			"memory_id":     mem.ID,
+			"question":      mem.Question,
+			"history_count": len(history),
+			"history":       history,
+		}
+		return enc.Encode(result)
+	}
+
 	fmt.Printf("Memory: %s\n", mem.Question)
 	fmt.Printf("Retrieval History (%d entries):\n\n", len(history))
 
@@ -1198,6 +1265,26 @@ func runMemoryPrune(ctx context.Context, tracker semantic.MemoryStatsTracker, op
 	count, err := tracker.PruneMemoryRetrievalLog(ctx, opts.olderThan)
 	if err != nil {
 		return fmt.Errorf("failed to prune retrieval log: %w", err)
+	}
+
+	// Handle JSON output
+	if opts.jsonOutput || opts.minOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+
+		if opts.minOutput {
+			result := map[string]interface{}{
+				"c": count,
+				"o": opts.olderThan,
+			}
+			return enc.Encode(result)
+		}
+
+		result := map[string]interface{}{
+			"deleted_count":   count,
+			"older_than_days": opts.olderThan,
+		}
+		return enc.Encode(result)
 	}
 
 	if count > 0 {
