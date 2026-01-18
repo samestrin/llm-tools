@@ -181,6 +181,8 @@ type RetrievalStats struct {
 	LastRetrieved  string  `json:"last_retrieved,omitempty"`
 	Status         string  `json:"status"`
 	AvgScore       float32 `json:"avg_score,omitempty"`
+	Question       string  `json:"question"`   // Memory question content
+	CreatedAt      string  `json:"created_at"` // Memory creation timestamp
 }
 
 // MemoryRetrieval represents a single retrieval event for batch tracking.

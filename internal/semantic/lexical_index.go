@@ -684,9 +684,12 @@ func (idx *LexicalIndex) GetAllMemoryStats() ([]RetrievalStats, error) {
 			ms.retrieval_count,
 			ms.last_retrieved,
 			ms.status,
-			COALESCE(AVG(rl.score), 0) as avg_score
+			COALESCE(AVG(rl.score), 0) as avg_score,
+			m.question,
+			m.created_at
 		FROM memory_stats ms
 		LEFT JOIN retrieval_log rl ON ms.memory_id = rl.memory_id
+		LEFT JOIN memory m ON ms.memory_id = m.id
 		GROUP BY ms.memory_id
 		ORDER BY ms.retrieval_count DESC
 	`)
@@ -700,8 +703,10 @@ func (idx *LexicalIndex) GetAllMemoryStats() ([]RetrievalStats, error) {
 		var stats RetrievalStats
 		var lastRetrieved sql.NullString
 		var avgScore sql.NullFloat64
+		var question sql.NullString
+		var createdAt sql.NullString
 
-		if err := rows.Scan(&stats.MemoryID, &stats.RetrievalCount, &lastRetrieved, &stats.Status, &avgScore); err != nil {
+		if err := rows.Scan(&stats.MemoryID, &stats.RetrievalCount, &lastRetrieved, &stats.Status, &avgScore, &question, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan memory stats: %w", err)
 		}
 
@@ -710,6 +715,12 @@ func (idx *LexicalIndex) GetAllMemoryStats() ([]RetrievalStats, error) {
 		}
 		if avgScore.Valid {
 			stats.AvgScore = float32(avgScore.Float64)
+		}
+		if question.Valid {
+			stats.Question = question.String
+		}
+		if createdAt.Valid {
+			stats.CreatedAt = createdAt.String
 		}
 
 		results = append(results, stats)

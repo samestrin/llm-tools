@@ -1053,9 +1053,6 @@ func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracke
 	// Build display data
 	var rows []displayRow
 	for _, stat := range stats {
-		// Get the memory entry for the question
-		mem, memErr := storage.GetMemory(ctx, stat.MemoryID)
-
 		// Filter by minimum retrievals (client-side)
 		if stat.RetrievalCount < opts.minRetrievals {
 			continue
@@ -1066,13 +1063,14 @@ func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracke
 			continue
 		}
 
-		question := ""
+		// Use Question and CreatedAt directly from stats (optimized - no GetMemory call)
+		question := "<entry not found>"
 		created := "Unknown"
-		if mem == nil || memErr != nil {
-			question = "<entry not found>"
-		} else {
-			question = mem.Question
-			created = formatDisplayDate(mem.CreatedAt)
+		if stat.Question != "" {
+			question = stat.Question
+		}
+		if stat.CreatedAt != "" {
+			created = formatDisplayDate(stat.CreatedAt)
 		}
 
 		lastAccessed := "Never"

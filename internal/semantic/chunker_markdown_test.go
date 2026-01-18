@@ -978,3 +978,114 @@ func BenchmarkMarkdownChunker_CodeFences(b *testing.B) {
 		_, _ = chunker.Chunk("test.md", content)
 	}
 }
+
+// TestMarkdownChunker_ListContextTracking tests that list item text is
+// included in chunk names for code blocks within lists.
+func TestMarkdownChunker_ListContextTracking(t *testing.T) {
+	chunker := NewMarkdownChunker(4000)
+
+	tests := []struct {
+		name       string
+		content    string
+		wantChunks int
+		wantNames  []string
+	}{
+		{
+			name: "unordered list with code block",
+			content: `# Setup
+
+- Implement auth:
+
+` + "```" + `go
+func auth() {
+    return 42
+}
+` + "```" + `
+`,
+			wantChunks: 1,
+			wantNames:  []string{"test > Setup > Implement auth"},
+		},
+		{
+			name: "ordered list with code block",
+			content: `# Steps
+
+1. Install dependencies:
+
+` + "```" + `bash
+npm install
+` + "```" + `
+`,
+			wantChunks: 1,
+			wantNames:  []string{"test > Steps > Install dependencies"},
+		},
+		{
+			name: "nested list with code",
+			content: `# Configuration
+
+- Parent setting:
+  - Child config:
+    ` + "```" + `json
+    {"key": "value"}
+    ` + "```" + `
+`,
+			wantChunks: 1,
+			wantNames:  []string{"test > Configuration > Parent setting > Child config"},
+		},
+		{
+			name: "multiple code blocks under different list items",
+			content: `# Examples
+
+- First example:
+  ` + "```" + `javascript
+  console.log("first");
+  ` + "```" + `
+
+- Second example:
+  ` + "```" + `javascript
+  console.log("second");
+  ` + "```" + `
+`,
+			wantChunks: 1,
+			wantNames:  []string{"test > Examples > Second example"}, // Last list item captured
+		},
+		{
+			name: "code block not under list",
+			content: `# Header
+
+Regular text.
+
+` + "```" + `go
+func standalone() {}
+` + "```" + `
+`,
+			wantChunks: 1,
+			wantNames:  []string{"test > Header"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunks, err := chunker.Chunk("test.md", []byte(tt.content))
+			if err != nil {
+				t.Fatalf("Chunk() error = %v", err)
+			}
+
+			if len(chunks) != tt.wantChunks {
+				t.Errorf("got %d chunks, want %d", len(chunks), tt.wantChunks)
+				for i, c := range chunks {
+					t.Logf("  chunk[%d]: name=%q", i, c.Name)
+				}
+			}
+
+			for i, wantName := range tt.wantNames {
+				if i >= len(chunks) {
+					t.Errorf("missing chunk[%d] with name %q", i, wantName)
+					continue
+				}
+				if chunks[i].Name != wantName {
+					t.Errorf("chunk[%d].Name = %q, want %q", i, chunks[i].Name, wantName)
+				}
+			}
+		})
+	}
+}
