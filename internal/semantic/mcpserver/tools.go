@@ -762,5 +762,65 @@ func GetToolDefinitions() []ToolDefinition {
 				"required": ["id"]
 			}`),
 		},
+
+		// 10. Memory stats
+		{
+			Name:        ToolPrefix + "memory_stats",
+			Description: "Display retrieval statistics for stored memories. Shows retrieval counts, last accessed times, and retrieval patterns.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Filter to a specific memory ID"
+					},
+					"min_retrievals": {
+						"type": "integer",
+						"description": "Show memories with at least N retrievals (default: 0)"
+					},
+					"history": {
+						"type": "boolean",
+						"description": "Show retrieval history for a specific memory (requires --id)"
+					},
+					"prune": {
+						"type": "boolean",
+						"description": "Run prune operation to clean up old retrieval log entries"
+					},
+					"older_than": {
+						"type": "integer",
+						"description": "Prune logs older than N days (required with --prune)"
+					},
+					"yes": {
+						"type": "boolean",
+						"description": "Skip confirmation for prune operation"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output format"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					},
+					"profile": {
+						"type": "string",
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+					}
+				}
+			}`),
+		},
 	}
 }

@@ -44,6 +44,7 @@ var commandRegistry = map[string]argBuilder{
 	"memory_promote": {build: buildMemoryPromoteArgs, validate: nil},
 	"memory_list":    {build: buildMemoryListArgs, validate: nil},
 	"memory_delete":  {build: buildMemoryDeleteArgs, validate: nil},
+	"memory_stats":   {build: buildMemoryStatsArgs, validate: nil},
 }
 
 // RegisteredCommands returns a list of all registered command names.
@@ -672,6 +673,37 @@ func buildMemoryDeleteArgs(args map[string]interface{}) []string {
 	}
 	if getBool(args, "force") {
 		cmdArgs = append(cmdArgs, "--force")
+	}
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
+
+	return cmdArgs
+}
+
+func buildMemoryStatsArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"memory", "stats"}
+
+	if id, ok := args["id"].(string); ok && id != "" {
+		cmdArgs = append(cmdArgs, "--id", id)
+	}
+	if minRetrievals, ok := getInt(args, "min_retrievals"); ok {
+		cmdArgs = append(cmdArgs, "--min-retrievals", strconv.Itoa(minRetrievals))
+	}
+	if getBool(args, "history") {
+		cmdArgs = append(cmdArgs, "--history")
+	}
+	if getBool(args, "prune") {
+		cmdArgs = append(cmdArgs, "--prune")
+	}
+	if olderThan, ok := getInt(args, "older_than"); ok {
+		cmdArgs = append(cmdArgs, "--older-than", strconv.Itoa(olderThan))
+	}
+	if getBool(args, "yes") {
+		cmdArgs = append(cmdArgs, "--yes")
 	}
 	if storage, ok := args["storage"].(string); ok && storage != "" {
 		cmdArgs = append(cmdArgs, "--storage", storage)
