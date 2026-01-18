@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### llm-semantic
+
+- **SearchMemory batched processing** - Reduced memory usage from O(n) to O(1000 + topK) for large indexes:
+  - Uses LIMIT/OFFSET pagination to fetch entries in batches of 1000
+  - Maintains min-heap priority queue to track topK results across batches
+  - Added benchmarks showing constant memory profile regardless of index size
+  - Avoids CGO dependencies like sqlite-vss
+
+- **Markdown chunker list context tracking** - Preserves parent list item context for code blocks:
+  - Tracks list hierarchy with indent-to-item mapping
+  - Code blocks under nested lists now include full list hierarchy in chunk names
+  - Supports both ordered (1.) and unordered (-, *, +) list markers
+
+- **Memory stats query optimization** - Fixed N+1 query pattern for display:
+  - Added Question and CreatedAt fields to RetrievalStats via LEFT JOIN
+  - Eliminates separate GetMemory calls for each stat entry
+  - Single-query retrieval improves performance for large datasets
+
+### Added
+
+#### llm-semantic
+
+- **Benchmark tests for SearchMemory** - `storage_sqlite_bench_test.go` with large index performance verification
+- **HTML chunker fallback tests** - TestFallbackToText with comprehensive edge case coverage
+- **Markdown chunker list tests** - TestMarkdownChunker_ListContextTracking with 5 test cases for nested lists
+
+
+
 ## [1.6.0] - 2026-01-17
 
 ### Added
