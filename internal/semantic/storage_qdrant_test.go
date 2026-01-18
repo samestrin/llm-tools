@@ -20,7 +20,8 @@ func TestQdrantStorage(t *testing.T) {
 			APIKey:         apiKey,
 			URL:            apiURL,
 			CollectionName: "llm_semantic_test",
-			EmbeddingDim:   4, // Small dimension for tests
+			EmbeddingDim:   4,    // Small dimension for tests
+			InMemoryFTS:    true, // Use in-memory FTS for tests
 		}
 
 		storage, err := NewQdrantStorage(config)
@@ -53,7 +54,8 @@ func TestQdrantStorageMemory(t *testing.T) {
 			APIKey:         apiKey,
 			URL:            apiURL,
 			CollectionName: "llm_semantic_memory_test",
-			EmbeddingDim:   4, // Small dimension for tests
+			EmbeddingDim:   4,    // Small dimension for tests
+			InMemoryFTS:    true, // Use in-memory FTS for tests
 		}
 
 		storage, err := NewQdrantStorage(config)

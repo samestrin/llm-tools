@@ -1075,3 +1075,153 @@ func BenchmarkHTMLChunker_DeepNesting(b *testing.B) {
 		_, _ = chunker.Chunk("test.html", content)
 	}
 }
+
+// TestFallbackToText tests the fallbackToText method directly.
+// This provides coverage for the error handling path when html.Parse fails.
+func TestFallbackToText(t *testing.T) {
+	chunker := NewHTMLChunker(4000)
+
+	tests := []struct {
+		name        string
+		path        string
+		filename    string
+		content     []byte
+		wantChunks  int
+		wantContent string
+		wantName    string
+		wantStart   int
+		wantEnd     int
+		description string
+	}{
+		{
+			name:        "valid HTML string treated as text",
+			path:        "test.html",
+			filename:    "test.html",
+			content:     []byte(`<html><body><p>Content</p></body></html>`),
+			wantChunks:  1,
+			wantContent: `<html><body><p>Content</p></body></html>`,
+			wantName:    "test.html:text",
+			wantStart:   1,
+			wantEnd:     1,
+			description: "fallback should treat valid HTML as plain text",
+		},
+		{
+			name:        "random plain string",
+			path:        "test.html",
+			filename:    "test.html",
+			content:     []byte(`Just some random plain text without any structure.`),
+			wantChunks:  1,
+			wantContent: `Just some random plain text without any structure.`,
+			wantName:    "test.html:text",
+			wantStart:   1,
+			wantEnd:     1,
+			description: "fallback should handle plain text",
+		},
+		{
+			name:        "empty string returns nil",
+			path:        "test.html",
+			filename:    "test.html",
+			content:     []byte(""),
+			wantChunks:  0,
+			wantContent: "",
+			wantName:    "",
+			wantStart:   0,
+			wantEnd:     0,
+			description: "fallback should return nil for empty input",
+		},
+		{
+			name:        "whitespace only returns nil",
+			path:        "test.html",
+			filename:    "test.html",
+			content:     []byte("   \n\n\t  \n   "),
+			wantChunks:  0,
+			wantContent: "",
+			wantName:    "",
+			wantStart:   0,
+			wantEnd:     0,
+			description: "fallback should return nil for whitespace-only",
+		},
+		{
+			name:        "multiline content",
+			path:        "test.html",
+			filename:    "test.html",
+			content:     []byte("Line 1\nLine 2\nLine 3"),
+			wantChunks:  1,
+			wantContent: "Line 1\nLine 2\nLine 3",
+			wantName:    "test.html:text",
+			wantStart:   1,
+			wantEnd:     3,
+			description: "fallback should approximate line count from newlines",
+		},
+		{
+			name:        "multiline with extra newlines (normalized)",
+			path:        "test.html",
+			filename:    "test.html",
+			content:     []byte("Line 1\n\n\n\nLine 2\n\n\nLine 3"),
+			wantChunks:  1,
+			wantContent: "Line 1\n\nLine 2\n\nLine 3",
+			wantName:    "test.html:text",
+			wantStart:   1,
+			wantEnd:     5,
+			description: "fallback should normalize multiple consecutive newlines to max 2 (2+2=4 newlines total)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunks, err := chunker.fallbackToText(tt.path, tt.filename, tt.content)
+
+			if err != nil {
+				t.Fatalf("fallbackToText() error = %v (%s)", err, tt.description)
+			}
+
+			if len(chunks) != tt.wantChunks {
+				t.Errorf("got %d chunks, want %d (%s)", len(chunks), tt.wantChunks, tt.description)
+			}
+
+			if tt.wantChunks == 0 {
+				// For empty/whitespace tests, expect nil chunks
+				if chunks != nil {
+					t.Errorf("expected nil chunks, got %v (%s)", chunks, tt.description)
+				}
+				return
+			}
+
+			// Verify single chunk content
+			chunk := chunks[0]
+
+			if chunk.Content != tt.wantContent {
+				t.Errorf("content = %q, want %q (%s)", chunk.Content, tt.wantContent, tt.description)
+			}
+
+			if chunk.Name != tt.wantName {
+				t.Errorf("name = %q, want %q (%s)", chunk.Name, tt.wantName, tt.description)
+			}
+
+			if chunk.StartLine != tt.wantStart {
+				t.Errorf("StartLine = %d, want %d (%s)", chunk.StartLine, tt.wantStart, tt.description)
+			}
+
+			if chunk.EndLine != tt.wantEnd {
+				t.Errorf("EndLine = %d, want %d (%s)", chunk.EndLine, tt.wantEnd, tt.description)
+			}
+
+			// Verify metadata
+			if chunk.FilePath != tt.path {
+				t.Errorf("FilePath = %q, want %q", chunk.FilePath, tt.path)
+			}
+
+			if chunk.Type != ChunkFile {
+				t.Errorf("Type = %v, want ChunkFile", chunk.Type)
+			}
+
+			if chunk.Language != "html" {
+				t.Errorf("Language = %q, want html", chunk.Language)
+			}
+
+			if chunk.ID == "" {
+				t.Error("ID should not be empty")
+			}
+		})
+	}
+}

@@ -31,14 +31,19 @@ func NewMarkdownChunker(maxChunkSize int) *MarkdownChunker {
 // headerRegex matches markdown headers (h1-h6)
 var headerRegex = regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
 
+// listMarkerRegex matches markdown list markers (-, *, +, or number.)
+var listMarkerRegex = regexp.MustCompile(`^(\s*)([-*+]|\d+\.)\s+(.+)$`)
+
 // markdownSection represents a parsed section of markdown
 type markdownSection struct {
-	level     int    // Header level (1-6), 0 for preamble/frontmatter
-	title     string // Header text
-	content   strings.Builder
-	startLine int
-	endLine   int
-	hierarchy []string // Parent headers for naming
+	level         int    // Header level (1-6), 0 for preamble/frontmatter
+	title         string // Header text
+	content       strings.Builder
+	startLine     int
+	endLine       int
+	hierarchy     []string // Parent headers for naming
+	listItem      string   // Current list item text for code blocks in lists
+	listHierarchy []string // Full list hierarchy (parent list items)
 }
 
 // Chunk breaks markdown content into semantic chunks based on header boundaries.
@@ -62,6 +67,10 @@ func (c *MarkdownChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 	var insideFence bool
 	var fenceChar byte
 	var fenceLength int
+
+	// State for list tracking
+	listStack := make(map[int]string) //indent -> list item text
+	var listHierarchy []string        // ordered list items from parent to child
 
 	// Check for YAML frontmatter at start of file
 	startLine := 0
@@ -88,12 +97,70 @@ func (c *MarkdownChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 		line := string(lineBytes)
 		lineNum := i + 1
 
+		// Check for list markers (only if not inside a fence)
+		// This must happen before fence detection to catch list items correctly
+		if !insideFence {
+			if match := listMarkerRegex.FindStringSubmatch(line); match != nil {
+				indent := len(match[1])
+				listText := strings.TrimSpace(match[3])
+
+				// Strip trailing colon from list item text for cleaner chunk names
+				listText = strings.TrimSuffix(listText, ":")
+
+				// Clear deeper levels when a new list item is found
+				// Also rebuild listHierarchy to maintain parent-child order
+				var newHierarchy []string
+				for k := range listStack {
+					if k < indent {
+						newHierarchy = append(newHierarchy, listStack[k])
+					} else if k > indent {
+						delete(listStack, k)
+					}
+				}
+				listHierarchy = newHierarchy
+				// Add current item to hierarchy
+				listHierarchy = append(listHierarchy, listText)
+				// Add/update this indent level
+				listStack[indent] = listText
+			} else if !strings.HasPrefix(strings.TrimLeft(line, " \t"), "#") {
+				// Not a header, not a list marker - clear list stack at deeper levels
+				// Only keep list items at or above current indent (minus indentation step)
+				// This handles paragraphs that continue a list's context
+			}
+		}
+
 		// Check for fence boundaries
 		if isFenceStart(line) && !insideFence {
 			insideFence = true
 			fenceChar, fenceLength = getFenceInfo(line)
+
+			// Capture list context when entering a code fence
+			// Look for the list item at current indent or the closest parent
+			if currentSection != nil {
+				// Calculate indent of the fence line
+				indent := len(line) - len(strings.TrimLeft(line, " \t"))
+				// Find the closest list item (deepest indent <= current indent)
+				bestList := ""
+				bestLevel := -1
+				for level, item := range listStack {
+					if level <= indent && level > bestLevel {
+						bestList = item
+						bestLevel = level
+					}
+				}
+
+				// Capture full list hierarchy up to the matched level
+				if bestList != "" {
+					hierarchy := make([]string, len(listHierarchy))
+					copy(hierarchy, listHierarchy)
+					// Trim to items at or below the matched level
+					currentSection.listHierarchy = hierarchy
+					currentSection.listItem = bestList
+				}
+			}
 		} else if insideFence && isFenceEnd(line, fenceChar, fenceLength) {
 			insideFence = false
+			// Don't clear listItem or listHierarchy - let them persist for section naming
 		}
 
 		// Only detect headers if not inside a code fence
@@ -112,6 +179,10 @@ func (c *MarkdownChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 
 				// Update header stack for hierarchy
 				headerStack = updateHeaderStack(headerStack, level, title)
+
+				// Clear list stack for new section (list items are section-local)
+				listStack = make(map[int]string)
+				listHierarchy = nil
 
 				// Start new section
 				currentSection = &markdownSection{
@@ -283,9 +354,14 @@ func (c *MarkdownChunker) buildChunkName(filename string, section *markdownSecti
 		return filename + ":preamble"
 	}
 
-	// Build hierarchical name: "filename > H1 > H2 > H3"
+	// Build hierarchical name: "filename > H1 > H2 > H3 > ListItem(s)"
 	parts := []string{filename}
 	parts = append(parts, section.hierarchy...)
+	// Add list hierarchy if present (for code blocks inside lists)
+	// This includes all parent list items for nested contexts
+	if len(section.listHierarchy) > 0 {
+		parts = append(parts, section.listHierarchy...)
+	}
 	return strings.Join(parts, " > ")
 }
 
