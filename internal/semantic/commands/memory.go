@@ -32,6 +32,7 @@ Commands:
 	cmd.AddCommand(memoryImportCmd())
 	cmd.AddCommand(memoryListCmd())
 	cmd.AddCommand(memoryDeleteCmd())
+	cmd.AddCommand(memoryStatsCmd())
 
 	return cmd
 }
@@ -907,4 +908,316 @@ func runMemoryDelete(ctx context.Context, opts memoryDeleteOpts) error {
 
 	fmt.Printf("Deleted memory: %s\n", opts.id)
 	return nil
+}
+
+// ===== MEMORY STATS COMMAND =====
+
+// displayRow represents a single row in the stats table output
+type displayRow struct {
+	ID           string
+	Question     string
+	Created      string
+	Retrievals   int
+	LastAccessed string
+	AvgScore     float32
+}
+
+func memoryStatsCmd() *cobra.Command {
+	var (
+		id            string
+		minRetrievals int
+		showHistory   bool
+		pruneMode     bool
+		olderThan     int
+		skipConfirm   bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Display retrieval statistics for memories",
+		Long: `Display retrieval statistics and history for stored memories.
+Shows retrieval counts, last accessed times, and retrieval patterns.
+
+Use --min-retrievals to find frequently accessed memories (promotion candidates).
+Use --history to see detailed retrieval history for a specific memory.
+Use --prune to clean up old retrieval log entries.
+
+Examples:
+  llm-semantic memory stats
+  llm-semantic memory stats --min-retrievals 5
+  llm-semantic memory stats --id mem-abc123 --history
+  llm-semantic memory stats --prune --older-than 30`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMemoryStats(cmd.Context(), memoryStatsOpts{
+				id:            id,
+				minRetrievals: minRetrievals,
+				showHistory:   showHistory,
+				pruneMode:     pruneMode,
+				olderThan:     olderThan,
+				skipConfirm:   skipConfirm,
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&id, "id", "", "Filter to a specific memory ID")
+	cmd.Flags().IntVar(&minRetrievals, "min-retrievals", 0, "Show memories with at least N retrievals")
+	cmd.Flags().BoolVar(&showHistory, "history", false, "Show retrieval history for a memory")
+	cmd.Flags().BoolVar(&pruneMode, "prune", false, "Run prune operation")
+	cmd.Flags().IntVar(&olderThan, "older-than", 0, "Prune logs older than N days")
+	cmd.Flags().BoolVar(&skipConfirm, "yes", false, "Skip confirmation for prune")
+
+	// Require flags together
+	cmd.MarkFlagsRequiredTogether("history", "id")
+	cmd.MarkFlagsRequiredTogether("prune", "older-than")
+
+	return cmd
+}
+
+type memoryStatsOpts struct {
+	id            string
+	minRetrievals int
+	showHistory   bool
+	pruneMode     bool
+	olderThan     int
+	skipConfirm   bool
+}
+
+func runMemoryStats(ctx context.Context, opts memoryStatsOpts) error {
+	// Find index path (only needed for sqlite)
+	indexPath := ""
+	if storageType == "" || storageType == "sqlite" {
+		indexPath = findIndexPath()
+		if indexPath == "" {
+			return fmt.Errorf("semantic index not found. Run 'llm-semantic memory store' first")
+		}
+	}
+
+	// Create embedder for storage dimension
+	embedder, err := createEmbedder()
+	if err != nil {
+		return fmt.Errorf("failed to create embedder: %w", err)
+	}
+
+	embeddingDim := 0
+	testEmbed, err := embedder.Embed(ctx, "test")
+	if err != nil {
+		return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+	}
+	embeddingDim = len(testEmbed)
+
+	// Open storage
+	storage, err := createStorage(indexPath, embeddingDim)
+	if err != nil {
+		return fmt.Errorf("failed to open storage: %w", err)
+	}
+	defer storage.Close()
+
+	// Check if backend supports stats tracking
+	tracker, ok := storage.(semantic.MemoryStatsTracker)
+	if !ok {
+		return fmt.Errorf("memory stats not supported by this storage backend")
+	}
+
+	// Handle different modes
+	if opts.showHistory {
+		return runMemoryHistory(ctx, storage, tracker, opts)
+	}
+
+	if opts.pruneMode {
+		return runMemoryPrune(ctx, tracker, opts)
+	}
+
+	// Default: display stats table
+	return runMemoryStatsTable(ctx, tracker, storage, opts)
+}
+
+func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracker, storage semantic.Storage, opts memoryStatsOpts) error {
+	stats, err := tracker.GetAllMemoryStats(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve memory stats: %w", err)
+	}
+
+	// Build display data
+	var rows []displayRow
+	for _, stat := range stats {
+		// Get the memory entry for the question
+		mem, memErr := storage.GetMemory(ctx, stat.MemoryID)
+
+		// Filter by minimum retrievals (client-side)
+		if stat.RetrievalCount < opts.minRetrievals {
+			continue
+		}
+
+		// Filter by ID if specified
+		if opts.id != "" && stat.MemoryID != opts.id {
+			continue
+		}
+
+		question := ""
+		created := "Unknown"
+		if mem == nil || memErr != nil {
+			question = "<entry not found>"
+		} else {
+			question = mem.Question
+			created = formatDisplayDate(mem.CreatedAt)
+		}
+
+		lastAccessed := "Never"
+		if stat.LastRetrieved != "" {
+			lastAccessed = formatDisplayDate(stat.LastRetrieved)
+		}
+
+		avgScore := stat.AvgScore
+
+		rows = append(rows, displayRow{
+			ID:           stat.MemoryID,
+			Question:     question,
+			Created:      created,
+			Retrievals:   stat.RetrievalCount,
+			LastAccessed: lastAccessed,
+			AvgScore:     avgScore,
+		})
+	}
+
+	if len(rows) == 0 {
+		if opts.id != "" || opts.minRetrievals > 0 {
+			fmt.Println("No memories found matching filters.")
+		} else {
+			fmt.Println("No memories found.")
+		}
+		return nil
+	}
+
+	// Display table
+	displayStatsTable(rows)
+	return nil
+}
+
+func displayStatsTable(rows []displayRow) {
+	// Truncate questions to 60 chars (rune-aware for UTF-8)
+	const maxQuestionLen = 60
+
+	// Print header
+	fmt.Printf("%-14s  %-60s  %-12s  %-10s  %-16s  %-8s\n",
+		"ID", "Question", "Created", "Retrievals", "Last Accessed", "Avg Score")
+	fmt.Println(strings.Repeat("-", 130))
+
+	// Print rows
+	for _, row := range rows {
+		question := truncateRuneAware(row.Question, maxQuestionLen-3)
+
+		avgScoreStr := ""
+		if row.AvgScore > 0 {
+			avgScoreStr = fmt.Sprintf("%.4f", row.AvgScore)
+		}
+
+		fmt.Printf("%-14s  %-60s  %-12s  %-10d  %-16s  %-8s\n",
+			row.ID, question, row.Created, row.Retrievals, row.LastAccessed, avgScoreStr)
+	}
+}
+
+// truncateRuneAware truncates string to max runes, preserving UTF-8 boundaries
+func truncateRuneAware(s string, maxRunes int) string {
+	if len(s) == 0 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes]) + "..."
+}
+
+func runMemoryHistory(ctx context.Context, storage semantic.Storage, tracker semantic.MemoryStatsTracker, opts memoryStatsOpts) error {
+	// Verify memory exists
+	mem, err := storage.GetMemory(ctx, opts.id)
+	if err != nil {
+		return fmt.Errorf("memory not found: %s (use 'llm-semantic memory list' to find IDs)", opts.id)
+	}
+
+	history, err := tracker.GetMemoryRetrievalHistory(ctx, opts.id, 50)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve history: %w", err)
+	}
+
+	fmt.Printf("Memory: %s\n", mem.Question)
+	fmt.Printf("Retrieval History (%d entries):\n\n", len(history))
+
+	if len(history) == 0 {
+		fmt.Println("No retrieval history found.")
+		return nil
+	}
+
+	// Print header
+	fmt.Printf("%-26s  %-50s  %-10s\n", "Timestamp", "Query", "Score")
+	fmt.Println(strings.Repeat("-", 90))
+
+	// Print history entries
+	for _, entry := range history {
+		// Truncate query (rune-aware) to 50 chars with ellipsis
+		query := truncateRuneAware(entry.Query, 47)
+
+		timestamp := entry.Timestamp
+		if timestamp == "" {
+			timestamp = "Unknown"
+		}
+
+		fmt.Printf("%-26s  %-50s  %-10.4f\n", timestamp, query, entry.Score)
+	}
+
+	return nil
+}
+
+func runMemoryPrune(ctx context.Context, tracker semantic.MemoryStatsTracker, opts memoryStatsOpts) error {
+	// Validate older-than is positive (also cap at 100 years = 36500 days)
+	if opts.olderThan <= 0 {
+		return fmt.Errorf("invalid value for --older-than: must be a positive integer")
+	}
+	if opts.olderThan > 36500 {
+		return fmt.Errorf("invalid value for --older-than: must be <= 36500 (100 years)")
+	}
+
+	// Confirm deletion
+	if !opts.skipConfirm {
+		fmt.Printf("This will delete retrieval log entries older than %d days.\n", opts.olderThan)
+		fmt.Print("Are you sure? [y/N]: ")
+
+		var response string
+		_, err := fmt.Scanln(&response)
+		// If stdin is closed/redirected, abort (require explicit --yes for automation)
+		if err != nil {
+			fmt.Println("Aborted (non-interactive input). Use --yes to confirm automatically.")
+			return nil
+		}
+		if strings.ToLower(response) != "y" {
+			fmt.Println("Aborted.")
+			return nil
+		}
+	}
+
+	count, err := tracker.PruneMemoryRetrievalLog(ctx, opts.olderThan)
+	if err != nil {
+		return fmt.Errorf("failed to prune retrieval log: %w", err)
+	}
+
+	if count > 0 {
+		fmt.Printf("Deleted %d log entries older than %d days.\n", count, opts.olderThan)
+	} else {
+		fmt.Println("No log entries to delete.")
+	}
+
+	return nil
+}
+
+// Helper function to format display date from ISO format to readable format
+func formatDisplayDate(isoDate string) string {
+	if isoDate == "" {
+		return "Unknown"
+	}
+	// Parse ISO 8601 format and return first 16 chars (YYYY-MM-DD HH:MM)
+	if len(isoDate) >= 16 {
+		// Replace T with space for display
+		return isoDate[:10] + " " + isoDate[11:16]
+	}
+	return isoDate
 }
