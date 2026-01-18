@@ -1,6 +1,7 @@
 package semantic
 
 import (
+	"container/heap"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -750,6 +751,7 @@ func (s *SQLiteStorage) StoreMemoryBatch(ctx context.Context, entries []MemoryWi
 }
 
 // SearchMemory finds memory entries similar to the query embedding
+// Uses batched processing to limit memory usage to O(batch_size + topK) instead of O(n)
 func (s *SQLiteStorage) SearchMemory(ctx context.Context, queryEmbedding []float32, opts MemorySearchOptions) ([]MemorySearchResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -758,102 +760,133 @@ func (s *SQLiteStorage) SearchMemory(ctx context.Context, queryEmbedding []float
 		return nil, ErrStorageClosed
 	}
 
-	// Load all memory entries with embeddings
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, question, answer, tags, source, status, occurrences, embedding, created_at, updated_at
-		FROM memory
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query memory: %w", err)
-	}
-	defer rows.Close()
-
-	var results []MemorySearchResult
-
-	for rows.Next() {
-		var entry MemoryEntry
-		var tagsStr sql.NullString
-		var source sql.NullString
-		var embeddingBytes []byte
-
-		err := rows.Scan(&entry.ID, &entry.Question, &entry.Answer, &tagsStr, &source, &entry.Status, &entry.Occurrences, &embeddingBytes, &entry.CreatedAt, &entry.UpdatedAt)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		// Parse tags
-		if tagsStr.Valid && tagsStr.String != "" {
-			entry.Tags = strings.Split(tagsStr.String, ",")
-		}
-		if source.Valid {
-			entry.Source = source.String
-		}
-
-		// Decode embedding
-		embedding, err := decodeEmbedding(embeddingBytes)
-		if err != nil {
-			slog.Debug("skipping memory entry with invalid embedding", "entry_id", entry.ID, "error", err)
-			continue
-		}
-
-		// Calculate cosine similarity
-		score := cosineSimilarity(queryEmbedding, embedding)
-
-		// Apply threshold filter
-		if opts.Threshold > 0 && score < opts.Threshold {
-			continue
-		}
-
-		// Apply tag filter
-		if len(opts.Tags) > 0 {
-			hasMatch := false
-			for _, filterTag := range opts.Tags {
-				for _, entryTag := range entry.Tags {
-					if strings.EqualFold(filterTag, entryTag) {
-						hasMatch = true
-						break
-					}
-				}
-				if hasMatch {
-					break
-				}
-			}
-			if !hasMatch {
-				continue
-			}
-		}
-
-		// Apply source filter
-		if opts.Source != "" && entry.Source != opts.Source {
-			continue
-		}
-
-		// Apply status filter
-		if opts.Status != "" && entry.Status != opts.Status {
-			continue
-		}
-
-		results = append(results, MemorySearchResult{
-			Entry:     entry,
-			Score:     score,
-			Embedding: embedding,
-		})
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	// Sort by score descending
-	sortMemoryResultsByScore(results)
-
-	// Apply TopK limit
+	// Determine TopK limit for heap sizing
 	topK := opts.TopK
 	if topK <= 0 {
 		topK = 10 // Default
 	}
-	if len(results) > topK {
-		results = results[:topK]
+
+	// Initialize min-heap to track topK results across all batches
+	h := &resultHeap{}
+	heap.Init(h)
+
+	// Batch size: process 1000 entries at a time to bound memory usage
+	const batchSize = 1000
+	offset := 0
+
+	for {
+		// Fetch a batch of memory entries
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT id, question, answer, tags, source, status, occurrences, embedding, created_at, updated_at
+			FROM memory
+			ORDER BY id
+			LIMIT ? OFFSET ?
+		`, batchSize, offset)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query memory batch: %w", err)
+		}
+
+		hasRows := false
+		for rows.Next() {
+			hasRows = true
+			var entry MemoryEntry
+			var tagsStr sql.NullString
+			var source sql.NullString
+			var embeddingBytes []byte
+
+			err := rows.Scan(&entry.ID, &entry.Question, &entry.Answer, &tagsStr, &source, &entry.Status, &entry.Occurrences, &embeddingBytes, &entry.CreatedAt, &entry.UpdatedAt)
+			if err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("failed to scan row: %w", err)
+			}
+
+			// Parse tags
+			if tagsStr.Valid && tagsStr.String != "" {
+				entry.Tags = strings.Split(tagsStr.String, ",")
+			}
+			if source.Valid {
+				entry.Source = source.String
+			}
+
+			// Decode embedding
+			embedding, err := decodeEmbedding(embeddingBytes)
+			if err != nil {
+				slog.Debug("skipping memory entry with invalid embedding", "entry_id", entry.ID, "error", err)
+				continue
+			}
+
+			// Calculate cosine similarity
+			score := cosineSimilarity(queryEmbedding, embedding)
+
+			// Apply threshold filter early (skip low scores entirely)
+			if opts.Threshold > 0 && score < opts.Threshold {
+				continue
+			}
+
+			// Apply tag filter
+			if len(opts.Tags) > 0 {
+				hasMatch := false
+				for _, filterTag := range opts.Tags {
+					for _, entryTag := range entry.Tags {
+						if strings.EqualFold(filterTag, entryTag) {
+							hasMatch = true
+							break
+						}
+					}
+					if hasMatch {
+						break
+					}
+				}
+				if !hasMatch {
+					continue
+				}
+			}
+
+			// Apply source filter
+			if opts.Source != "" && entry.Source != opts.Source {
+				continue
+			}
+
+			// Apply status filter
+			if opts.Status != "" && entry.Status != opts.Status {
+				continue
+			}
+
+			result := MemorySearchResult{
+				Entry:     entry,
+				Score:     score,
+				Embedding: embedding,
+			}
+
+			// Maintain topK: if heap is not full, add; otherwise, replace min if result is better
+			if h.Len() < topK {
+				heap.Push(h, result)
+			} else if score > h.results[0].Score {
+				// Result is better than the current minimum in topK
+				heap.Pop(h)
+				heap.Push(h, result)
+			}
+		}
+
+		rows.Close()
+
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating rows: %w", err)
+		}
+
+		// If no rows in this batch, we've processed all entries
+		if !hasRows {
+			break
+		}
+
+		// Move to next batch
+		offset += batchSize
+	}
+
+	// Extract results from heap and sort by score descending
+	results := make([]MemorySearchResult, h.Len())
+	for i := len(results) - 1; i >= 0; i-- {
+		results[i] = heap.Pop(h).(MemorySearchResult)
 	}
 
 	return results, nil
@@ -1005,6 +1038,31 @@ func (s *SQLiteStorage) ListMemory(ctx context.Context, opts MemoryListOptions) 
 	}
 
 	return entries, nil
+}
+
+// resultHeap is a min-heap for tracking topK memory search results
+type resultHeap struct {
+	results []MemorySearchResult
+}
+
+// Len implements heap.Interface
+func (h resultHeap) Len() int { return len(h.results) }
+
+// Less implements heap.Interface (min-heap by score)
+func (h resultHeap) Less(i, j int) bool { return h.results[i].Score < h.results[j].Score }
+
+// Swap implements heap.Interface
+func (h resultHeap) Swap(i, j int) { h.results[i], h.results[j] = h.results[j], h.results[i] }
+
+// Push implements heap.Interface
+func (h *resultHeap) Push(x interface{}) { h.results = append(h.results, x.(MemorySearchResult)) }
+
+// Pop implements heap.Interface
+func (h *resultHeap) Pop() interface{} {
+	n := len(h.results)
+	x := h.results[n-1]
+	h.results = h.results[:n-1]
+	return x
 }
 
 // sortMemoryResultsByScore sorts memory results by score in descending order
@@ -1341,9 +1399,12 @@ func (s *SQLiteStorage) GetAllMemoryStats(ctx context.Context) ([]RetrievalStats
 			ms.retrieval_count,
 			ms.last_retrieved,
 			ms.status,
-			COALESCE(AVG(rl.score), 0) as avg_score
+			COALESCE(AVG(rl.score), 0) as avg_score,
+			m.question,
+			m.created_at
 		FROM memory_stats ms
 		LEFT JOIN retrieval_log rl ON ms.memory_id = rl.memory_id
+		LEFT JOIN memory m ON ms.memory_id = m.id
 		GROUP BY ms.memory_id
 		ORDER BY ms.retrieval_count DESC
 	`)
@@ -1357,8 +1418,10 @@ func (s *SQLiteStorage) GetAllMemoryStats(ctx context.Context) ([]RetrievalStats
 		var stats RetrievalStats
 		var lastRetrieved sql.NullString
 		var avgScore sql.NullFloat64
+		var question sql.NullString
+		var createdAt sql.NullString
 
-		if err := rows.Scan(&stats.MemoryID, &stats.RetrievalCount, &lastRetrieved, &stats.Status, &avgScore); err != nil {
+		if err := rows.Scan(&stats.MemoryID, &stats.RetrievalCount, &lastRetrieved, &stats.Status, &avgScore, &question, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan memory stats: %w", err)
 		}
 
@@ -1367,6 +1430,12 @@ func (s *SQLiteStorage) GetAllMemoryStats(ctx context.Context) ([]RetrievalStats
 		}
 		if avgScore.Valid {
 			stats.AvgScore = float32(avgScore.Float64)
+		}
+		if question.Valid {
+			stats.Question = question.String
+		}
+		if createdAt.Valid {
+			stats.CreatedAt = createdAt.String
 		}
 
 		results = append(results, stats)
