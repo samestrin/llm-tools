@@ -1479,3 +1479,119 @@ func TestGetInt64(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildFormatTDTableArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "empty args",
+			args: map[string]interface{}{},
+			want: []string{"format-td-table"},
+		},
+		{
+			name: "with file",
+			args: map[string]interface{}{"file": "input.json"},
+			want: []string{"format-td-table", "--file", "input.json"},
+		},
+		{
+			name: "with content",
+			args: map[string]interface{}{"content": `[{"PROBLEM": "test"}]`},
+			want: []string{"format-td-table", "--content", `[{"PROBLEM": "test"}]`},
+		},
+		{
+			name: "with section",
+			args: map[string]interface{}{"section": "quick_wins"},
+			want: []string{"format-td-table", "--section", "quick_wins"},
+		},
+		{
+			name: "with all options",
+			args: map[string]interface{}{
+				"file":    "test.json",
+				"section": "backlog",
+			},
+			want: []string{"format-td-table", "--file", "test.json", "--section", "backlog"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildFormatTDTableArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildFormatTDTableArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildGroupTDArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "empty args",
+			args: map[string]interface{}{},
+			want: []string{"group-td"},
+		},
+		{
+			name: "with file",
+			args: map[string]interface{}{"file": "items.json"},
+			want: []string{"group-td", "--file", "items.json"},
+		},
+		{
+			name: "with group_by",
+			args: map[string]interface{}{"group_by": "category"},
+			want: []string{"group-td", "--group-by", "category"},
+		},
+		{
+			name: "with path_depth",
+			args: map[string]interface{}{"path_depth": float64(3)},
+			want: []string{"group-td", "--path-depth", "3"},
+		},
+		{
+			name: "with min_group_size",
+			args: map[string]interface{}{"min_group_size": float64(5)},
+			want: []string{"group-td", "--min-group-size", "5"},
+		},
+		{
+			name: "with critical_override true",
+			args: map[string]interface{}{"critical_override": true},
+			want: []string{"group-td", "--critical-override=true"},
+		},
+		{
+			name: "with critical_override false",
+			args: map[string]interface{}{"critical_override": false},
+			want: []string{"group-td", "--critical-override=false"},
+		},
+		{
+			name: "with root_theme",
+			args: map[string]interface{}{"root_theme": "root-level"},
+			want: []string{"group-td", "--root-theme", "root-level"},
+		},
+		{
+			name: "with all options",
+			args: map[string]interface{}{
+				"file":              "test.json",
+				"group_by":          "path",
+				"path_depth":        float64(2),
+				"min_group_size":    float64(3),
+				"critical_override": true,
+				"root_theme":        "misc",
+			},
+			want: []string{"group-td", "--file", "test.json", "--group-by", "path", "--path-depth", "2", "--min-group-size", "3", "--critical-override=true", "--root-theme", "misc"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildGroupTDArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildGroupTDArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

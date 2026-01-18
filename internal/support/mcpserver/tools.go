@@ -2141,5 +2141,85 @@ func GetToolDefinitions() []ToolDefinition {
 				}
 			}`),
 		},
+
+		// 56. Format TD items as markdown tables
+		{
+			Name:        ToolPrefix + "format_td_table",
+			Description: "Format technical debt items as markdown tables for README.md. Accepts routed output from route_td (with quick_wins, backlog, td_files sections) or raw array of TD items. Returns formatted markdown tables per section.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Input JSON file path"
+					},
+					"content": {
+						"type": "string",
+						"description": "Direct JSON content"
+					},
+					"section": {
+						"type": "string",
+						"enum": ["quick_wins", "backlog", "td_files", "all"],
+						"description": "Section to format: quick_wins, backlog, td_files, all (default: all)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
+
+		// 57. Group TD items by path/category
+		{
+			Name:        ToolPrefix + "group_td",
+			Description: "Group technical debt items by path, category, or file using deterministic algorithm. Returns groups with themes, item counts, and total minutes. Items below min-group-size threshold go to ungrouped. CRITICAL severity items always get their own group.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Input JSON file path"
+					},
+					"content": {
+						"type": "string",
+						"description": "Direct JSON content"
+					},
+					"group_by": {
+						"type": "string",
+						"enum": ["path", "category", "file"],
+						"description": "Grouping strategy: path (directory prefix), category (CATEGORY field), file (exact file)"
+					},
+					"path_depth": {
+						"type": "integer",
+						"description": "Number of path segments for theme (default: 2)"
+					},
+					"min_group_size": {
+						"type": "integer",
+						"description": "Minimum items to form a group (default: 3)"
+					},
+					"critical_override": {
+						"type": "boolean",
+						"description": "CRITICAL severity always gets own group (default: true)"
+					},
+					"root_theme": {
+						"type": "string",
+						"description": "Theme for items without directory structure (default: misc)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output - token-optimized format"
+					}
+				}
+			}`),
+		},
 	}
 }
