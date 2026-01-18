@@ -55,6 +55,10 @@ Complete documentation for all 40+ llm-support commands.
 - [Session Management](#session-management)
   - [context](#context)
   - [args](#args)
+- [Technical Debt Management](#technical-debt-management)
+  - [route-td](#route-td)
+  - [format-td-table](#format-td-table)
+  - [group-td](#group-td)
 
 ---
 
@@ -1920,6 +1924,171 @@ llm-support args file1.txt file2.txt
 llm-support args @.planning/plans/1.0_feature/
 # Output: POSITIONAL: @.planning/plans/1.0_feature/
 ```
+
+---
+
+## Technical Debt Management
+
+### route-td
+
+Route technical debt items to appropriate destinations based on estimated time.
+
+```bash
+llm-support route-td [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Input JSON file path |
+| `--content` | Direct JSON content |
+| `--quick-wins-max` | Max minutes for quick_wins (default: 30) |
+| `--backlog-max` | Min minutes for td_files (default: 2880) |
+
+**Routing Thresholds:**
+- `quick_wins`: < 30 minutes (quick fixes)
+- `backlog`: 30-2879 minutes (medium tasks)
+- `td_files`: >= 2880 minutes (sprint-sized work)
+
+**Examples:**
+```bash
+# Route from file
+llm-support route-td --file td_items.json --json
+
+# Custom thresholds
+llm-support route-td --file items.json --quick-wins-max 15 --backlog-max 1440
+```
+
+**Output Format:**
+```json
+{
+  "quick_wins": [...],
+  "backlog": [...],
+  "td_files": [...],
+  "routing_summary": {
+    "total_input": 10,
+    "quick_wins_count": 3,
+    "backlog_count": 5,
+    "td_files_count": 2
+  }
+}
+```
+
+---
+
+### format-td-table
+
+Format technical debt items as markdown tables for README.md.
+
+```bash
+llm-support format-td-table [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Input JSON file path |
+| `--content` | Direct JSON content |
+| `--section` | Section to format: quick_wins, backlog, td_files, all (default: all) |
+
+**Input Formats:**
+- Routed output from `route-td` (with quick_wins, backlog, td_files)
+- Raw array: `[{...}, {...}]`
+- Wrapped: `{"items": [...]}` or `{"rows": [...]}`
+
+**Examples:**
+```bash
+# Format all sections from routed output
+llm-support format-td-table --file routed.json
+
+# Format specific section
+llm-support format-td-table --file routed.json --section quick_wins
+
+# Pipeline with route-td
+llm-support route-td --file items.json | llm-support format-td-table --section backlog
+```
+
+**Output Format (text):**
+```markdown
+### Quick Wins (< 30 min)
+
+| Severity | File Line | Problem | Fix | Est Minutes |
+|------|------|------|------|------|
+| HIGH | src/auth.ts:45 | Missing validation | Add zod | 30 |
+
+---
+Total: 5 items in 2 section(s)
+```
+
+---
+
+### group-td
+
+Group technical debt items by path, category, or file using deterministic algorithm.
+
+```bash
+llm-support group-td [flags]
+```
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--file` | Input JSON file path |
+| `--content` | Direct JSON content |
+| `--group-by` | Grouping strategy: path (default), category, file |
+| `--path-depth` | Number of path segments for theme (default: 2) |
+| `--min-group-size` | Minimum items to form a group (default: 3) |
+| `--critical-override` | CRITICAL severity always gets own group (default: true) |
+| `--root-theme` | Theme for items without directory (default: misc) |
+
+**Grouping Strategies:**
+- `path`: Group by directory prefix (e.g., `src/auth/*` → theme `src-auth`)
+- `category`: Group by CATEGORY field
+- `file`: Group by exact file path (strictest)
+
+**Examples:**
+```bash
+# Group by path with default depth (2)
+llm-support group-td --file td_items.json --json
+
+# Deeper path matching
+llm-support group-td --content '[...]' --path-depth 3
+
+# Group by category
+llm-support group-td --file items.json --group-by category
+
+# Require larger groups
+llm-support group-td --file items.json --min-group-size 5
+```
+
+**Output Format:**
+```json
+{
+  "groups": [
+    {
+      "theme": "src-auth",
+      "path_pattern": "src/auth/*",
+      "items": [...],
+      "count": 4,
+      "total_minutes": 180
+    }
+  ],
+  "ungrouped": [...],
+  "summary": {
+    "total_items": 7,
+    "grouped_count": 4,
+    "ungrouped_count": 3,
+    "group_count": 1
+  }
+}
+```
+
+**Path Depth Examples:**
+| File | Depth=1 | Depth=2 | Depth=3 |
+|------|---------|---------|---------|
+| `src/auth/handlers/login.ts` | `src` | `src-auth` | `src-auth-handlers` |
+| `lib/utils/string.ts` | `lib` | `lib-utils` | `lib-utils` |
+| `config.ts` | `misc` | `misc` | `misc` |
 
 ---
 

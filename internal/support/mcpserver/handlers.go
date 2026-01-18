@@ -233,6 +233,10 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildTddComplianceArgs(args), nil
 	case "categorize_changes":
 		return buildCategorizeChangesArgs(args), nil
+	case "format_td_table":
+		return buildFormatTDTableArgs(args), nil
+	case "group_td":
+		return buildGroupTDArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1744,6 +1748,50 @@ func buildCategorizeChangesArgs(args map[string]interface{}) []string {
 	}
 	if patterns, ok := args["sensitive_patterns"].(string); ok {
 		cmdArgs = append(cmdArgs, "--sensitive-patterns", patterns)
+	}
+	return cmdArgs
+}
+
+func buildFormatTDTableArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"format-td-table"}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+	if content, ok := args["content"].(string); ok {
+		cmdArgs = append(cmdArgs, "--content", content)
+	}
+	if section, ok := args["section"].(string); ok {
+		cmdArgs = append(cmdArgs, "--section", section)
+	}
+	return cmdArgs
+}
+
+func buildGroupTDArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"group-td"}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+	if content, ok := args["content"].(string); ok {
+		cmdArgs = append(cmdArgs, "--content", content)
+	}
+	if groupBy, ok := args["group_by"].(string); ok {
+		cmdArgs = append(cmdArgs, "--group-by", groupBy)
+	}
+	if pathDepth, ok := getInt(args, "path_depth"); ok {
+		cmdArgs = append(cmdArgs, "--path-depth", strconv.Itoa(pathDepth))
+	}
+	if minGroupSize, ok := getInt(args, "min_group_size"); ok {
+		cmdArgs = append(cmdArgs, "--min-group-size", strconv.Itoa(minGroupSize))
+	}
+	if criticalOverride, ok := args["critical_override"].(bool); ok {
+		if criticalOverride {
+			cmdArgs = append(cmdArgs, "--critical-override=true")
+		} else {
+			cmdArgs = append(cmdArgs, "--critical-override=false")
+		}
+	}
+	if rootTheme, ok := args["root_theme"].(string); ok {
+		cmdArgs = append(cmdArgs, "--root-theme", rootTheme)
 	}
 	return cmdArgs
 }
