@@ -926,6 +926,9 @@ func memoryStatsCmd() *cobra.Command {
 	var (
 		id            string
 		minRetrievals int
+		status        string
+		tagsFilter    string
+		limit         int
 		showHistory   bool
 		pruneMode     bool
 		olderThan     int
@@ -941,18 +944,25 @@ func memoryStatsCmd() *cobra.Command {
 Shows retrieval counts, last accessed times, and retrieval patterns.
 
 Use --min-retrievals to find frequently accessed memories (promotion candidates).
+Use --status to filter by memory status (pending, promoted).
+Use --tags to filter by tag (e.g., --tags auth or --tags "sprint:5.0").
 Use --history to see detailed retrieval history for a specific memory.
 Use --prune to clean up old retrieval log entries.
 
 Examples:
   llm-semantic memory stats
   llm-semantic memory stats --min-retrievals 5
+  llm-semantic memory stats --status pending --limit 20
+  llm-semantic memory stats --tags auth
   llm-semantic memory stats --id mem-abc123 --history
   llm-semantic memory stats --prune --older-than 30`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMemoryStats(cmd.Context(), memoryStatsOpts{
 				id:            id,
 				minRetrievals: minRetrievals,
+				status:        status,
+				tagsFilter:    tagsFilter,
+				limit:         limit,
 				showHistory:   showHistory,
 				pruneMode:     pruneMode,
 				olderThan:     olderThan,
@@ -965,6 +975,9 @@ Examples:
 
 	cmd.Flags().StringVar(&id, "id", "", "Filter to a specific memory ID")
 	cmd.Flags().IntVar(&minRetrievals, "min-retrievals", 0, "Show memories with at least N retrievals")
+	cmd.Flags().StringVar(&status, "status", "", "Filter by status (pending, promoted)")
+	cmd.Flags().StringVar(&tagsFilter, "tags", "", "Filter by tag (e.g., 'auth' or 'sprint:5.0')")
+	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum number of results (0 = unlimited)")
 	cmd.Flags().BoolVar(&showHistory, "history", false, "Show retrieval history for a memory")
 	cmd.Flags().BoolVar(&pruneMode, "prune", false, "Run prune operation")
 	cmd.Flags().IntVar(&olderThan, "older-than", 0, "Prune logs older than N days")
@@ -982,6 +995,9 @@ Examples:
 type memoryStatsOpts struct {
 	id            string
 	minRetrievals int
+	status        string
+	tagsFilter    string
+	limit         int
 	showHistory   bool
 	pruneMode     bool
 	olderThan     int
@@ -1050,10 +1066,22 @@ func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracke
 		return fmt.Errorf("failed to retrieve memory stats: %w", err)
 	}
 
-	// Build display data
-	var rows []displayRow
+	// Count totals before filtering
+	totalMemories := len(stats)
+	pendingCount := 0
+	promotedCount := 0
 	for _, stat := range stats {
-		// Filter by minimum retrievals (client-side)
+		if stat.Status == "promoted" {
+			promotedCount++
+		} else {
+			pendingCount++
+		}
+	}
+
+	// Build filtered results
+	var filtered []semantic.RetrievalStats
+	for _, stat := range stats {
+		// Filter by minimum retrievals
 		if stat.RetrievalCount < opts.minRetrievals {
 			continue
 		}
@@ -1063,7 +1091,89 @@ func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracke
 			continue
 		}
 
-		// Use Question and CreatedAt directly from stats (optimized - no GetMemory call)
+		// Filter by status if specified
+		if opts.status != "" && stat.Status != opts.status {
+			continue
+		}
+
+		// Filter by tags if specified
+		if opts.tagsFilter != "" {
+			found := false
+			for _, tag := range stat.Tags {
+				if strings.Contains(strings.ToLower(tag), strings.ToLower(opts.tagsFilter)) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				continue
+			}
+		}
+
+		filtered = append(filtered, stat)
+
+		// Apply limit if specified
+		if opts.limit > 0 && len(filtered) >= opts.limit {
+			break
+		}
+	}
+
+	// Handle JSON output
+	if opts.jsonOutput || opts.minOutput {
+		enc := json.NewEncoder(os.Stdout)
+		if !opts.minOutput {
+			enc.SetIndent("", "  ")
+		}
+
+		if opts.minOutput {
+			// Minimal JSON output with abbreviated keys
+			minResults := make([]map[string]interface{}, len(filtered))
+			for i, stat := range filtered {
+				minResults[i] = map[string]interface{}{
+					"id": stat.MemoryID,
+					"q":  truncateRuneAware(stat.Question, 50),
+					"r":  stat.RetrievalCount,
+					"s":  stat.Status,
+				}
+				if stat.AvgScore > 0 {
+					minResults[i]["a"] = stat.AvgScore
+				}
+			}
+			output := map[string]interface{}{
+				"t": totalMemories,
+				"p": pendingCount,
+				"m": promotedCount,
+				"r": minResults,
+			}
+			return enc.Encode(output)
+		}
+
+		// Full JSON output with summary
+		results := make([]map[string]interface{}, len(filtered))
+		for i, stat := range filtered {
+			results[i] = map[string]interface{}{
+				"id":              stat.MemoryID,
+				"question":        stat.Question,
+				"retrieval_count": stat.RetrievalCount,
+				"last_retrieved":  stat.LastRetrieved,
+				"avg_score":       stat.AvgScore,
+				"status":          stat.Status,
+				"created":         stat.CreatedAt,
+				"tags":            stat.Tags,
+			}
+		}
+		output := map[string]interface{}{
+			"total_memories": totalMemories,
+			"pending":        pendingCount,
+			"promoted":       promotedCount,
+			"results":        results,
+		}
+		return enc.Encode(output)
+	}
+
+	// Build display rows for table output
+	var rows []displayRow
+	for _, stat := range filtered {
 		question := "<entry not found>"
 		created := "Unknown"
 		if stat.Question != "" {
@@ -1078,54 +1188,27 @@ func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracke
 			lastAccessed = formatDisplayDate(stat.LastRetrieved)
 		}
 
-		avgScore := stat.AvgScore
-
 		rows = append(rows, displayRow{
 			ID:           stat.MemoryID,
 			Question:     question,
 			Created:      created,
 			Retrievals:   stat.RetrievalCount,
 			LastAccessed: lastAccessed,
-			AvgScore:     avgScore,
+			AvgScore:     stat.AvgScore,
 		})
 	}
 
-	// Handle JSON output
-	if opts.jsonOutput || opts.minOutput {
-		enc := json.NewEncoder(os.Stdout)
-		if !opts.minOutput {
-			// Only apply indentation for full JSON output
-			enc.SetIndent("", "  ")
-		}
-		if opts.minOutput {
-			// Minimal JSON output with abbreviated keys
-			minRows := make([]map[string]interface{}, len(rows))
-			for i, row := range rows {
-				minRows[i] = map[string]interface{}{
-					"id": row.ID,
-					"q":  truncateRuneAware(row.Question, 50),
-					"c":  row.Created,
-					"r":  row.Retrievals,
-					"l":  row.LastAccessed,
-				}
-				if row.AvgScore > 0 {
-					minRows[i]["a"] = row.AvgScore
-				}
-			}
-			return enc.Encode(minRows)
-		}
-		// Full JSON output
-		return enc.Encode(rows)
-	}
-
 	if len(rows) == 0 {
-		if opts.id != "" || opts.minRetrievals > 0 {
+		if opts.id != "" || opts.minRetrievals > 0 || opts.status != "" || opts.tagsFilter != "" {
 			fmt.Println("No memories found matching filters.")
 		} else {
 			fmt.Println("No memories found.")
 		}
 		return nil
 	}
+
+	// Print summary
+	fmt.Printf("Total: %d | Pending: %d | Promoted: %d\n\n", totalMemories, pendingCount, promotedCount)
 
 	// Display table
 	displayStatsTable(rows)

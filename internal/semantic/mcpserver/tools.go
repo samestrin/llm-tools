@@ -778,6 +778,19 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "integer",
 						"description": "Show memories with at least N retrievals (default: 0)"
 					},
+					"status": {
+						"type": "string",
+						"enum": ["pending", "promoted"],
+						"description": "Filter by status (pending, promoted)"
+					},
+					"tags": {
+						"type": "string",
+						"description": "Filter by tag (e.g., 'auth' or 'sprint:5.0')"
+					},
+					"limit": {
+						"type": "integer",
+						"description": "Maximum number of results (0 = unlimited)"
+					},
 					"history": {
 						"type": "boolean",
 						"description": "Show retrieval history for a specific memory (requires --id)"
