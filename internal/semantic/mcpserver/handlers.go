@@ -693,6 +693,15 @@ func buildMemoryStatsArgs(args map[string]interface{}) []string {
 	if minRetrievals, ok := getInt(args, "min_retrievals"); ok {
 		cmdArgs = append(cmdArgs, "--min-retrievals", strconv.Itoa(minRetrievals))
 	}
+	if status, ok := args["status"].(string); ok && status != "" {
+		cmdArgs = append(cmdArgs, "--status", status)
+	}
+	if tags, ok := args["tags"].(string); ok && tags != "" {
+		cmdArgs = append(cmdArgs, "--tags", tags)
+	}
+	if limit, ok := getInt(args, "limit"); ok && limit > 0 {
+		cmdArgs = append(cmdArgs, "--limit", strconv.Itoa(limit))
+	}
 	if getBool(args, "history") {
 		cmdArgs = append(cmdArgs, "--history")
 	}

@@ -176,13 +176,14 @@ type IndexHealth struct {
 
 // RetrievalStats holds retrieval statistics for a memory entry.
 type RetrievalStats struct {
-	MemoryID       string  `json:"memory_id"`
-	RetrievalCount int     `json:"retrieval_count"`
-	LastRetrieved  string  `json:"last_retrieved,omitempty"`
-	Status         string  `json:"status"`
-	AvgScore       float32 `json:"avg_score,omitempty"`
-	Question       string  `json:"question"`   // Memory question content
-	CreatedAt      string  `json:"created_at"` // Memory creation timestamp
+	MemoryID       string   `json:"memory_id"`
+	RetrievalCount int      `json:"retrieval_count"`
+	LastRetrieved  string   `json:"last_retrieved,omitempty"`
+	Status         string   `json:"status"`
+	AvgScore       float32  `json:"avg_score,omitempty"`
+	Question       string   `json:"question"`   // Memory question content
+	Tags           []string `json:"tags"`       // Memory context tags
+	CreatedAt      string   `json:"created_at"` // Memory creation timestamp
 }
 
 // MemoryRetrieval represents a single retrieval event for batch tracking.

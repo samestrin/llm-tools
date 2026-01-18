@@ -1401,6 +1401,8 @@ func (s *SQLiteStorage) GetAllMemoryStats(ctx context.Context) ([]RetrievalStats
 			ms.status,
 			COALESCE(AVG(rl.score), 0) as avg_score,
 			m.question,
+			m.tags,
+			m.status as memory_status,
 			m.created_at
 		FROM memory_stats ms
 		LEFT JOIN retrieval_log rl ON ms.memory_id = rl.memory_id
@@ -1419,9 +1421,11 @@ func (s *SQLiteStorage) GetAllMemoryStats(ctx context.Context) ([]RetrievalStats
 		var lastRetrieved sql.NullString
 		var avgScore sql.NullFloat64
 		var question sql.NullString
+		var tags sql.NullString
+		var memoryStatus sql.NullString
 		var createdAt sql.NullString
 
-		if err := rows.Scan(&stats.MemoryID, &stats.RetrievalCount, &lastRetrieved, &stats.Status, &avgScore, &question, &createdAt); err != nil {
+		if err := rows.Scan(&stats.MemoryID, &stats.RetrievalCount, &lastRetrieved, &stats.Status, &avgScore, &question, &tags, &memoryStatus, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan memory stats: %w", err)
 		}
 
@@ -1433,6 +1437,15 @@ func (s *SQLiteStorage) GetAllMemoryStats(ctx context.Context) ([]RetrievalStats
 		}
 		if question.Valid {
 			stats.Question = question.String
+		}
+		if tags.Valid && tags.String != "" {
+			stats.Tags = strings.Split(tags.String, ",")
+		} else {
+			stats.Tags = []string{}
+		}
+		// Use memory status (pending/promoted) instead of stats status
+		if memoryStatus.Valid {
+			stats.Status = memoryStatus.String
 		}
 		if createdAt.Valid {
 			stats.CreatedAt = createdAt.String
