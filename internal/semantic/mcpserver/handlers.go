@@ -425,6 +425,9 @@ func buildIndexArgs(args map[string]interface{}) []string {
 			}
 		}
 	}
+	if getBool(args, "exclude_tests") {
+		cmdArgs = append(cmdArgs, "--exclude-tests")
+	}
 	if getBool(args, "force") {
 		cmdArgs = append(cmdArgs, "--force")
 	}

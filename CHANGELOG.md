@@ -37,6 +37,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Uses errgroup for fail-fast error handling
   - Example: `llm-semantic index --batch-size 64 --parallel 4` uploads 4 batches concurrently
 
+- **Enhanced `--exclude` flag** - Now supports file patterns in addition to directories:
+  - Exclude specific file patterns: `--exclude "*_test.go"` or `--exclude "*.spec.ts"`
+  - Still works for directories: `--exclude vendor`
+  - Patterns use glob matching (same as `--include`)
+
+- **`--exclude-tests` convenience flag** - Exclude common test files and directories:
+  - Excludes test file patterns: `*_test.go`, `*.test.ts`, `*.spec.js`, `test_*.py`, etc.
+  - Excludes test directories: `__tests__`, `test`, `tests`, `testdata`, `fixtures`, etc.
+  - Covers Go, TypeScript, JavaScript, Python, Rust, PHP, Ruby conventions
+
 - **Benchmark tests for SearchMemory** - `storage_sqlite_bench_test.go` with large index performance verification
 - **HTML chunker fallback tests** - TestFallbackToText with comprehensive edge case coverage
 - **Markdown chunker list tests** - TestMarkdownChunker_ListContextTracking with 5 test cases for nested lists

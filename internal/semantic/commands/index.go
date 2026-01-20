@@ -29,6 +29,7 @@ func indexCmd() *cobra.Command {
 	var (
 		includes        []string
 		excludes        []string
+		excludeTests    bool
 		force           bool
 		jsonOutput      bool
 		verbose         bool
@@ -53,6 +54,7 @@ Walks the directory, parses code files, and generates embeddings.`,
 			return runIndex(cmd.Context(), path, indexOpts{
 				includes:        includes,
 				excludes:        excludes,
+				excludeTests:    excludeTests,
 				force:           force,
 				jsonOutput:      jsonOutput,
 				verbose:         verbose,
@@ -65,7 +67,8 @@ Walks the directory, parses code files, and generates embeddings.`,
 	}
 
 	cmd.Flags().StringSliceVarP(&includes, "include", "i", nil, "Glob patterns to include (e.g., '*.go')")
-	cmd.Flags().StringSliceVarP(&excludes, "exclude", "e", []string{"vendor", "node_modules", ".git"}, "Directories to exclude")
+	cmd.Flags().StringSliceVarP(&excludes, "exclude", "e", []string{"vendor", "node_modules", ".git"}, "Patterns to exclude (directories and files, e.g., 'vendor', '*_test.go')")
+	cmd.Flags().BoolVar(&excludeTests, "exclude-tests", false, "Exclude common test files and directories")
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force re-index all files")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show per-file progress instead of periodic summary")
@@ -80,6 +83,7 @@ Walks the directory, parses code files, and generates embeddings.`,
 type indexOpts struct {
 	includes        []string
 	excludes        []string
+	excludeTests    bool
 	force           bool
 	jsonOutput      bool
 	verbose         bool
@@ -207,12 +211,13 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 	}
 
 	result, err := mgr.Index(ctx, absPath, semantic.IndexOptions{
-		Includes:   opts.includes,
-		Excludes:   opts.excludes,
-		Force:      opts.force,
-		OnProgress: progressCallback,
-		BatchSize:  opts.batchSize,
-		Parallel:   opts.parallel,
+		Includes:     opts.includes,
+		Excludes:     opts.excludes,
+		ExcludeTests: opts.excludeTests,
+		Force:        opts.force,
+		OnProgress:   progressCallback,
+		BatchSize:    opts.batchSize,
+		Parallel:     opts.parallel,
 	})
 
 	// Print final newline after verbose TTY progress
