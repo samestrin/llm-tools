@@ -12,7 +12,7 @@ import (
 // TestLLMSupportToolCount verifies the correct number of tools
 func TestLLMSupportToolCount(t *testing.T) {
 	tools := supportserver.GetToolDefinitions()
-	expected := 62 // llm-support has 62 tools (54 original + 8 from Sprint 8.14)
+	expected := 64 // llm-support has 64 tools (54 original + 8 from Sprint 8.14 + 2 from Sprint 8.17)
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-support tools, got %d", expected, len(tools))
 	}
