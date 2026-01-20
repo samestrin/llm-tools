@@ -30,6 +30,7 @@ func TestIndexCmd_Flags(t *testing.T) {
 		{"exclude", "e"},
 		{"force", "f"},
 		{"json", ""},
+		{"batch-size", ""},
 	}
 
 	for _, f := range flags {
@@ -44,6 +45,25 @@ func TestIndexCmd_Flags(t *testing.T) {
 				t.Errorf("Shorthand -%s not found for --%s", f.shortcut, f.name)
 			}
 		}
+	}
+}
+
+func TestIndexCmd_BatchSizeFlag(t *testing.T) {
+	cmd := indexCmd()
+
+	batchSizeFlag := cmd.Flags().Lookup("batch-size")
+	if batchSizeFlag == nil {
+		t.Fatal("--batch-size flag not found")
+	}
+
+	// Check default value is 0 (unlimited)
+	if batchSizeFlag.DefValue != "0" {
+		t.Errorf("--batch-size default = %q, want \"0\"", batchSizeFlag.DefValue)
+	}
+
+	// Check it's an int type
+	if batchSizeFlag.Value.Type() != "int" {
+		t.Errorf("--batch-size type = %q, want \"int\"", batchSizeFlag.Value.Type())
 	}
 }
 
@@ -162,6 +182,7 @@ func TestIndexCmd_HelpOutput(t *testing.T) {
 		"--exclude",
 		"--force",
 		"--json",
+		"--batch-size",
 	}
 
 	for _, s := range expectedStrings {

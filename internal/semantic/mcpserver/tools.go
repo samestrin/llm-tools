@@ -428,6 +428,10 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "boolean",
 						"description": "Force re-index all files even if unchanged"
 					},
+					"batch_size": {
+						"type": "integer",
+						"description": "Number of vectors per upsert batch (0 = unlimited, default: 0)"
+					},
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"

@@ -28,14 +28,14 @@ var (
 
 // Constants
 const (
-	groupTDMaxInputSize    = 10 * 1024 * 1024 // 10MB
-	groupByPath            = "path"
-	groupByCategory        = "category"
-	groupByFile            = "file"
-	defaultPathDepth       = 2
-	defaultMinGroupSize    = 3
-	defaultRootTheme       = "misc"
-	criticalSeverity       = "CRITICAL"
+	groupTDMaxInputSize = 10 * 1024 * 1024 // 10MB
+	groupByPath         = "path"
+	groupByCategory     = "category"
+	groupByFile         = "file"
+	defaultPathDepth    = 2
+	defaultMinGroupSize = 3
+	defaultRootTheme    = "misc"
+	criticalSeverity    = "CRITICAL"
 )
 
 // GroupTDInput represents the input format
@@ -46,9 +46,9 @@ type GroupTDInput struct {
 
 // GroupTDResult represents the output
 type GroupTDResult struct {
-	Groups    []TDGroup       `json:"groups"`
+	Groups    []TDGroup                `json:"groups"`
 	Ungrouped []map[string]interface{} `json:"ungrouped"`
-	Summary   GroupTDSummary  `json:"summary"`
+	Summary   GroupTDSummary           `json:"summary"`
 }
 
 // TDGroup represents a group of related TD items
