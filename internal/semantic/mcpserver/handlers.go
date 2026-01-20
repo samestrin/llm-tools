@@ -431,6 +431,9 @@ func buildIndexArgs(args map[string]interface{}) []string {
 	if batchSize, ok := getInt(args, "batch_size"); ok && batchSize > 0 {
 		cmdArgs = append(cmdArgs, "--batch-size", strconv.Itoa(batchSize))
 	}
+	if parallel, ok := getInt(args, "parallel"); ok && parallel > 0 {
+		cmdArgs = append(cmdArgs, "--parallel", strconv.Itoa(parallel))
+	}
 	if storage, ok := args["storage"].(string); ok && storage != "" {
 		cmdArgs = append(cmdArgs, "--storage", storage)
 	}

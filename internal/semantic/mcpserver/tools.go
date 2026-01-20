@@ -432,6 +432,10 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "integer",
 						"description": "Number of vectors per upsert batch (0 = unlimited, default: 0)"
 					},
+					"parallel": {
+						"type": "integer",
+						"description": "Number of parallel batch uploads (0 = sequential, requires batch_size > 0)"
+					},
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
