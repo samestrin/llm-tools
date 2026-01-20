@@ -876,6 +876,28 @@ func TestBuildIndexArgs(t *testing.T) {
 			},
 			contains: []string{"index"},
 		},
+		{
+			name: "with parallel",
+			args: map[string]interface{}{
+				"parallel": float64(4),
+			},
+			contains: []string{"index", "--parallel", "4"},
+		},
+		{
+			name: "parallel zero is omitted",
+			args: map[string]interface{}{
+				"parallel": float64(0),
+			},
+			contains: []string{"index"},
+		},
+		{
+			name: "with batch_size and parallel",
+			args: map[string]interface{}{
+				"batch_size": float64(64),
+				"parallel":   float64(4),
+			},
+			contains: []string{"index", "--batch-size", "64", "--parallel", "4"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1706,5 +1728,69 @@ func TestBuildIndexArgs_BatchSizePositive(t *testing.T) {
 
 	if !foundBatchSize {
 		t.Errorf("buildIndexArgs() should include --batch-size 100, got %v", result)
+	}
+}
+
+func TestBuildIndexArgs_ParallelZeroNotIncluded(t *testing.T) {
+	// When parallel is 0, it should NOT be included in args (0 = sequential)
+	args := map[string]interface{}{
+		"parallel": float64(0),
+	}
+
+	result := buildIndexArgs(args)
+
+	for _, arg := range result {
+		if arg == "--parallel" {
+			t.Error("buildIndexArgs() should NOT include --parallel when value is 0")
+		}
+	}
+}
+
+func TestBuildIndexArgs_ParallelPositive(t *testing.T) {
+	// When parallel is positive, it should be included
+	args := map[string]interface{}{
+		"parallel": float64(4),
+	}
+
+	result := buildIndexArgs(args)
+
+	foundParallel := false
+	for i, arg := range result {
+		if arg == "--parallel" && i+1 < len(result) && result[i+1] == "4" {
+			foundParallel = true
+			break
+		}
+	}
+
+	if !foundParallel {
+		t.Errorf("buildIndexArgs() should include --parallel 4, got %v", result)
+	}
+}
+
+func TestBuildIndexArgs_BatchSizeAndParallel(t *testing.T) {
+	// Test both batch_size and parallel together
+	args := map[string]interface{}{
+		"batch_size": float64(64),
+		"parallel":   float64(4),
+	}
+
+	result := buildIndexArgs(args)
+
+	foundBatchSize := false
+	foundParallel := false
+	for i, arg := range result {
+		if arg == "--batch-size" && i+1 < len(result) && result[i+1] == "64" {
+			foundBatchSize = true
+		}
+		if arg == "--parallel" && i+1 < len(result) && result[i+1] == "4" {
+			foundParallel = true
+		}
+	}
+
+	if !foundBatchSize {
+		t.Errorf("buildIndexArgs() should include --batch-size 64, got %v", result)
+	}
+	if !foundParallel {
+		t.Errorf("buildIndexArgs() should include --parallel 4, got %v", result)
 	}
 }

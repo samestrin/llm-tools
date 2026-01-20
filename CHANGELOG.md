@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### llm-semantic
 
+- **Parallel batch uploads** - Speed up indexing with concurrent vector upserts:
+  - `--parallel N` flag to enable N concurrent batch uploads during indexing
+  - Requires `--batch-size` to be set (parallelism only applies to batched mode)
+  - Uses errgroup for fail-fast error handling
+  - Example: `llm-semantic index --batch-size 64 --parallel 4` uploads 4 batches concurrently
+
 - **Benchmark tests for SearchMemory** - `storage_sqlite_bench_test.go` with large index performance verification
 - **HTML chunker fallback tests** - TestFallbackToText with comprehensive edge case coverage
 - **Markdown chunker list tests** - TestMarkdownChunker_ListContextTracking with 5 test cases for nested lists

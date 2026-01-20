@@ -473,3 +473,245 @@ func TestDefaultBatchSize(t *testing.T) {
 		t.Errorf("DefaultBatchSize = %d, seems too large (want <= 1000)", DefaultBatchSize)
 	}
 }
+
+func TestIndexManager_WithParallelBatching(t *testing.T) {
+	// Create temp directory with a file that will produce multiple chunks
+	tmpDir := t.TempDir()
+
+	// Write a test file with many functions to test parallel batching
+	testFile := filepath.Join(tmpDir, "main.go")
+	content := []byte(`package main
+
+func Func1() int { return 1 }
+func Func2() int { return 2 }
+func Func3() int { return 3 }
+func Func4() int { return 4 }
+func Func5() int { return 5 }
+func Func6() int { return 6 }
+func Func7() int { return 7 }
+func Func8() int { return 8 }
+`)
+	if err := os.WriteFile(testFile, content, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Create storage
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Create mock embedder
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	// Create chunker factory
+	factory := NewChunkerFactory()
+	factory.Register("go", NewGoChunker())
+
+	mgr := NewIndexManager(storage, embedder, factory)
+
+	// Index with batch size of 2 and parallel of 4
+	result, err := mgr.Index(context.Background(), tmpDir, IndexOptions{
+		BatchSize: 2,
+		Parallel:  4,
+	})
+	if err != nil {
+		t.Fatalf("Index() with parallel batching error = %v", err)
+	}
+
+	if result.FilesProcessed != 1 {
+		t.Errorf("Index() processed %d files, want 1", result.FilesProcessed)
+	}
+
+	// Should have created chunks for each function
+	if result.ChunksCreated < 8 {
+		t.Errorf("Index() created %d chunks, want at least 8", result.ChunksCreated)
+	}
+
+	// Verify all chunks are in storage
+	chunks, err := storage.List(context.Background(), ListOptions{})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+
+	if len(chunks) != result.ChunksCreated {
+		t.Errorf("Storage has %d chunks, index reported %d", len(chunks), result.ChunksCreated)
+	}
+}
+
+func TestIndexManager_ParallelZeroIsSequential(t *testing.T) {
+	// Parallel = 0 should behave the same as sequential (no parallelism)
+	tmpDir := t.TempDir()
+
+	testFile := filepath.Join(tmpDir, "main.go")
+	content := []byte(`package main
+
+func A() {}
+func B() {}
+func C() {}
+`)
+	if err := os.WriteFile(testFile, content, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	factory := NewChunkerFactory()
+	factory.Register("go", NewGoChunker())
+
+	mgr := NewIndexManager(storage, embedder, factory)
+
+	// Parallel = 0 with batch size should use sequential batching
+	result, err := mgr.Index(context.Background(), tmpDir, IndexOptions{
+		BatchSize: 2,
+		Parallel:  0,
+	})
+	if err != nil {
+		t.Fatalf("Index() with Parallel=0 error = %v", err)
+	}
+
+	if result.ChunksCreated < 3 {
+		t.Errorf("Index() created %d chunks, want at least 3", result.ChunksCreated)
+	}
+}
+
+func TestIndexManager_ParallelOneIsSequential(t *testing.T) {
+	// Parallel = 1 should also behave sequentially
+	tmpDir := t.TempDir()
+
+	testFile := filepath.Join(tmpDir, "main.go")
+	content := []byte(`package main
+
+func A() {}
+func B() {}
+`)
+	if err := os.WriteFile(testFile, content, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	factory := NewChunkerFactory()
+	factory.Register("go", NewGoChunker())
+
+	mgr := NewIndexManager(storage, embedder, factory)
+
+	// Parallel = 1 with batch size should use sequential batching
+	result, err := mgr.Index(context.Background(), tmpDir, IndexOptions{
+		BatchSize: 1,
+		Parallel:  1,
+	})
+	if err != nil {
+		t.Fatalf("Index() with Parallel=1 error = %v", err)
+	}
+
+	if result.ChunksCreated < 2 {
+		t.Errorf("Index() created %d chunks, want at least 2", result.ChunksCreated)
+	}
+}
+
+func TestIndexManager_ParallelWithoutBatchSize(t *testing.T) {
+	// Parallel with BatchSize=0 should send all at once (ignores parallel)
+	tmpDir := t.TempDir()
+
+	testFile := filepath.Join(tmpDir, "main.go")
+	content := []byte(`package main
+
+func A() {}
+func B() {}
+func C() {}
+`)
+	if err := os.WriteFile(testFile, content, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	factory := NewChunkerFactory()
+	factory.Register("go", NewGoChunker())
+
+	mgr := NewIndexManager(storage, embedder, factory)
+
+	// Parallel without batch size (BatchSize=0) should work but ignore parallel
+	result, err := mgr.Index(context.Background(), tmpDir, IndexOptions{
+		BatchSize: 0,
+		Parallel:  4,
+	})
+	if err != nil {
+		t.Fatalf("Index() with Parallel but no BatchSize error = %v", err)
+	}
+
+	if result.ChunksCreated < 3 {
+		t.Errorf("Index() created %d chunks, want at least 3", result.ChunksCreated)
+	}
+}
+
+func TestIndexManager_ParallelHighWorkerCount(t *testing.T) {
+	// Test with more workers than batches (edge case)
+	tmpDir := t.TempDir()
+
+	testFile := filepath.Join(tmpDir, "main.go")
+	content := []byte(`package main
+
+func A() {}
+func B() {}
+`)
+	if err := os.WriteFile(testFile, content, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	factory := NewChunkerFactory()
+	factory.Register("go", NewGoChunker())
+
+	mgr := NewIndexManager(storage, embedder, factory)
+
+	// More workers (10) than batches (~2 with batch size 1)
+	result, err := mgr.Index(context.Background(), tmpDir, IndexOptions{
+		BatchSize: 1,
+		Parallel:  10,
+	})
+	if err != nil {
+		t.Fatalf("Index() with high parallel count error = %v", err)
+	}
+
+	if result.ChunksCreated < 2 {
+		t.Errorf("Index() created %d chunks, want at least 2", result.ChunksCreated)
+	}
+}

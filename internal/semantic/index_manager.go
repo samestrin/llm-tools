@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // ProgressEvent represents a progress update during indexing
@@ -33,6 +35,7 @@ type IndexOptions struct {
 	Force      bool             // Re-index all files even if unchanged
 	OnProgress ProgressCallback // Optional callback for progress updates
 	BatchSize  int              // Number of vectors to send per upsert (0 = unlimited)
+	Parallel   int              // Number of parallel batch uploads (0 or 1 = sequential)
 }
 
 // UpdateOptions configures incremental update behavior
@@ -130,7 +133,7 @@ func (m *IndexManager) Index(ctx context.Context, rootPath string, opts IndexOpt
 		}
 
 		// Process the file
-		processErr := m.processFile(ctx, file, result, opts.BatchSize)
+		processErr := m.processFile(ctx, file, result, opts.BatchSize, opts.Parallel)
 		if processErr != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", file, processErr))
 			result.FilesSkipped++
@@ -196,9 +199,9 @@ func (m *IndexManager) Update(ctx context.Context, rootPath string, opts UpdateO
 			removed, _ := m.storage.DeleteByFilePath(ctx, file)
 			result.ChunksRemoved += removed
 
-			// Re-index the file (use 0 for unlimited batch size in updates)
+			// Re-index the file (use 0 for unlimited batch size in updates, sequential)
 			indexResult := &IndexResult{}
-			if err := m.processFile(ctx, file, indexResult, 0); err == nil {
+			if err := m.processFile(ctx, file, indexResult, 0, 0); err == nil {
 				result.FilesUpdated++
 				result.ChunksCreated += indexResult.ChunksCreated
 			}
@@ -275,7 +278,8 @@ func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string
 
 // processFile chunks and embeds a single file
 // batchSize controls how many vectors are sent per upsert (0 = unlimited)
-func (m *IndexManager) processFile(ctx context.Context, filePath string, result *IndexResult, batchSize int) error {
+// parallel controls how many batch uploads run concurrently (0 or 1 = sequential)
+func (m *IndexManager) processFile(ctx context.Context, filePath string, result *IndexResult, batchSize, parallel int) error {
 	// Get appropriate chunker
 	chunker, ok := m.factory.GetByExtension(filePath)
 	if !ok {
@@ -322,14 +326,14 @@ func (m *IndexManager) processFile(ctx context.Context, filePath string, result 
 		}
 	}
 
-	// Store chunks in batches (0 = unlimited, send all at once)
+	// Store chunks in batches
 	if batchSize <= 0 {
 		// Send all chunks in a single batch operation
 		if err := m.storage.CreateBatch(ctx, chunksWithEmbeddings); err != nil {
 			return fmt.Errorf("failed to store chunks: %w", err)
 		}
-	} else {
-		// Send chunks in smaller batches
+	} else if parallel <= 1 {
+		// Sequential batch uploads
 		for i := 0; i < len(chunksWithEmbeddings); i += batchSize {
 			// Check for cancellation between batches
 			select {
@@ -345,6 +349,30 @@ func (m *IndexManager) processFile(ctx context.Context, filePath string, result 
 			if err := m.storage.CreateBatch(ctx, chunksWithEmbeddings[i:end]); err != nil {
 				return fmt.Errorf("failed to store chunks (batch %d-%d): %w", i, end, err)
 			}
+		}
+	} else {
+		// Parallel batch uploads using errgroup
+		g, gctx := errgroup.WithContext(ctx)
+		g.SetLimit(parallel)
+
+		for i := 0; i < len(chunksWithEmbeddings); i += batchSize {
+			start := i
+			end := i + batchSize
+			if end > len(chunksWithEmbeddings) {
+				end = len(chunksWithEmbeddings)
+			}
+			batch := chunksWithEmbeddings[start:end]
+
+			g.Go(func() error {
+				if err := m.storage.CreateBatch(gctx, batch); err != nil {
+					return fmt.Errorf("failed to store chunks (batch %d-%d): %w", start, end, err)
+				}
+				return nil
+			})
+		}
+
+		if err := g.Wait(); err != nil {
+			return err
 		}
 	}
 	result.ChunksCreated += len(chunksWithEmbeddings)

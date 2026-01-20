@@ -35,6 +35,7 @@ func indexCmd() *cobra.Command {
 		recalibrate     bool
 		skipCalibration bool
 		batchSize       int
+		parallel        int
 	)
 
 	cmd := &cobra.Command{
@@ -58,6 +59,7 @@ Walks the directory, parses code files, and generates embeddings.`,
 				recalibrate:     recalibrate,
 				skipCalibration: skipCalibration,
 				batchSize:       batchSize,
+				parallel:        parallel,
 			})
 		},
 	}
@@ -70,6 +72,7 @@ Walks the directory, parses code files, and generates embeddings.`,
 	cmd.Flags().BoolVar(&recalibrate, "recalibrate", false, "Force recalibration of score thresholds")
 	cmd.Flags().BoolVar(&skipCalibration, "skip-calibration", false, "Skip calibration step")
 	cmd.Flags().IntVar(&batchSize, "batch-size", 0, "Number of vectors per upsert batch (0 = unlimited)")
+	cmd.Flags().IntVar(&parallel, "parallel", 0, "Number of parallel batch uploads (0 = sequential, requires --batch-size)")
 
 	return cmd
 }
@@ -83,6 +86,7 @@ type indexOpts struct {
 	recalibrate     bool
 	skipCalibration bool
 	batchSize       int
+	parallel        int
 }
 
 func runIndex(ctx context.Context, path string, opts indexOpts) error {
@@ -208,6 +212,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 		Force:      opts.force,
 		OnProgress: progressCallback,
 		BatchSize:  opts.batchSize,
+		Parallel:   opts.parallel,
 	})
 
 	// Print final newline after verbose TTY progress
