@@ -11,12 +11,12 @@ import (
 
 func TestFormatTDTableRoutedInput(t *testing.T) {
 	tests := []struct {
-		name            string
-		input           string
-		section         string
-		expectTables    []string
-		expectItems     int
-		expectSections  int
+		name           string
+		input          string
+		section        string
+		expectTables   []string
+		expectItems    int
+		expectSections int
 	}{
 		{
 			name: "all sections from routed output",

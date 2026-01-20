@@ -102,22 +102,22 @@ func TestGroupTDPathDepth(t *testing.T) {
 	]`
 
 	tests := []struct {
-		name          string
-		depth         int
-		expectGroups  int
-		expectThemes  []string
+		name         string
+		depth        int
+		expectGroups int
+		expectThemes []string
 	}{
 		{
-			name:          "depth 2 - all in src-auth",
-			depth:         2,
-			expectGroups:  1,
-			expectThemes:  []string{"src-auth"},
+			name:         "depth 2 - all in src-auth",
+			depth:        2,
+			expectGroups: 1,
+			expectThemes: []string{"src-auth"},
 		},
 		{
-			name:          "depth 3 - split by handlers/middleware",
-			depth:         3,
-			expectGroups:  2,
-			expectThemes:  []string{"src-auth-handlers", "src-auth-middleware"},
+			name:         "depth 3 - split by handlers/middleware",
+			depth:        3,
+			expectGroups: 2,
+			expectThemes: []string{"src-auth-handlers", "src-auth-middleware"},
 		},
 	}
 
@@ -126,7 +126,7 @@ func TestGroupTDPathDepth(t *testing.T) {
 			cmd := newGroupTDCmd()
 			buf := new(bytes.Buffer)
 			cmd.SetOut(buf)
-			cmd.SetArgs([]string{"--content", input, "--json", "--path-depth", string(rune('0'+tt.depth)), "--min-group-size", "3"})
+			cmd.SetArgs([]string{"--content", input, "--json", "--path-depth", string(rune('0' + tt.depth)), "--min-group-size", "3"})
 
 			// Need to reset and re-parse
 			groupTDPathDepth = tt.depth

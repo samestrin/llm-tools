@@ -63,9 +63,9 @@ type FormatTDTableResult struct {
 
 // FormatTDSummary provides counts
 type FormatTDSummary struct {
-	TotalItems      int            `json:"total_items"`
-	SectionsFormatted int          `json:"sections_formatted"`
-	ItemsPerSection map[string]int `json:"items_per_section"`
+	TotalItems        int            `json:"total_items"`
+	SectionsFormatted int            `json:"sections_formatted"`
+	ItemsPerSection   map[string]int `json:"items_per_section"`
 }
 
 func newFormatTDTableCmd() *cobra.Command {

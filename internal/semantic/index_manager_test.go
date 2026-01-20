@@ -304,3 +304,172 @@ func TestIndexManager_InvalidPath(t *testing.T) {
 		t.Error("Index() should return error for invalid path")
 	}
 }
+
+func TestIndexManager_WithBatchSize(t *testing.T) {
+	// Create temp directory with a file that will produce multiple chunks
+	tmpDir := t.TempDir()
+
+	// Write a test file with multiple functions (each becomes a chunk)
+	testFile := filepath.Join(tmpDir, "main.go")
+	content := []byte(`package main
+
+func Func1() int { return 1 }
+func Func2() int { return 2 }
+func Func3() int { return 3 }
+func Func4() int { return 4 }
+func Func5() int { return 5 }
+`)
+	if err := os.WriteFile(testFile, content, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Create storage
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Create mock embedder
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	// Create chunker factory
+	factory := NewChunkerFactory()
+	factory.Register("go", NewGoChunker())
+
+	mgr := NewIndexManager(storage, embedder, factory)
+
+	// Index with batch size of 2 (should work fine with 5 functions)
+	result, err := mgr.Index(context.Background(), tmpDir, IndexOptions{
+		BatchSize: 2,
+	})
+	if err != nil {
+		t.Fatalf("Index() with BatchSize error = %v", err)
+	}
+
+	if result.FilesProcessed != 1 {
+		t.Errorf("Index() processed %d files, want 1", result.FilesProcessed)
+	}
+
+	// Should have created chunks for each function
+	if result.ChunksCreated < 5 {
+		t.Errorf("Index() created %d chunks, want at least 5", result.ChunksCreated)
+	}
+
+	// Verify all chunks are in storage
+	chunks, err := storage.List(context.Background(), ListOptions{})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+
+	if len(chunks) != result.ChunksCreated {
+		t.Errorf("Storage has %d chunks, index reported %d", len(chunks), result.ChunksCreated)
+	}
+}
+
+func TestIndexManager_BatchSizeZeroIsUnlimited(t *testing.T) {
+	// Create temp directory
+	tmpDir := t.TempDir()
+
+	testFile := filepath.Join(tmpDir, "main.go")
+	content := []byte(`package main
+
+func A() {}
+func B() {}
+func C() {}
+`)
+	if err := os.WriteFile(testFile, content, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	factory := NewChunkerFactory()
+	factory.Register("go", NewGoChunker())
+
+	mgr := NewIndexManager(storage, embedder, factory)
+
+	// BatchSize = 0 means unlimited (all chunks in one batch)
+	result, err := mgr.Index(context.Background(), tmpDir, IndexOptions{
+		BatchSize: 0,
+	})
+	if err != nil {
+		t.Fatalf("Index() with BatchSize=0 error = %v", err)
+	}
+
+	if result.ChunksCreated < 3 {
+		t.Errorf("Index() created %d chunks, want at least 3", result.ChunksCreated)
+	}
+}
+
+func TestIndexManager_BatchSizeOne(t *testing.T) {
+	// Test edge case: batch size of 1 (each vector sent individually)
+	tmpDir := t.TempDir()
+
+	testFile := filepath.Join(tmpDir, "main.go")
+	content := []byte(`package main
+
+func X() {}
+func Y() {}
+`)
+	if err := os.WriteFile(testFile, content, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	factory := NewChunkerFactory()
+	factory.Register("go", NewGoChunker())
+
+	mgr := NewIndexManager(storage, embedder, factory)
+
+	// BatchSize = 1 means each vector sent separately
+	result, err := mgr.Index(context.Background(), tmpDir, IndexOptions{
+		BatchSize: 1,
+	})
+	if err != nil {
+		t.Fatalf("Index() with BatchSize=1 error = %v", err)
+	}
+
+	if result.ChunksCreated < 2 {
+		t.Errorf("Index() created %d chunks, want at least 2", result.ChunksCreated)
+	}
+
+	// Verify chunks in storage
+	chunks, err := storage.List(context.Background(), ListOptions{})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+
+	if len(chunks) != result.ChunksCreated {
+		t.Errorf("Storage has %d chunks, index reported %d", len(chunks), result.ChunksCreated)
+	}
+}
+
+func TestDefaultBatchSize(t *testing.T) {
+	// Verify the default batch size constant is reasonable
+	if DefaultBatchSize <= 0 {
+		t.Errorf("DefaultBatchSize = %d, want positive value", DefaultBatchSize)
+	}
+	if DefaultBatchSize > 1000 {
+		t.Errorf("DefaultBatchSize = %d, seems too large (want <= 1000)", DefaultBatchSize)
+	}
+}

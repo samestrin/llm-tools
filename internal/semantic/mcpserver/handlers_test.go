@@ -862,6 +862,20 @@ func TestBuildIndexArgs(t *testing.T) {
 			},
 			contains: []string{"--storage", "qdrant", "--collection", "my-collection"},
 		},
+		{
+			name: "with batch_size",
+			args: map[string]interface{}{
+				"batch_size": float64(50),
+			},
+			contains: []string{"index", "--batch-size", "50"},
+		},
+		{
+			name: "batch_size zero is omitted",
+			args: map[string]interface{}{
+				"batch_size": float64(0),
+			},
+			contains: []string{"index"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1656,5 +1670,41 @@ func TestBuildArgs_MultisearchCommand(t *testing.T) {
 
 	if result[0] != "multisearch" {
 		t.Errorf("buildArgs(multisearch) first arg = %s, want 'multisearch'", result[0])
+	}
+}
+
+func TestBuildIndexArgs_BatchSizeZeroNotIncluded(t *testing.T) {
+	// When batch_size is 0, it should NOT be included in args (0 = unlimited)
+	args := map[string]interface{}{
+		"batch_size": float64(0),
+	}
+
+	result := buildIndexArgs(args)
+
+	for _, arg := range result {
+		if arg == "--batch-size" {
+			t.Error("buildIndexArgs() should NOT include --batch-size when value is 0")
+		}
+	}
+}
+
+func TestBuildIndexArgs_BatchSizePositive(t *testing.T) {
+	// When batch_size is positive, it should be included
+	args := map[string]interface{}{
+		"batch_size": float64(100),
+	}
+
+	result := buildIndexArgs(args)
+
+	foundBatchSize := false
+	for i, arg := range result {
+		if arg == "--batch-size" && i+1 < len(result) && result[i+1] == "100" {
+			foundBatchSize = true
+			break
+		}
+	}
+
+	if !foundBatchSize {
+		t.Errorf("buildIndexArgs() should include --batch-size 100, got %v", result)
 	}
 }

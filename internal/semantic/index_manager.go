@@ -23,12 +23,16 @@ type ProgressEvent struct {
 // ProgressCallback is called during indexing to report progress
 type ProgressCallback func(event ProgressEvent)
 
+// DefaultBatchSize is the default number of vectors to send per upsert operation
+const DefaultBatchSize = 100
+
 // IndexOptions configures indexing behavior
 type IndexOptions struct {
 	Includes   []string         // Glob patterns to include (e.g., "*.go")
 	Excludes   []string         // Directory/pattern names to exclude (e.g., "vendor", "node_modules")
 	Force      bool             // Re-index all files even if unchanged
 	OnProgress ProgressCallback // Optional callback for progress updates
+	BatchSize  int              // Number of vectors to send per upsert (0 = unlimited)
 }
 
 // UpdateOptions configures incremental update behavior
@@ -126,7 +130,7 @@ func (m *IndexManager) Index(ctx context.Context, rootPath string, opts IndexOpt
 		}
 
 		// Process the file
-		processErr := m.processFile(ctx, file, result)
+		processErr := m.processFile(ctx, file, result, opts.BatchSize)
 		if processErr != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", file, processErr))
 			result.FilesSkipped++
@@ -192,9 +196,9 @@ func (m *IndexManager) Update(ctx context.Context, rootPath string, opts UpdateO
 			removed, _ := m.storage.DeleteByFilePath(ctx, file)
 			result.ChunksRemoved += removed
 
-			// Re-index the file
+			// Re-index the file (use 0 for unlimited batch size in updates)
 			indexResult := &IndexResult{}
-			if err := m.processFile(ctx, file, indexResult); err == nil {
+			if err := m.processFile(ctx, file, indexResult, 0); err == nil {
 				result.FilesUpdated++
 				result.ChunksCreated += indexResult.ChunksCreated
 			}
@@ -270,7 +274,8 @@ func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string
 }
 
 // processFile chunks and embeds a single file
-func (m *IndexManager) processFile(ctx context.Context, filePath string, result *IndexResult) error {
+// batchSize controls how many vectors are sent per upsert (0 = unlimited)
+func (m *IndexManager) processFile(ctx context.Context, filePath string, result *IndexResult, batchSize int) error {
 	// Get appropriate chunker
 	chunker, ok := m.factory.GetByExtension(filePath)
 	if !ok {
@@ -317,9 +322,30 @@ func (m *IndexManager) processFile(ctx context.Context, filePath string, result 
 		}
 	}
 
-	// Store all chunks in a single batch operation
-	if err := m.storage.CreateBatch(ctx, chunksWithEmbeddings); err != nil {
-		return fmt.Errorf("failed to store chunks: %w", err)
+	// Store chunks in batches (0 = unlimited, send all at once)
+	if batchSize <= 0 {
+		// Send all chunks in a single batch operation
+		if err := m.storage.CreateBatch(ctx, chunksWithEmbeddings); err != nil {
+			return fmt.Errorf("failed to store chunks: %w", err)
+		}
+	} else {
+		// Send chunks in smaller batches
+		for i := 0; i < len(chunksWithEmbeddings); i += batchSize {
+			// Check for cancellation between batches
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			end := i + batchSize
+			if end > len(chunksWithEmbeddings) {
+				end = len(chunksWithEmbeddings)
+			}
+			if err := m.storage.CreateBatch(ctx, chunksWithEmbeddings[i:end]); err != nil {
+				return fmt.Errorf("failed to store chunks (batch %d-%d): %w", i, end, err)
+			}
+		}
 	}
 	result.ChunksCreated += len(chunksWithEmbeddings)
 
