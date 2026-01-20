@@ -715,3 +715,183 @@ func B() {}
 		t.Errorf("Index() created %d chunks, want at least 2", result.ChunksCreated)
 	}
 }
+
+func TestIndexManager_ExcludeFiles(t *testing.T) {
+	// Test that --exclude now works on files too, not just directories
+	tmpDir := t.TempDir()
+
+	// Write test files - one should be excluded
+	os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\nfunc Main() {}"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "helper.go"), []byte("package main\nfunc Helper() {}"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "main_test.go"), []byte("package main\nfunc TestMain() {}"), 0644)
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	factory := NewChunkerFactory()
+	factory.Register("go", NewGoChunker())
+
+	mgr := NewIndexManager(storage, embedder, factory)
+
+	// Index with file pattern exclusion
+	result, err := mgr.Index(context.Background(), tmpDir, IndexOptions{
+		Excludes: []string{"*_test.go"},
+	})
+	if err != nil {
+		t.Fatalf("Index() error = %v", err)
+	}
+
+	// Should only process main.go and helper.go (2 files, not 3)
+	if result.FilesProcessed != 2 {
+		t.Errorf("Index() with file exclude processed %d files, want 2", result.FilesProcessed)
+	}
+}
+
+func TestIndexManager_ExcludeTests(t *testing.T) {
+	// Test --exclude-tests flag
+	tmpDir := t.TempDir()
+
+	// Create test directory structure
+	testsDir := filepath.Join(tmpDir, "__tests__")
+	os.MkdirAll(testsDir, 0755)
+
+	// Write source files
+	os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte("package main\nfunc Main() {}"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "util.go"), []byte("package main\nfunc Util() {}"), 0644)
+
+	// Write test files (should be excluded)
+	os.WriteFile(filepath.Join(tmpDir, "main_test.go"), []byte("package main\nfunc TestMain() {}"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "util_test.go"), []byte("package main\nfunc TestUtil() {}"), 0644)
+	os.WriteFile(filepath.Join(testsDir, "integration.go"), []byte("package tests\nfunc Integration() {}"), 0644)
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	factory := NewChunkerFactory()
+	factory.Register("go", NewGoChunker())
+
+	mgr := NewIndexManager(storage, embedder, factory)
+
+	// Index with ExcludeTests enabled
+	result, err := mgr.Index(context.Background(), tmpDir, IndexOptions{
+		ExcludeTests: true,
+	})
+	if err != nil {
+		t.Fatalf("Index() error = %v", err)
+	}
+
+	// Should only process main.go and util.go (2 files)
+	// main_test.go, util_test.go are excluded by pattern
+	// __tests__/integration.go is excluded by directory
+	if result.FilesProcessed != 2 {
+		t.Errorf("Index() with ExcludeTests processed %d files, want 2", result.FilesProcessed)
+	}
+}
+
+func TestIndexManager_ExcludeTestsWithJSPatterns(t *testing.T) {
+	// Test --exclude-tests with JavaScript/TypeScript patterns
+	tmpDir := t.TempDir()
+
+	// Create __tests__ directory
+	testsDir := filepath.Join(tmpDir, "__tests__")
+	os.MkdirAll(testsDir, 0755)
+
+	// Write source files
+	os.WriteFile(filepath.Join(tmpDir, "app.ts"), []byte("function app() {}"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "utils.ts"), []byte("function utils() {}"), 0644)
+
+	// Write test files (should be excluded)
+	os.WriteFile(filepath.Join(tmpDir, "app.test.ts"), []byte("test('app', () => {})"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "utils.spec.ts"), []byte("describe('utils', () => {})"), 0644)
+	os.WriteFile(filepath.Join(testsDir, "e2e.ts"), []byte("test('e2e', () => {})"), 0644)
+
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("Failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	embedder := &mockEmbedder{
+		embedding: []float32{0.1, 0.2, 0.3, 0.4},
+	}
+
+	factory := NewChunkerFactory()
+	// Register JS chunker for .ts files
+	jsChunker := NewJSChunker()
+	factory.Register("ts", jsChunker)
+
+	mgr := NewIndexManager(storage, embedder, factory)
+
+	// Index with ExcludeTests enabled
+	result, err := mgr.Index(context.Background(), tmpDir, IndexOptions{
+		ExcludeTests: true,
+	})
+	if err != nil {
+		t.Fatalf("Index() error = %v", err)
+	}
+
+	// Should only process app.ts and utils.ts (2 files)
+	if result.FilesProcessed != 2 {
+		t.Errorf("Index() with ExcludeTests (JS) processed %d files, want 2", result.FilesProcessed)
+	}
+}
+
+func TestTestFilePatterns(t *testing.T) {
+	// Verify TestFilePatterns contains expected patterns
+	expectedPatterns := []string{
+		"*_test.go",
+		"*.test.ts",
+		"*.spec.js",
+		"test_*.py",
+	}
+
+	for _, expected := range expectedPatterns {
+		found := false
+		for _, pattern := range TestFilePatterns {
+			if pattern == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("TestFilePatterns missing expected pattern: %s", expected)
+		}
+	}
+}
+
+func TestTestDirPatterns(t *testing.T) {
+	// Verify TestDirPatterns contains expected patterns
+	expectedPatterns := []string{
+		"__tests__",
+		"test",
+		"tests",
+		"testdata",
+	}
+
+	for _, expected := range expectedPatterns {
+		found := false
+		for _, pattern := range TestDirPatterns {
+			if pattern == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("TestDirPatterns missing expected pattern: %s", expected)
+		}
+	}
+}

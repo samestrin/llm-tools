@@ -28,20 +28,60 @@ type ProgressCallback func(event ProgressEvent)
 // DefaultBatchSize is the default number of vectors to send per upsert operation
 const DefaultBatchSize = 100
 
+// Common test file patterns used by ExcludeTests option
+var TestFilePatterns = []string{
+	"*_test.go",  // Go
+	"*_test.ts",  // TypeScript
+	"*_test.js",  // JavaScript
+	"*_test.tsx", // React TypeScript
+	"*_test.jsx", // React JavaScript
+	"*.test.ts",  // TypeScript (Jest style)
+	"*.test.js",  // JavaScript (Jest style)
+	"*.test.tsx", // React TypeScript (Jest style)
+	"*.test.jsx", // React JavaScript (Jest style)
+	"*.spec.ts",  // TypeScript (Jasmine/Mocha style)
+	"*.spec.js",  // JavaScript (Jasmine/Mocha style)
+	"*.spec.tsx", // React TypeScript
+	"*.spec.jsx", // React JavaScript
+	"test_*.py",  // Python (prefix style)
+	"*_test.py",  // Python (suffix style)
+	"*_test.rs",  // Rust
+	"*_test.php", // PHP
+	"*Test.php",  // PHP (PHPUnit style)
+	"*_spec.rb",  // Ruby (RSpec)
+	"test_*.rb",  // Ruby (prefix style)
+}
+
+// Common test directory patterns used by ExcludeTests option
+var TestDirPatterns = []string{
+	"__tests__",    // Jest
+	"__mocks__",    // Jest mocks
+	"test",         // Generic
+	"tests",        // Generic
+	"spec",         // RSpec/Jasmine
+	"specs",        // RSpec/Jasmine
+	"testdata",     // Go
+	"test_data",    // Python
+	"fixtures",     // Test fixtures
+	"__fixtures__", // Jest fixtures
+}
+
 // IndexOptions configures indexing behavior
 type IndexOptions struct {
-	Includes   []string         // Glob patterns to include (e.g., "*.go")
-	Excludes   []string         // Directory/pattern names to exclude (e.g., "vendor", "node_modules")
-	Force      bool             // Re-index all files even if unchanged
-	OnProgress ProgressCallback // Optional callback for progress updates
-	BatchSize  int              // Number of vectors to send per upsert (0 = unlimited)
-	Parallel   int              // Number of parallel batch uploads (0 or 1 = sequential)
+	Includes     []string         // Glob patterns to include (e.g., "*.go")
+	Excludes     []string         // Patterns to exclude (directories and files, e.g., "vendor", "*_test.go")
+	ExcludeTests bool             // Exclude common test files and directories
+	Force        bool             // Re-index all files even if unchanged
+	OnProgress   ProgressCallback // Optional callback for progress updates
+	BatchSize    int              // Number of vectors to send per upsert (0 = unlimited)
+	Parallel     int              // Number of parallel batch uploads (0 or 1 = sequential)
 }
 
 // UpdateOptions configures incremental update behavior
 type UpdateOptions struct {
-	Includes []string // Glob patterns to include
-	Excludes []string // Patterns to exclude
+	Includes     []string // Glob patterns to include
+	Excludes     []string // Patterns to exclude (directories and files)
+	ExcludeTests bool     // Exclude common test files and directories
 }
 
 // IndexResult contains statistics from an indexing operation
@@ -98,7 +138,7 @@ func (m *IndexManager) Index(ctx context.Context, rootPath string, opts IndexOpt
 	}
 
 	// Walk directory and collect files
-	files, err := m.collectFiles(rootPath, opts.Includes, opts.Excludes)
+	files, err := m.collectFiles(rootPath, opts.Includes, opts.Excludes, opts.ExcludeTests)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect files: %w", err)
 	}
@@ -171,7 +211,7 @@ func (m *IndexManager) Update(ctx context.Context, rootPath string, opts UpdateO
 	}
 
 	// Collect current files
-	files, err := m.collectFiles(rootPath, opts.Includes, opts.Excludes)
+	files, err := m.collectFiles(rootPath, opts.Includes, opts.Excludes, opts.ExcludeTests)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect files: %w", err)
 	}
@@ -226,8 +266,16 @@ func (m *IndexManager) Status(ctx context.Context) (*IndexStats, error) {
 }
 
 // collectFiles walks the directory and collects files matching criteria
-func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string) ([]string, error) {
+func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string, excludeTests bool) ([]string, error) {
 	var files []string
+
+	// Build effective exclude lists
+	dirExcludes := excludes
+	fileExcludes := excludes
+	if excludeTests {
+		dirExcludes = append(dirExcludes, TestDirPatterns...)
+		fileExcludes = append(fileExcludes, TestFilePatterns...)
+	}
 
 	err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -239,7 +287,7 @@ func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string
 			relPath := strings.TrimPrefix(path, rootPath)
 			relPath = strings.TrimPrefix(relPath, string(filepath.Separator))
 
-			for _, exclude := range excludes {
+			for _, exclude := range dirExcludes {
 				if matched, _ := filepath.Match(exclude, d.Name()); matched {
 					return filepath.SkipDir
 				}
@@ -248,6 +296,13 @@ func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string
 				}
 			}
 			return nil
+		}
+
+		// Check if file matches excludes
+		for _, exclude := range fileExcludes {
+			if matched, _ := filepath.Match(exclude, d.Name()); matched {
+				return nil
+			}
 		}
 
 		// Check if file matches includes (if specified)

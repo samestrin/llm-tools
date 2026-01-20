@@ -422,7 +422,11 @@ func GetToolDefinitions() []ToolDefinition {
 					"exclude": {
 						"type": "array",
 						"items": {"type": "string"},
-						"description": "Directories to exclude (default: ['vendor', 'node_modules', '.git'])"
+						"description": "Patterns to exclude - directories and files (e.g., ['vendor', '*_test.go'])"
+					},
+					"exclude_tests": {
+						"type": "boolean",
+						"description": "Exclude common test files and directories (*_test.go, *.spec.ts, __tests__/, etc.)"
 					},
 					"force": {
 						"type": "boolean",

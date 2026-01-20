@@ -898,6 +898,20 @@ func TestBuildIndexArgs(t *testing.T) {
 			},
 			contains: []string{"index", "--batch-size", "64", "--parallel", "4"},
 		},
+		{
+			name: "with exclude_tests",
+			args: map[string]interface{}{
+				"exclude_tests": true,
+			},
+			contains: []string{"index", "--exclude-tests"},
+		},
+		{
+			name: "with file pattern in exclude",
+			args: map[string]interface{}{
+				"exclude": []interface{}{"*_test.go"},
+			},
+			contains: []string{"index", "--exclude", "*_test.go"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1792,5 +1806,67 @@ func TestBuildIndexArgs_BatchSizeAndParallel(t *testing.T) {
 	}
 	if !foundParallel {
 		t.Errorf("buildIndexArgs() should include --parallel 4, got %v", result)
+	}
+}
+
+func TestBuildIndexArgs_ExcludeTests(t *testing.T) {
+	// When exclude_tests is true, it should include --exclude-tests
+	args := map[string]interface{}{
+		"exclude_tests": true,
+	}
+
+	result := buildIndexArgs(args)
+
+	found := false
+	for _, arg := range result {
+		if arg == "--exclude-tests" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("buildIndexArgs() should include --exclude-tests, got %v", result)
+	}
+}
+
+func TestBuildIndexArgs_ExcludeTestsFalse(t *testing.T) {
+	// When exclude_tests is false, it should NOT include --exclude-tests
+	args := map[string]interface{}{
+		"exclude_tests": false,
+	}
+
+	result := buildIndexArgs(args)
+
+	for _, arg := range result {
+		if arg == "--exclude-tests" {
+			t.Error("buildIndexArgs() should NOT include --exclude-tests when false")
+		}
+	}
+}
+
+func TestBuildIndexArgs_ExcludeWithFilePatterns(t *testing.T) {
+	// Test that exclude patterns work with file patterns
+	args := map[string]interface{}{
+		"exclude": []interface{}{"vendor", "*_test.go", "*.spec.ts"},
+	}
+
+	result := buildIndexArgs(args)
+
+	expectedExcludes := []string{"vendor", "*_test.go", "*.spec.ts"}
+	foundCount := 0
+	for i, arg := range result {
+		if arg == "--exclude" && i+1 < len(result) {
+			for _, expected := range expectedExcludes {
+				if result[i+1] == expected {
+					foundCount++
+					break
+				}
+			}
+		}
+	}
+
+	if foundCount != len(expectedExcludes) {
+		t.Errorf("buildIndexArgs() should include all exclude patterns, got %v", result)
 	}
 }
