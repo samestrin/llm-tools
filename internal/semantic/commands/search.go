@@ -15,19 +15,23 @@ import (
 
 func searchCmd() *cobra.Command {
 	var (
-		topK          int
-		threshold     float64
-		typeFilter    string
-		pathFilter    string
-		jsonOutput    bool
-		minOutput     bool
-		hybrid        bool
-		fusionK       int
-		fusionAlpha   float64
-		recencyBoost  bool
-		recencyFactor float64
-		recencyDecay  float64
-		profiles      []string // Multi-profile search
+		topK             int
+		threshold        float64
+		typeFilter       string
+		pathFilter       string
+		jsonOutput       bool
+		minOutput        bool
+		hybrid           bool
+		fusionK          int
+		fusionAlpha      float64
+		recencyBoost     bool
+		recencyFactor    float64
+		recencyDecay     float64
+		profiles         []string // Multi-profile search
+		rerank           bool     // Enable reranking (default: auto based on config)
+		rerankCandidates int      // Number of candidates to fetch for reranking
+		rerankThreshold  float64  // Minimum reranker score
+		noRerank         bool     // Explicitly disable reranking
 	)
 
 	cmd := &cobra.Command{
@@ -40,7 +44,12 @@ With --hybrid, performs combined dense (vector) and lexical (FTS5) search
 using Reciprocal Rank Fusion (RRF) for improved recall.
 
 With --profiles, searches across multiple collections (e.g., code,docs) and
-merges results sorted by score. Each result includes its source profile.`,
+merges results sorted by score. Each result includes its source profile.
+
+RERANKING: When LLM_SEMANTIC_RERANKER_API_URL is set, reranking is enabled by
+default. This uses a cross-encoder model to re-score results for improved
+precision. Use --no-rerank to disable. Use --rerank-candidates to control
+how many candidates are fetched before reranking (default: max(topK*5, 50)).`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := args[0]
@@ -79,20 +88,32 @@ merges results sorted by score. Each result includes its source profile.`,
 				}
 			}
 
+			// Validate rerank parameters
+			if rerankThreshold < 0 || rerankThreshold > 1 {
+				return fmt.Errorf("rerank-threshold must be between 0.0 and 1.0, got: %f", rerankThreshold)
+			}
+			if rerankCandidates < 0 {
+				return fmt.Errorf("rerank-candidates must be non-negative, got: %d", rerankCandidates)
+			}
+
 			return runSearch(cmd.Context(), query, searchOpts{
-				topK:          topK,
-				threshold:     float32(threshold),
-				typeFilter:    typeFilter,
-				pathFilter:    pathFilter,
-				jsonOutput:    jsonOutput,
-				minOutput:     minOutput,
-				hybrid:        hybrid,
-				fusionK:       fusionK,
-				fusionAlpha:   fusionAlpha,
-				recencyBoost:  recencyBoost,
-				recencyFactor: recencyFactor,
-				recencyDecay:  recencyDecay,
-				profiles:      profiles,
+				topK:             topK,
+				threshold:        float32(threshold),
+				typeFilter:       typeFilter,
+				pathFilter:       pathFilter,
+				jsonOutput:       jsonOutput,
+				minOutput:        minOutput,
+				hybrid:           hybrid,
+				fusionK:          fusionK,
+				fusionAlpha:      fusionAlpha,
+				recencyBoost:     recencyBoost,
+				recencyFactor:    recencyFactor,
+				recencyDecay:     recencyDecay,
+				profiles:         profiles,
+				rerank:           rerank,
+				rerankCandidates: rerankCandidates,
+				rerankThreshold:  float32(rerankThreshold),
+				noRerank:         noRerank,
 			})
 		},
 	}
@@ -110,24 +131,32 @@ merges results sorted by score. Each result includes its source profile.`,
 	cmd.Flags().Float64Var(&recencyFactor, "recency-factor", 0.5, "Recency boost factor (max boost = 1+factor)")
 	cmd.Flags().Float64Var(&recencyDecay, "recency-decay", 7, "Recency half-life in days (higher = slower decay)")
 	cmd.Flags().StringSliceVar(&profiles, "profiles", nil, "Profiles to search across (comma-separated, e.g., code,docs)")
+	cmd.Flags().BoolVar(&rerank, "rerank", false, "Enable reranking (auto-enabled when LLM_SEMANTIC_RERANKER_API_URL is set)")
+	cmd.Flags().IntVar(&rerankCandidates, "rerank-candidates", 0, "Number of candidates to fetch for reranking (default: max(topK*5, 50))")
+	cmd.Flags().Float64Var(&rerankThreshold, "rerank-threshold", 0.0, "Minimum reranker score (0.0-1.0)")
+	cmd.Flags().BoolVar(&noRerank, "no-rerank", false, "Disable reranking even when reranker is configured")
 
 	return cmd
 }
 
 type searchOpts struct {
-	topK          int
-	threshold     float32
-	typeFilter    string
-	pathFilter    string
-	jsonOutput    bool
-	minOutput     bool
-	hybrid        bool
-	fusionK       int
-	fusionAlpha   float64
-	recencyBoost  bool
-	recencyFactor float64
-	recencyDecay  float64
-	profiles      []string
+	topK             int
+	threshold        float32
+	typeFilter       string
+	pathFilter       string
+	jsonOutput       bool
+	minOutput        bool
+	hybrid           bool
+	fusionK          int
+	fusionAlpha      float64
+	recencyBoost     bool
+	recencyFactor    float64
+	recencyDecay     float64
+	profiles         []string
+	rerank           bool
+	rerankCandidates int
+	rerankThreshold  float32
+	noRerank         bool
 }
 
 func runSearch(ctx context.Context, query string, opts searchOpts) error {
@@ -138,17 +167,42 @@ func runSearch(ctx context.Context, query string, opts searchOpts) error {
 	}
 	defer cleanup()
 
-	// Create searcher
-	searcher := semantic.NewSearcher(components.Storage, components.Embedder)
+	// Create reranker if configured
+	var reranker semantic.RerankerInterface
+	if !opts.noRerank {
+		reranker, err = createReranker()
+		if err != nil {
+			return fmt.Errorf("failed to create reranker: %w", err)
+		}
+	}
+
+	// Create searcher (with or without reranker)
+	var searcher *semantic.Searcher
+	if reranker != nil {
+		searcher = semantic.NewSearcherWithReranker(components.Storage, components.Embedder, reranker)
+	} else {
+		searcher = semantic.NewSearcher(components.Storage, components.Embedder)
+	}
+
+	// Determine if reranking should be enabled
+	// Rerank is ON by default when reranker is available, unless --no-rerank is set
+	enableRerank := reranker != nil && !opts.noRerank
+	// Explicit --rerank flag can also enable it (though reranker must still be configured)
+	if opts.rerank && reranker == nil {
+		return fmt.Errorf("--rerank specified but no reranker configured (set LLM_SEMANTIC_RERANKER_API_URL)")
+	}
 
 	// Perform search (hybrid or dense-only)
 	var results []semantic.SearchResult
 	searchOpts := semantic.SearchOptions{
-		TopK:       opts.topK,
-		Threshold:  opts.threshold,
-		Type:       opts.typeFilter,
-		PathFilter: opts.pathFilter,
-		Profiles:   opts.profiles,
+		TopK:             opts.topK,
+		Threshold:        opts.threshold,
+		Type:             opts.typeFilter,
+		PathFilter:       opts.pathFilter,
+		Profiles:         opts.profiles,
+		Rerank:           enableRerank,
+		RerankCandidates: opts.rerankCandidates,
+		RerankThreshold:  opts.rerankThreshold,
 	}
 
 	if opts.hybrid {

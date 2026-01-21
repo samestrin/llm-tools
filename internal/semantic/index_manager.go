@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -24,6 +26,21 @@ type ProgressEvent struct {
 
 // ProgressCallback is called during indexing to report progress
 type ProgressCallback func(event ProgressEvent)
+
+// UploadProgressEvent represents a progress update during upload to storage
+type UploadProgressEvent struct {
+	Phase          string  // "embedding" or "uploading"
+	Current        int     // Current batch number (1-based)
+	Total          int     // Total batches
+	ChunksUploaded int     // Total chunks uploaded so far
+	ChunksTotal    int     // Total chunks to upload
+	BatchSize      int     // Size of current batch
+	ElapsedSeconds float64 // Time elapsed since upload phase started
+	ETASeconds     float64 // Estimated seconds remaining (0 if not calculable)
+}
+
+// UploadProgressCallback is called during storage upload to report progress
+type UploadProgressCallback func(event UploadProgressEvent)
 
 // DefaultBatchSize is the default number of vectors to send per upsert operation
 const DefaultBatchSize = 100
@@ -68,13 +85,15 @@ var TestDirPatterns = []string{
 
 // IndexOptions configures indexing behavior
 type IndexOptions struct {
-	Includes     []string         // Glob patterns to include (e.g., "*.go")
-	Excludes     []string         // Patterns to exclude (directories and files, e.g., "vendor", "*_test.go")
-	ExcludeTests bool             // Exclude common test files and directories
-	Force        bool             // Re-index all files even if unchanged
-	OnProgress   ProgressCallback // Optional callback for progress updates
-	BatchSize    int              // Number of vectors to send per upsert (0 = unlimited)
-	Parallel     int              // Number of parallel batch uploads (0 or 1 = sequential)
+	Includes         []string               // Glob patterns to include (e.g., "*.go")
+	Excludes         []string               // Patterns to exclude (directories and files, e.g., "vendor", "*_test.go")
+	ExcludeTests     bool                   // Exclude common test files and directories
+	Force            bool                   // Re-index all files even if unchanged
+	OnProgress       ProgressCallback       // Optional callback for progress updates
+	OnUploadProgress UploadProgressCallback // Optional callback for upload phase progress
+	BatchSize        int                    // Number of vectors to send per upsert (0 = unlimited)
+	Parallel         int                    // Number of parallel batch uploads (0 or 1 = sequential)
+	EmbedBatchSize   int                    // Number of chunks to embed per API call across files (0 = per-file batching)
 }
 
 // UpdateOptions configures incremental update behavior
@@ -117,6 +136,13 @@ func NewIndexManager(storage Storage, embedder EmbedderInterface, factory *Chunk
 	}
 }
 
+// pendingChunk holds a chunk waiting to be embedded, along with its file metadata
+type pendingChunk struct {
+	chunk       Chunk
+	filePath    string
+	contentHash string
+}
+
 // Index builds or rebuilds the semantic index for a directory
 func (m *IndexManager) Index(ctx context.Context, rootPath string, opts IndexOptions) (*IndexResult, error) {
 	result := &IndexResult{}
@@ -143,9 +169,19 @@ func (m *IndexManager) Index(ctx context.Context, rootPath string, opts IndexOpt
 		return nil, fmt.Errorf("failed to collect files: %w", err)
 	}
 
+	// Use cross-file batching if EmbedBatchSize is set
+	if opts.EmbedBatchSize > 0 {
+		return m.indexWithCrossFileBatching(ctx, files, opts, result)
+	}
+
+	// Original per-file approach
+	return m.indexPerFile(ctx, files, opts, result)
+}
+
+// indexPerFile processes files one at a time (original behavior)
+func (m *IndexManager) indexPerFile(ctx context.Context, files []string, opts IndexOptions, result *IndexResult) (*IndexResult, error) {
 	totalFiles := len(files)
 
-	// Process each file
 	for i, file := range files {
 		select {
 		case <-ctx.Done():
@@ -188,12 +224,243 @@ func (m *IndexManager) Index(ctx context.Context, rootPath string, opts IndexOpt
 				Total:       totalFiles,
 				FilePath:    file,
 				ChunksTotal: result.ChunksCreated,
-				Skipped:     false, // Not skipped - we tried to process it
+				Skipped:     false,
 			})
 		}
 	}
 
 	return result, nil
+}
+
+// indexWithCrossFileBatching processes files in batches with incremental commits.
+// Each batch: chunk files → embed chunks → store to DB → commit file hashes.
+// This allows resuming interrupted indexing - files with stored hashes are skipped.
+func (m *IndexManager) indexWithCrossFileBatching(ctx context.Context, files []string, opts IndexOptions, result *IndexResult) (*IndexResult, error) {
+	totalFiles := len(files)
+	embedBatchSize := opts.EmbedBatchSize
+
+	// First pass: filter files that need indexing and group into batches
+	// Each batch targets ~embedBatchSize chunks for efficient API usage
+	type fileBatch struct {
+		files  []string
+		hashes map[string]string // filePath -> contentHash
+		chunks []pendingChunk
+	}
+
+	var batches []fileBatch
+	currentBatch := fileBatch{hashes: make(map[string]string)}
+	fileIndex := 0
+
+	for _, file := range files {
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		default:
+		}
+
+		fileIndex++
+
+		// Check if file is already indexed and unchanged
+		if !opts.Force {
+			needsIndex, _ := m.fileNeedsUpdate(ctx, file)
+			if !needsIndex {
+				result.FilesUnchanged++
+				if opts.OnProgress != nil {
+					opts.OnProgress(ProgressEvent{
+						Current:     fileIndex,
+						Total:       totalFiles,
+						FilePath:    file,
+						ChunksTotal: result.ChunksCreated,
+						Skipped:     true,
+					})
+				}
+				continue
+			}
+		}
+
+		// Chunk the file
+		chunks, contentHash, err := m.chunkFile(file)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", file, err))
+			result.FilesSkipped++
+			continue
+		}
+
+		// Add to current batch
+		currentBatch.files = append(currentBatch.files, file)
+		currentBatch.hashes[file] = contentHash
+		for _, chunk := range chunks {
+			currentBatch.chunks = append(currentBatch.chunks, pendingChunk{
+				chunk:       chunk,
+				filePath:    file,
+				contentHash: contentHash,
+			})
+		}
+
+		// Report chunking progress
+		if opts.OnProgress != nil {
+			opts.OnProgress(ProgressEvent{
+				Current:     fileIndex,
+				Total:       totalFiles,
+				FilePath:    file,
+				ChunksTotal: result.ChunksCreated + len(currentBatch.chunks),
+				Skipped:     false,
+			})
+		}
+
+		// When batch reaches target size, finalize it
+		if len(currentBatch.chunks) >= embedBatchSize {
+			batches = append(batches, currentBatch)
+			currentBatch = fileBatch{hashes: make(map[string]string)}
+		}
+	}
+
+	// Don't forget the last partial batch
+	if len(currentBatch.chunks) > 0 {
+		batches = append(batches, currentBatch)
+	}
+
+	if len(batches) == 0 {
+		return result, nil
+	}
+
+	// Process each batch: embed → store → commit hashes
+	totalBatches := len(batches)
+	startTime := time.Now()
+
+	for batchIdx, batch := range batches {
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		default:
+		}
+
+		batchNum := batchIdx + 1
+
+		// Step 1: Embed all chunks in this batch
+		texts := make([]string, len(batch.chunks))
+		for i, pc := range batch.chunks {
+			texts[i] = pc.chunk.Content
+		}
+
+		embeddings, err := m.embedder.EmbedBatch(ctx, texts)
+		if err != nil {
+			return result, fmt.Errorf("failed to generate embeddings (batch %d): %w", batchNum, err)
+		}
+
+		// Pair chunks with embeddings
+		chunksWithEmbeddings := make([]ChunkWithEmbedding, len(batch.chunks))
+		for i, pc := range batch.chunks {
+			chunksWithEmbeddings[i] = ChunkWithEmbedding{
+				Chunk:     pc.chunk,
+				Embedding: embeddings[i],
+			}
+		}
+
+		// Step 2: Store chunks to database (with optional parallel sub-batching)
+		storeBatchSize := opts.BatchSize
+		if storeBatchSize <= 0 || opts.Parallel <= 1 {
+			// Sequential: store all chunks in one call (storage layer handles sub-batching)
+			if err := m.storage.CreateBatch(ctx, chunksWithEmbeddings); err != nil {
+				return result, fmt.Errorf("failed to store chunks (batch %d): %w", batchNum, err)
+			}
+		} else {
+			// Parallel: split into sub-batches and upload concurrently
+			g, gctx := errgroup.WithContext(ctx)
+			g.SetLimit(opts.Parallel)
+
+			var uploadedChunks int64
+			totalChunksInBatch := len(chunksWithEmbeddings)
+			uploadStartTime := time.Now()
+
+			for i := 0; i < len(chunksWithEmbeddings); i += storeBatchSize {
+				start := i
+				end := i + storeBatchSize
+				if end > len(chunksWithEmbeddings) {
+					end = len(chunksWithEmbeddings)
+				}
+				subBatch := chunksWithEmbeddings[start:end]
+
+				g.Go(func() error {
+					if err := m.storage.CreateBatch(gctx, subBatch); err != nil {
+						return fmt.Errorf("failed to store chunks (batch %d, sub-batch %d-%d): %w", batchNum, start, end, err)
+					}
+					// Track progress for potential future use
+					atomic.AddInt64(&uploadedChunks, int64(len(subBatch)))
+					return nil
+				})
+			}
+
+			if err := g.Wait(); err != nil {
+				return result, err
+			}
+
+			// Log parallel upload stats at debug level
+			if totalChunksInBatch > storeBatchSize {
+				uploadDuration := time.Since(uploadStartTime)
+				_ = uploadDuration // Available for debug logging if needed
+			}
+		}
+
+		// Step 3: Commit file hashes (this is the durability checkpoint)
+		// After this, these files will be skipped on resume
+		for filePath, hash := range batch.hashes {
+			_ = m.storage.SetFileHash(ctx, filePath, hash)
+		}
+
+		// Update results
+		result.FilesProcessed += len(batch.files)
+		result.ChunksCreated += len(chunksWithEmbeddings)
+
+		// Report progress
+		if opts.OnUploadProgress != nil {
+			elapsed := time.Since(startTime).Seconds()
+			var eta float64
+			if batchNum >= 2 && batchNum < totalBatches {
+				avgPerBatch := elapsed / float64(batchNum)
+				eta = avgPerBatch * float64(totalBatches-batchNum)
+			}
+			opts.OnUploadProgress(UploadProgressEvent{
+				Phase:          "indexing",
+				Current:        batchNum,
+				Total:          totalBatches,
+				ChunksUploaded: result.ChunksCreated,
+				ChunksTotal:    0, // Unknown total in streaming mode
+				BatchSize:      len(chunksWithEmbeddings),
+				ElapsedSeconds: elapsed,
+				ETASeconds:     eta,
+			})
+		}
+	}
+
+	return result, nil
+}
+
+// chunkFile reads and chunks a single file, returning chunks and content hash
+func (m *IndexManager) chunkFile(filePath string) ([]Chunk, string, error) {
+	// Get appropriate chunker
+	chunker, ok := m.factory.GetByExtension(filePath)
+	if !ok {
+		return nil, "", fmt.Errorf("no chunker for file type")
+	}
+
+	// Read file content
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// Calculate hash
+	contentHash := sha256.Sum256(content)
+	hashStr := hex.EncodeToString(contentHash[:])
+
+	// Parse into chunks
+	chunks, err := chunker.Chunk(filePath, content)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to chunk file: %w", err)
+	}
+
+	return chunks, hashStr, nil
 }
 
 // Update performs incremental index update

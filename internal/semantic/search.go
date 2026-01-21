@@ -21,6 +21,7 @@ type EmbedderInterface interface {
 type Searcher struct {
 	storage  Storage
 	embedder EmbedderInterface
+	reranker RerankerInterface // Optional reranker for improved precision
 }
 
 // NewSearcher creates a new Searcher with the given storage and embedder
@@ -29,6 +30,25 @@ func NewSearcher(storage Storage, embedder EmbedderInterface) *Searcher {
 		storage:  storage,
 		embedder: embedder,
 	}
+}
+
+// NewSearcherWithReranker creates a Searcher with reranking support
+func NewSearcherWithReranker(storage Storage, embedder EmbedderInterface, reranker RerankerInterface) *Searcher {
+	return &Searcher{
+		storage:  storage,
+		embedder: embedder,
+		reranker: reranker,
+	}
+}
+
+// SetReranker sets or updates the reranker (can be nil to disable)
+func (s *Searcher) SetReranker(reranker RerankerInterface) {
+	s.reranker = reranker
+}
+
+// HasReranker returns true if a reranker is configured
+func (s *Searcher) HasReranker() bool {
+	return s.reranker != nil
 }
 
 // Search performs semantic search using the query text
@@ -49,14 +69,89 @@ func (s *Searcher) Search(ctx context.Context, query string, opts SearchOptions)
 		return nil, err
 	}
 
+	// Determine if reranking is enabled
+	shouldRerank := opts.Rerank && s.reranker != nil
+
+	// If reranking, over-fetch candidates
+	searchOpts := opts
+	if shouldRerank {
+		candidates := opts.RerankCandidates
+		if candidates <= 0 {
+			// Default: fetch 5x the desired results, minimum 50
+			candidates = opts.TopK * 5
+			if candidates < 50 {
+				candidates = 50
+			}
+		}
+		searchOpts.TopK = candidates
+		// Don't apply embedding threshold when reranking - let reranker decide
+		searchOpts.Threshold = 0
+	}
+
 	// Search storage
-	results, err := s.storage.Search(ctx, queryEmbedding, opts)
+	results, err := s.storage.Search(ctx, queryEmbedding, searchOpts)
 	if err != nil {
 		return nil, err
 	}
 
+	// Apply reranking if enabled
+	if shouldRerank && len(results) > 0 {
+		results, err = s.applyReranking(ctx, query, results, opts)
+		if err != nil {
+			// Log reranking error but fall back to embedding-only results
+			slog.Warn("reranking failed, using embedding scores", "error", err)
+		}
+	}
+
 	// Apply relevance labels
 	s.applyRelevanceLabels(ctx, results)
+
+	return results, nil
+}
+
+// applyReranking reranks results using the cross-encoder and updates scores
+func (s *Searcher) applyReranking(ctx context.Context, query string, results []SearchResult, opts SearchOptions) ([]SearchResult, error) {
+	if len(results) == 0 {
+		return results, nil
+	}
+
+	// Extract document texts for reranking
+	documents := make([]string, len(results))
+	for i, r := range results {
+		documents[i] = r.Chunk.Content
+	}
+
+	// Get reranker scores
+	scores, err := s.reranker.Rerank(ctx, query, documents)
+	if err != nil {
+		return results, err
+	}
+
+	// Update results with reranker scores
+	for i := range results {
+		if i < len(scores) {
+			results[i].Score = scores[i]
+		}
+	}
+
+	// Sort by new scores (descending)
+	sortResultsByScore(results)
+
+	// Apply reranker threshold
+	if opts.RerankThreshold > 0 {
+		filtered := results[:0]
+		for _, r := range results {
+			if r.Score >= opts.RerankThreshold {
+				filtered = append(filtered, r)
+			}
+		}
+		results = filtered
+	}
+
+	// Apply TopK limit
+	if opts.TopK > 0 && len(results) > opts.TopK {
+		results = results[:opts.TopK]
+	}
 
 	return results, nil
 }

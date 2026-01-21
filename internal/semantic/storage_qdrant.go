@@ -240,6 +240,10 @@ func (s *QdrantStorage) Create(ctx context.Context, chunk Chunk, embedding []flo
 	return nil
 }
 
+// MaxQdrantBatchSize is the maximum number of points to upsert in a single Qdrant request.
+// Large batches can cause timeouts or memory issues. 100 is a safe default.
+const MaxQdrantBatchSize = 100
+
 func (s *QdrantStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbedding) error {
 	if len(chunks) == 0 {
 		return nil
@@ -258,13 +262,44 @@ func (s *QdrantStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbed
 		points[i] = s.chunkToPoint(cwe.Chunk, cwe.Embedding)
 	}
 
-	// Batch upsert all points in a single request
-	_, err := s.client.Upsert(ctx, &qdrant.UpsertPoints{
-		CollectionName: s.collectionName,
-		Points:         points,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to batch upsert points: %w", err)
+	// Sub-batch large uploads to avoid timeouts
+	// If the batch is larger than MaxQdrantBatchSize, split it into smaller batches
+	if len(points) > MaxQdrantBatchSize {
+		totalSubBatches := (len(points) + MaxQdrantBatchSize - 1) / MaxQdrantBatchSize
+		slog.Debug("splitting large batch into sub-batches",
+			"total_points", len(points),
+			"max_batch_size", MaxQdrantBatchSize,
+			"sub_batches", totalSubBatches)
+
+		for i := 0; i < len(points); i += MaxQdrantBatchSize {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			end := i + MaxQdrantBatchSize
+			if end > len(points) {
+				end = len(points)
+			}
+
+			_, err := s.client.Upsert(ctx, &qdrant.UpsertPoints{
+				CollectionName: s.collectionName,
+				Points:         points[i:end],
+			})
+			if err != nil {
+				return fmt.Errorf("failed to batch upsert points (sub-batch %d-%d): %w", i, end, err)
+			}
+		}
+	} else {
+		// Small batch - upsert all at once
+		_, err := s.client.Upsert(ctx, &qdrant.UpsertPoints{
+			CollectionName: s.collectionName,
+			Points:         points,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to batch upsert points: %w", err)
+		}
 	}
 
 	// Sync to parallel FTS index

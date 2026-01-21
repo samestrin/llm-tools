@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### llm-semantic
+
+- **Qdrant large batch upload fix** - Fixed silent upload failures when indexing large codebases:
+  - Added automatic sub-batching in `QdrantStorage.CreateBatch` for batches > 100 points
+  - Previously, uploading 100,000+ chunks in a single request could timeout silently
+  - Now automatically splits into 100-point sub-batches for reliable uploads
+  - Added debug logging when sub-batching occurs
+
+- **Incremental commit indexing** - Redesigned `--embed-batch-size` for crash recovery:
+  - Old design: chunk ALL → embed ALL → store ALL → commit hashes (no recovery if interrupted)
+  - New design: for each batch: chunk → embed → store → commit (resumable from any point)
+  - Running the same command after interruption will skip already-indexed files
+  - Memory usage now bounded by batch size instead of entire codebase
+  - Progress is durably saved after each batch completes
+  - `--parallel` and `--batch-size` now work within each batch for faster uploads
+
 ### Changed
 
 #### llm-semantic
@@ -31,11 +49,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### llm-semantic
 
+- **Reranking support** - Two-stage retrieval with cross-encoder reranking for improved precision:
+  - Automatic reranking when `LLM_SEMANTIC_RERANKER_API_URL` environment variable is set
+  - Uses Cohere-compatible `/v1/rerank` API endpoint
+  - Over-fetches candidates (default: max(topK*5, 50)) then reranks to final topK
+  - CLI flags: `--rerank`, `--rerank-candidates`, `--rerank-threshold`, `--no-rerank`
+  - Environment variables: `LLM_SEMANTIC_RERANKER_API_URL`, `LLM_SEMANTIC_RERANKER_MODEL`
+  - Recommended model: Qwen/Qwen3-Reranker-0.6B (~1GB VRAM)
+  - Graceful fallback: logs warning and uses embedding scores if reranker fails
+  - MCP tools updated with rerank parameters
+
+- **Upload progress with ETA** - Real-time progress feedback during embedding and upload phases:
+  - Displays batch progress for embedding phase: `Embedding: [X/Y batches] N/M chunks (P%) ETA: Xm Ys`
+  - Displays batch progress for uploading phase: `Uploading: [X/Y batches] N/M chunks (P%) ETA: Xm Ys`
+  - TTY-aware: single-line updates on terminals, periodic logging in non-TTY environments
+  - ETA calculation starts after 2 batches for accurate estimation
+  - Progress visible when using `--embed-batch-size` with `--batch-size`
+
 - **Parallel batch uploads** - Speed up indexing with concurrent vector upserts:
   - `--parallel N` flag to enable N concurrent batch uploads during indexing
   - Requires `--batch-size` to be set (parallelism only applies to batched mode)
   - Uses errgroup for fail-fast error handling
   - Example: `llm-semantic index --batch-size 64 --parallel 4` uploads 4 batches concurrently
+
+- **Cross-file embedding batching** - Dramatically reduce embedding API calls:
+  - `--embed-batch-size N` flag to batch N chunks per embedding API call across multiple files
+  - Without this flag: 100 files = 100 API calls (one per file)
+  - With `--embed-batch-size 64`: 100 files × 5 chunks = 500 chunks / 64 = 8 API calls
+  - Chunks all files first, then batches embedding requests for maximum throughput
+  - Works with `--batch-size` and `--parallel` for storage batching
+  - Example: `llm-semantic index --embed-batch-size 64 --batch-size 64 --parallel 4`
 
 - **Enhanced `--exclude` flag** - Now supports file patterns in addition to directories:
   - Exclude specific file patterns: `--exclude "*_test.go"` or `--exclude "*.spec.ts"`

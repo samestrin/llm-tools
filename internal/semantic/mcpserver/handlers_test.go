@@ -1312,6 +1312,79 @@ func TestBuildSearchArgs_Profiles(t *testing.T) {
 	}
 }
 
+func TestBuildSearchArgs_RerankParameters(t *testing.T) {
+	args := map[string]interface{}{
+		"query":             "authentication middleware",
+		"rerank":            true,
+		"rerank_candidates": float64(100),
+		"rerank_threshold":  0.5,
+	}
+
+	result := buildSearchArgs(args)
+
+	// Check base command
+	if len(result) < 2 || result[0] != "search" {
+		t.Errorf("buildSearchArgs() should start with 'search', got %v", result)
+	}
+
+	// Check --rerank flag
+	foundRerank := false
+	for _, arg := range result {
+		if arg == "--rerank" {
+			foundRerank = true
+			break
+		}
+	}
+	if !foundRerank {
+		t.Error("buildSearchArgs() missing --rerank flag")
+	}
+
+	// Check --rerank-candidates
+	foundCandidates := false
+	for i, arg := range result {
+		if arg == "--rerank-candidates" && i+1 < len(result) && result[i+1] == "100" {
+			foundCandidates = true
+			break
+		}
+	}
+	if !foundCandidates {
+		t.Errorf("buildSearchArgs() missing or incorrect --rerank-candidates 100, got %v", result)
+	}
+
+	// Check --rerank-threshold
+	foundThreshold := false
+	for i, arg := range result {
+		if arg == "--rerank-threshold" && i+1 < len(result) {
+			foundThreshold = true
+			break
+		}
+	}
+	if !foundThreshold {
+		t.Errorf("buildSearchArgs() missing --rerank-threshold, got %v", result)
+	}
+}
+
+func TestBuildSearchArgs_NoRerank(t *testing.T) {
+	args := map[string]interface{}{
+		"query":     "authentication middleware",
+		"no_rerank": true,
+	}
+
+	result := buildSearchArgs(args)
+
+	// Check --no-rerank flag
+	foundNoRerank := false
+	for _, arg := range result {
+		if arg == "--no-rerank" {
+			foundNoRerank = true
+			break
+		}
+	}
+	if !foundNoRerank {
+		t.Error("buildSearchArgs() missing --no-rerank flag")
+	}
+}
+
 // Test getStringSlice helper
 func TestGetStringSlice(t *testing.T) {
 	tests := []struct {
@@ -1868,5 +1941,79 @@ func TestBuildIndexArgs_ExcludeWithFilePatterns(t *testing.T) {
 
 	if foundCount != len(expectedExcludes) {
 		t.Errorf("buildIndexArgs() should include all exclude patterns, got %v", result)
+	}
+}
+
+func TestBuildIndexArgs_EmbedBatchSizePositive(t *testing.T) {
+	// Test that embed_batch_size parameter is passed when positive
+	args := map[string]interface{}{
+		"embed_batch_size": float64(64), // JSON numbers are float64
+	}
+
+	result := buildIndexArgs(args)
+
+	foundEmbedBatchSize := false
+	for i, arg := range result {
+		if arg == "--embed-batch-size" && i+1 < len(result) {
+			if result[i+1] == "64" {
+				foundEmbedBatchSize = true
+			}
+		}
+	}
+
+	if !foundEmbedBatchSize {
+		t.Errorf("buildIndexArgs() should include --embed-batch-size 64, got %v", result)
+	}
+}
+
+func TestBuildIndexArgs_EmbedBatchSizeZeroNotIncluded(t *testing.T) {
+	// Test that embed_batch_size=0 is not included (0 means per-file batching)
+	args := map[string]interface{}{
+		"embed_batch_size": float64(0),
+	}
+
+	result := buildIndexArgs(args)
+
+	for _, arg := range result {
+		if arg == "--embed-batch-size" {
+			t.Errorf("buildIndexArgs() should not include --embed-batch-size when value is 0, got %v", result)
+		}
+	}
+}
+
+func TestBuildIndexArgs_EmbedBatchSizeWithOtherOptions(t *testing.T) {
+	// Test that embed_batch_size works with other batching options
+	args := map[string]interface{}{
+		"embed_batch_size": float64(128),
+		"batch_size":       float64(64),
+		"parallel":         float64(4),
+	}
+
+	result := buildIndexArgs(args)
+
+	foundEmbedBatchSize := false
+	foundBatchSize := false
+	foundParallel := false
+
+	for i, arg := range result {
+		if arg == "--embed-batch-size" && i+1 < len(result) && result[i+1] == "128" {
+			foundEmbedBatchSize = true
+		}
+		if arg == "--batch-size" && i+1 < len(result) && result[i+1] == "64" {
+			foundBatchSize = true
+		}
+		if arg == "--parallel" && i+1 < len(result) && result[i+1] == "4" {
+			foundParallel = true
+		}
+	}
+
+	if !foundEmbedBatchSize {
+		t.Errorf("buildIndexArgs() should include --embed-batch-size 128, got %v", result)
+	}
+	if !foundBatchSize {
+		t.Errorf("buildIndexArgs() should include --batch-size 64, got %v", result)
+	}
+	if !foundParallel {
+		t.Errorf("buildIndexArgs() should include --parallel 4, got %v", result)
 	}
 }

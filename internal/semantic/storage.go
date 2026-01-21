@@ -36,6 +36,11 @@ type SearchOptions struct {
 	// higher-level APIs (Searcher, MultiProfileSearcher) to coordinate multi-profile
 	// search and is included here to allow unified option passing through the stack.
 	Profiles []string `json:"profiles,omitempty"`
+
+	// Reranking options - applied by Searcher, not Storage
+	Rerank           bool    `json:"rerank,omitempty"`            // Enable reranking with cross-encoder
+	RerankCandidates int     `json:"rerank_candidates,omitempty"` // Number of candidates to fetch for reranking (default: TopK * 5)
+	RerankThreshold  float32 `json:"rerank_threshold,omitempty"`  // Minimum reranker score (0.0 - 1.0)
 }
 
 // ChunkWithEmbedding pairs a chunk with its embedding for batch operations
