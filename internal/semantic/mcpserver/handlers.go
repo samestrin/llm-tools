@@ -331,6 +331,20 @@ func buildSearchArgs(args map[string]interface{}) []string {
 		cmdArgs = append(cmdArgs, "--profiles", strings.Join(profiles, ","))
 	}
 
+	// Reranking parameters
+	if getBool(args, "rerank") {
+		cmdArgs = append(cmdArgs, "--rerank")
+	}
+	if rerankCandidates, ok := getInt(args, "rerank_candidates"); ok && rerankCandidates > 0 {
+		cmdArgs = append(cmdArgs, "--rerank-candidates", strconv.Itoa(rerankCandidates))
+	}
+	if rerankThreshold, ok := getFloat(args, "rerank_threshold"); ok && rerankThreshold > 0 {
+		cmdArgs = append(cmdArgs, "--rerank-threshold", fmt.Sprintf("%.4f", rerankThreshold))
+	}
+	if getBool(args, "no_rerank") {
+		cmdArgs = append(cmdArgs, "--no-rerank")
+	}
+
 	return cmdArgs
 }
 
@@ -436,6 +450,9 @@ func buildIndexArgs(args map[string]interface{}) []string {
 	}
 	if parallel, ok := getInt(args, "parallel"); ok && parallel > 0 {
 		cmdArgs = append(cmdArgs, "--parallel", strconv.Itoa(parallel))
+	}
+	if embedBatchSize, ok := getInt(args, "embed_batch_size"); ok && embedBatchSize > 0 {
+		cmdArgs = append(cmdArgs, "--embed-batch-size", strconv.Itoa(embedBatchSize))
 	}
 	if storage, ok := args["storage"].(string); ok && storage != "" {
 		cmdArgs = append(cmdArgs, "--storage", storage)

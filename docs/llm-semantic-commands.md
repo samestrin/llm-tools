@@ -28,6 +28,8 @@ go install github.com/samestrin/llm-tools/cmd/llm-semantic@latest
 | `LLM_SEMANTIC_API_URL` | Embedding API URL (overrides --api-url default) |
 | `LLM_SEMANTIC_API_KEY` | API key for embedding service |
 | `LLM_SEMANTIC_MODEL` | Embedding model name |
+| `LLM_SEMANTIC_RERANKER_API_URL` | Reranker API URL (enables reranking when set) |
+| `LLM_SEMANTIC_RERANKER_MODEL` | Reranker model name (default: `Qwen/Qwen3-Reranker-0.6B`) |
 | `OPENAI_API_KEY` | Fallback API key |
 | `COHERE_API_KEY` | API key for Cohere embedder |
 | `HUGGINGFACE_API_KEY` | API key for HuggingFace embedder |
@@ -74,12 +76,53 @@ llm-semantic search "authentication logic" --top 10 --threshold 0.7
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--top` | Number of results to return | 10 |
-| `--threshold` | Minimum similarity threshold (0.0-1.0) | 0.0 |
-| `--type` | Filter by symbol type (function, type, method, etc.) | |
-| `--path` | Filter by file path pattern | |
+| `--top, -n` | Number of results to return | 10 |
+| `--threshold, -t` | Minimum similarity threshold (0.0-1.0) | 0.0 |
+| `--type` | Filter by symbol type (function, method, struct, interface) | |
+| `--path, -p` | Filter by file path prefix | |
+| `--profiles` | Profiles to search across (comma-separated, e.g., `code,docs`) | |
 | `--min` | Minimal output format | false |
 | `--json` | JSON output format | false |
+
+**Hybrid Search:**
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--hybrid` | Enable hybrid search (dense + lexical with RRF fusion) | false |
+| `--fusion-k` | RRF fusion k parameter (higher = smoother ranking) | 60 |
+| `--fusion-alpha` | Fusion weight: 1.0 = dense only, 0.0 = lexical only | 0.7 |
+
+**Recency Boost:**
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--recency-boost` | Enable recency boost (recently modified files ranked higher) | false |
+| `--recency-factor` | Recency boost factor (max boost = 1+factor) | 0.5 |
+| `--recency-decay` | Recency half-life in days (higher = slower decay) | 7 |
+
+**Reranking:**
+
+When `LLM_SEMANTIC_RERANKER_API_URL` is set, reranking is automatically enabled. Reranking uses a cross-encoder model to re-score search results for improved precision.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--rerank` | Enable reranking (auto-enabled when reranker URL is set) | auto |
+| `--rerank-candidates` | Number of candidates to fetch for reranking | max(topK*5, 50) |
+| `--rerank-threshold` | Minimum reranker score (0.0-1.0) | 0.0 |
+| `--no-rerank` | Disable reranking even when reranker is configured | false |
+
+**Example with reranking:**
+```bash
+# Reranking enabled automatically when env var is set
+export LLM_SEMANTIC_RERANKER_API_URL=http://ai.lan:5000
+
+# Search with reranking (on by default)
+llm-semantic search "authentication middleware" --top 10
+
+# Disable reranking for this query
+llm-semantic search "simple query" --no-rerank
+
+# Custom reranking settings
+llm-semantic search "complex query" --rerank-candidates 100 --rerank-threshold 0.5
+```
 
 **Example Output:**
 ```json
@@ -109,10 +152,52 @@ llm-semantic index . --include "*.go" --exclude "vendor/*"
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--include` | File patterns to include (can be repeated) | |
-| `--exclude` | File patterns to exclude (can be repeated) | |
+| `--include` | Glob patterns to include (can be repeated) | |
+| `--exclude` | Patterns to exclude - directories and files (can be repeated) | |
+| `--exclude-tests` | Exclude common test files (`*_test.go`, `*.spec.ts`, `__tests__/`, etc.) | false |
 | `--force` | Force full reindex even if index exists | false |
 | `--json` | JSON output format | false |
+
+**Performance Options:**
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--batch-size` | Number of vectors per upsert batch (0 = unlimited) | 0 |
+| `--parallel` | Number of parallel batch uploads (requires batch-size > 0) | 0 |
+| `--embed-batch-size` | Number of chunks to embed per API call across files | 0 |
+
+**Calibration Options:**
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--recalibrate` | Force recalibration of score thresholds | false |
+| `--skip-calibration` | Skip calibration step during indexing | false |
+
+**Progress Display:**
+
+When using `--embed-batch-size` with `--batch-size`, real-time progress is displayed during embedding and upload phases:
+
+```
+Embedding: [3/10 batches] 384/1280 chunks (30%) ETA: 2m 15s
+Uploading: [5/16 batches] 320/1024 chunks (31%) ETA: 45s
+```
+
+- TTY terminals show single-line updates (overwrites previous line)
+- Non-TTY environments log at 10% intervals
+- ETA calculation starts after 2 batches for accurate estimation
+
+**Example with performance tuning:**
+```bash
+# Index with batched uploads and parallel processing
+llm-semantic index . --include "*.go" --batch-size 100 --parallel 4
+
+# Index with cross-file embedding batches (faster for remote APIs)
+llm-semantic index . --include "*.go" --embed-batch-size 32
+
+# Full performance setup with progress display
+llm-semantic index . --include "*.go" --embed-batch-size 64 --batch-size 100 --parallel 4
+
+# Exclude test files
+llm-semantic index . --include "*.go" --exclude-tests
+```
 
 **Example Output:**
 ```json
@@ -362,6 +447,21 @@ See [MCP Setup Guide](MCP_SETUP.md) for integration instructions.
 2. **Embedding**: Generates vector embeddings using any OpenAI-compatible API (Ollama, vLLM, OpenAI, etc.)
 3. **Storage**: Stores embeddings in SQLite (default) or Qdrant vector database
 4. **Search**: Converts queries to embeddings and finds nearest neighbors by cosine similarity
+5. **Reranking** (optional): Uses a cross-encoder model to re-score top candidates for improved precision
+
+### Two-Stage Retrieval with Reranking
+
+When reranking is enabled, search uses a two-stage retrieval pipeline:
+
+1. **Stage 1 - Fast Recall**: Embedding-based search retrieves a large candidate pool (default: max(topK*5, 50))
+2. **Stage 2 - Precise Reranking**: A cross-encoder model scores each (query, document) pair for semantic relevance
+
+This approach combines the speed of embedding search with the precision of cross-encoder scoring. The reranker sees the full query and document context, enabling better relevance judgments than embedding similarity alone.
+
+**Recommended model pairing:**
+- **Embedding**: Qwen/Qwen3-Embedding-0.6B (1024 dims, ~1.2GB VRAM)
+- **Reranker**: Qwen/Qwen3-Reranker-0.6B (~1.0GB VRAM)
+- **Total**: ~2.2GB VRAM for both models
 
 ## Supported Languages
 
@@ -461,3 +561,62 @@ llm-semantic search "authentication logic" --api-url http://localhost:8000 --mod
 ```
 
 **Note:** The model used for indexing must match the model used for searching. The large (8B) model produces 4096-dimensional embeddings vs 1024 for small.
+
+### Reranker Server Setup
+
+To enable reranking, you need a Cohere-compatible reranker API. Here's an example using FastAPI and Hugging Face transformers:
+
+**Python server (`librarian.py`):**
+```python
+import torch
+from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import List, Optional
+from transformers import AutoModel, AutoTokenizer, AutoModelForCausalLM
+
+app = FastAPI()
+
+# Load models
+EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+RERANKER_MODEL = "Qwen/Qwen3-Reranker-0.6B"
+
+embedding_tokenizer = AutoTokenizer.from_pretrained(EMBEDDING_MODEL)
+embedding_model = AutoModel.from_pretrained(EMBEDDING_MODEL, torch_dtype=torch.float16).cuda().eval()
+
+reranker_tokenizer = AutoTokenizer.from_pretrained(RERANKER_MODEL, padding_side='left')
+reranker_model = AutoModelForCausalLM.from_pretrained(RERANKER_MODEL, torch_dtype=torch.float16).cuda().eval()
+
+class RerankRequest(BaseModel):
+    query: str
+    documents: List[str]
+    model: Optional[str] = "default"
+    top_n: Optional[int] = None
+    instruction: Optional[str] = None
+
+@app.post("/v1/rerank")
+async def rerank(request: RerankRequest):
+    # Format prompt, compute yes/no logits, return scores
+    # See Qwen3 reranker documentation for implementation details
+    ...
+```
+
+**Usage with llm-semantic:**
+```bash
+# Set reranker URL (enables reranking automatically)
+export LLM_SEMANTIC_RERANKER_API_URL=http://ai.lan:5000
+
+# Index and search with reranking
+llm-semantic index . --include "*.go"
+llm-semantic search "authentication middleware" --top 10
+
+# Disable reranking for a specific query
+llm-semantic search "simple query" --no-rerank
+```
+
+**Docker deployment:**
+```bash
+# Run embedding + reranking server
+docker run -d --gpus all -p 5000:5000 \
+  -v /path/to/models:/models \
+  your-registry/ai-embeddings-server
+```

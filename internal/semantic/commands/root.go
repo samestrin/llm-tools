@@ -21,6 +21,10 @@ var (
 	collectionName string // Qdrant collection name (default: from env or "llm_semantic")
 	embedderType   string // "openai" (default), "cohere", "huggingface", "openrouter"
 
+	// Reranker configuration
+	rerankerAPIURL string // Reranker API URL (optional, enables reranking when set)
+	rerankerModel  string // Reranker model name
+
 	// Config file support
 	configPath string // Path to YAML config file
 	profile    string // Profile name: code (default), docs, memory, sprints
@@ -47,6 +51,19 @@ func getDefaultModel() string {
 		return model
 	}
 	return "" // Let embedder choose default
+}
+
+// getDefaultRerankerAPIURL returns the reranker API URL from environment
+func getDefaultRerankerAPIURL() string {
+	return os.Getenv("LLM_SEMANTIC_RERANKER_API_URL")
+}
+
+// getDefaultRerankerModel returns the reranker model from environment or default
+func getDefaultRerankerModel() string {
+	if model := os.Getenv("LLM_SEMANTIC_RERANKER_MODEL"); model != "" {
+		return model
+	}
+	return "Qwen/Qwen3-Reranker-0.6B"
 }
 
 // RootCmd returns the root command for llm-semantic
@@ -227,6 +244,33 @@ func deriveCollectionFromPath(path string) string {
 	}
 
 	return result
+}
+
+// createReranker creates a reranker if configured (via env var or flag)
+// Returns nil if reranking is not configured (which is valid - reranking is optional)
+func createReranker() (semantic.RerankerInterface, error) {
+	// Use flag value if set, otherwise fall back to env var
+	apiURL := rerankerAPIURL
+	if apiURL == "" {
+		apiURL = getDefaultRerankerAPIURL()
+	}
+
+	// No reranker configured - this is not an error
+	if apiURL == "" {
+		return nil, nil
+	}
+
+	modelName := rerankerModel
+	if modelName == "" {
+		modelName = getDefaultRerankerModel()
+	}
+
+	cfg := semantic.RerankerConfig{
+		APIURL: apiURL,
+		Model:  modelName,
+	}
+
+	return semantic.NewReranker(cfg)
 }
 
 // createEmbedder creates an embedder based on the --embedder flag

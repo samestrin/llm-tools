@@ -37,6 +37,7 @@ func indexCmd() *cobra.Command {
 		skipCalibration bool
 		batchSize       int
 		parallel        int
+		embedBatchSize  int
 	)
 
 	cmd := &cobra.Command{
@@ -62,6 +63,7 @@ Walks the directory, parses code files, and generates embeddings.`,
 				skipCalibration: skipCalibration,
 				batchSize:       batchSize,
 				parallel:        parallel,
+				embedBatchSize:  embedBatchSize,
 			})
 		},
 	}
@@ -76,6 +78,7 @@ Walks the directory, parses code files, and generates embeddings.`,
 	cmd.Flags().BoolVar(&skipCalibration, "skip-calibration", false, "Skip calibration step")
 	cmd.Flags().IntVar(&batchSize, "batch-size", 0, "Number of vectors per upsert batch (0 = unlimited)")
 	cmd.Flags().IntVar(&parallel, "parallel", 0, "Number of parallel batch uploads (0 = sequential, requires --batch-size)")
+	cmd.Flags().IntVar(&embedBatchSize, "embed-batch-size", 0, "Number of chunks to embed per API call across files (0 = per-file batching)")
 
 	return cmd
 }
@@ -91,6 +94,7 @@ type indexOpts struct {
 	skipCalibration bool
 	batchSize       int
 	parallel        int
+	embedBatchSize  int
 }
 
 func runIndex(ctx context.Context, path string, opts indexOpts) error {
@@ -154,16 +158,19 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 		fmt.Printf("Indexing %s...\n", absPath)
 	}
 
-	// Set up progress callback for non-JSON output
+	// Set up progress callbacks for non-JSON output
 	var progressCallback semantic.ProgressCallback
-	var verboseIsTTY bool
+	var uploadProgressCallback semantic.UploadProgressCallback
+	var isTTY bool
 	var verboseStartTime time.Time
 	if !opts.jsonOutput {
 		lastReported := 0
+		isTTY = term.IsTerminal(int(os.Stdout.Fd()))
 		if opts.verbose {
-			verboseIsTTY = term.IsTerminal(int(os.Stdout.Fd()))
 			verboseStartTime = time.Now()
 		}
+
+		// File processing progress callback
 		progressCallback = func(event semantic.ProgressEvent) {
 			if opts.verbose {
 				// Verbose mode: single-line update with ETA
@@ -185,7 +192,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 					etaStr = formatDuration(eta)
 				}
 
-				if verboseIsTTY {
+				if isTTY {
 					// Single-line update: clear line and overwrite
 					if etaStr != "" {
 						fmt.Printf("\r\033[K[%d/%d] %-10s ETA: %-8s %s", event.Current, event.Total, status, etaStr, displayPath)
@@ -208,20 +215,94 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 				}
 			}
 		}
+
+		// Upload/embedding phase progress callback
+		uploadProgressCallback = func(event semantic.UploadProgressEvent) {
+			phaseName := "Processing"
+			switch event.Phase {
+			case "embedding":
+				phaseName = "Embedding"
+			case "uploading":
+				phaseName = "Uploading"
+			case "indexing":
+				phaseName = "Indexing"
+			}
+
+			// Format ETA
+			var etaStr string
+			if event.ETASeconds > 0 {
+				eta := time.Duration(event.ETASeconds * float64(time.Second))
+				etaStr = formatDuration(eta)
+			}
+
+			// Calculate batch percentage (more useful than chunk percentage in streaming mode)
+			batchPct := 0
+			if event.Total > 0 {
+				batchPct = (event.Current * 100) / event.Total
+			}
+
+			if isTTY {
+				// Single-line update: clear line and overwrite
+				if event.ChunksTotal > 0 {
+					// Known total - show chunk progress
+					chunkPct := (event.ChunksUploaded * 100) / event.ChunksTotal
+					if etaStr != "" {
+						fmt.Printf("\r\033[K%s: [%d/%d batches] %d/%d chunks (%d%%) ETA: %s",
+							phaseName, event.Current, event.Total, event.ChunksUploaded, event.ChunksTotal, chunkPct, etaStr)
+					} else {
+						fmt.Printf("\r\033[K%s: [%d/%d batches] %d/%d chunks (%d%%)",
+							phaseName, event.Current, event.Total, event.ChunksUploaded, event.ChunksTotal, chunkPct)
+					}
+				} else {
+					// Streaming mode - show batch progress and cumulative chunks
+					if etaStr != "" {
+						fmt.Printf("\r\033[K%s: [%d/%d batches] %d chunks (%d%%) ETA: %s",
+							phaseName, event.Current, event.Total, event.ChunksUploaded, batchPct, etaStr)
+					} else {
+						fmt.Printf("\r\033[K%s: [%d/%d batches] %d chunks (%d%%)",
+							phaseName, event.Current, event.Total, event.ChunksUploaded, batchPct)
+					}
+				}
+			} else {
+				// Non-TTY: log at meaningful intervals (every 10% or on completion)
+				if event.Current == event.Total || batchPct%10 == 0 {
+					if event.ChunksTotal > 0 {
+						chunkPct := (event.ChunksUploaded * 100) / event.ChunksTotal
+						if etaStr != "" {
+							fmt.Printf("%s: [%d/%d batches] %d/%d chunks (%d%%) ETA: %s\n",
+								phaseName, event.Current, event.Total, event.ChunksUploaded, event.ChunksTotal, chunkPct, etaStr)
+						} else {
+							fmt.Printf("%s: [%d/%d batches] %d/%d chunks (%d%%)\n",
+								phaseName, event.Current, event.Total, event.ChunksUploaded, event.ChunksTotal, chunkPct)
+						}
+					} else {
+						if etaStr != "" {
+							fmt.Printf("%s: [%d/%d batches] %d chunks (%d%%) ETA: %s\n",
+								phaseName, event.Current, event.Total, event.ChunksUploaded, batchPct, etaStr)
+						} else {
+							fmt.Printf("%s: [%d/%d batches] %d chunks (%d%%)\n",
+								phaseName, event.Current, event.Total, event.ChunksUploaded, batchPct)
+						}
+					}
+				}
+			}
+		}
 	}
 
 	result, err := mgr.Index(ctx, absPath, semantic.IndexOptions{
-		Includes:     opts.includes,
-		Excludes:     opts.excludes,
-		ExcludeTests: opts.excludeTests,
-		Force:        opts.force,
-		OnProgress:   progressCallback,
-		BatchSize:    opts.batchSize,
-		Parallel:     opts.parallel,
+		Includes:         opts.includes,
+		Excludes:         opts.excludes,
+		ExcludeTests:     opts.excludeTests,
+		Force:            opts.force,
+		OnProgress:       progressCallback,
+		OnUploadProgress: uploadProgressCallback,
+		BatchSize:        opts.batchSize,
+		Parallel:         opts.parallel,
+		EmbedBatchSize:   opts.embedBatchSize,
 	})
 
-	// Print final newline after verbose TTY progress
-	if opts.verbose && !opts.jsonOutput && verboseIsTTY {
+	// Print final newline after TTY progress
+	if !opts.jsonOutput && isTTY {
 		fmt.Println()
 	}
 

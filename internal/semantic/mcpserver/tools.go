@@ -171,6 +171,24 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "array",
 						"items": {"type": "string"},
 						"description": "Profiles to search across (e.g., ['code', 'docs']). Searches each profile's collection in parallel and merges results."
+					},
+					"rerank": {
+						"type": "boolean",
+						"description": "Enable reranking (auto-enabled when LLM_SEMANTIC_RERANKER_API_URL is set)"
+					},
+					"rerank_candidates": {
+						"type": "integer",
+						"description": "Number of candidates to fetch for reranking (default: max(top_k*5, 50))"
+					},
+					"rerank_threshold": {
+						"type": "number",
+						"minimum": 0.0,
+						"maximum": 1.0,
+						"description": "Minimum reranker score 0.0-1.0 (default: 0.0)"
+					},
+					"no_rerank": {
+						"type": "boolean",
+						"description": "Disable reranking even when reranker is configured"
 					}
 				},
 				"required": ["query"]
@@ -439,6 +457,10 @@ func GetToolDefinitions() []ToolDefinition {
 					"parallel": {
 						"type": "integer",
 						"description": "Number of parallel batch uploads (0 = sequential, requires batch_size > 0)"
+					},
+					"embed_batch_size": {
+						"type": "integer",
+						"description": "Number of chunks to embed per API call across files (0 = per-file batching, default: 0)"
 					},
 					"json": {
 						"type": "boolean",
