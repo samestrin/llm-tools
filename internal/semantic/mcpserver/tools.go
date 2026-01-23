@@ -49,11 +49,11 @@ func commonProperties() map[string]schemaProperty {
 		},
 		"profile": {
 			Type:        "string",
-			Description: "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config",
+			Description: "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)",
 		},
 		"config": {
 			Type:        "string",
-			Description: "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')",
+			Description: "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)",
 		},
 	}
 }
@@ -137,11 +137,11 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					},
 					"hybrid": {
 						"type": "boolean",
@@ -268,7 +268,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 1c. Search code - convenience wrapper with code profile pre-set
 		{
 			Name:        ToolPrefix + "search_code",
-			Description: "Search code repository using natural language. Convenience wrapper for search with 'code' profile pre-set. Requires config file with semantic.code_collection and semantic.code_storage defined.",
+			Description: "Search code repository using natural language. Convenience wrapper for search with 'code' profile pre-set. Uses default config (.planning/.config/config.yaml) with semantic.code_collection and semantic.code_storage defined.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -278,7 +278,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					},
 					"top_k": {
 						"type": "integer",
@@ -315,7 +315,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 1d. Search docs - convenience wrapper with docs profile pre-set
 		{
 			Name:        ToolPrefix + "search_docs",
-			Description: "Search documentation using natural language. Convenience wrapper for search with 'docs' profile pre-set. Requires config file with semantic.docs_collection and semantic.docs_storage defined.",
+			Description: "Search documentation using natural language. Convenience wrapper for search with 'docs' profile pre-set. Uses default config (.planning/.config/config.yaml) with semantic.docs_collection and semantic.docs_storage defined.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -325,7 +325,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					},
 					"top_k": {
 						"type": "integer",
@@ -353,7 +353,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 1e. Search memory - convenience wrapper with memory profile pre-set
 		{
 			Name:        ToolPrefix + "search_memory",
-			Description: "Search stored memories using natural language. Convenience wrapper for memory search with 'memory' profile pre-set. Requires config file with semantic.memory_collection and semantic.memory_storage defined.",
+			Description: "Search stored memories using natural language. Convenience wrapper for memory search with 'memory' profile pre-set. Uses default config (.planning/.config/config.yaml) with semantic.memory_collection and semantic.memory_storage defined.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -363,7 +363,7 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					},
 					"top_k": {
 						"type": "integer",
@@ -411,11 +411,11 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					}
 				}
 			}`),
@@ -477,11 +477,11 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					},
 					"recalibrate": {
 						"type": "boolean",
@@ -531,11 +531,11 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					}
 				}
 			}`),
@@ -583,11 +583,11 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					}
 				},
 				"required": ["question", "answer"]
@@ -643,11 +643,11 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					}
 				},
 				"required": ["query"]
@@ -696,11 +696,11 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					}
 				},
 				"required": ["id", "target"]
@@ -742,11 +742,11 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					}
 				}
 			}`),
@@ -786,18 +786,60 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					}
 				},
 				"required": ["id"]
 			}`),
 		},
 
-		// 10. Memory stats
+		// 10. Collection delete
+		{
+			Name:        ToolPrefix + "collection_delete",
+			Description: "Delete all chunks for a specific profile from the semantic index. This removes all embedded content for the given profile (e.g., 'code', 'docs', 'memory', 'sprints').",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"profile": {
+						"type": "string",
+						"enum": ["code", "docs", "memory", "sprints"],
+						"description": "Profile to delete (code, docs, memory, sprints)"
+					},
+					"force": {
+						"type": "boolean",
+						"description": "Skip confirmation"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output format"
+					},
+					"storage": {
+						"type": "string",
+						"enum": ["sqlite", "qdrant"],
+						"description": "Storage backend (default: sqlite)"
+					},
+					"collection": {
+						"type": "string",
+						"description": "Collection name for qdrant storage (default: llm_semantic)"
+					},
+					"config": {
+						"type": "string",
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
+					}
+				},
+				"required": ["profile"]
+			}`),
+		},
+
+		// 11. Memory stats
 		{
 			Name:        ToolPrefix + "memory_stats",
 			Description: "Display retrieval statistics for stored memories. Shows retrieval counts, last accessed times, and retrieval patterns.",
@@ -860,11 +902,11 @@ func GetToolDefinitions() []ToolDefinition {
 					},
 					"profile": {
 						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config"
+						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
 					},
 					"config": {
 						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (e.g., '.planning/.config/config.yaml')"
+						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
 					}
 				}
 			}`),

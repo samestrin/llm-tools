@@ -1990,6 +1990,7 @@ llm-support format-td-table [flags]
 | `--file` | Input JSON file path |
 | `--content` | Direct JSON content |
 | `--section` | Section to format: quick_wins, backlog, td_files, all (default: all) |
+| `--checkbox` | Add checkbox column to tables for tracking completion |
 
 **Input Formats:**
 - Routed output from `route-td` (with quick_wins, backlog, td_files)
@@ -2006,6 +2007,9 @@ llm-support format-td-table --file routed.json --section quick_wins
 
 # Pipeline with route-td
 llm-support route-td --file items.json | llm-support format-td-table --section backlog
+
+# Add checkboxes for tracking completion
+llm-support format-td-table --file routed.json --checkbox
 ```
 
 **Output Format (text):**
@@ -2018,6 +2022,15 @@ llm-support route-td --file items.json | llm-support format-td-table --section b
 
 ---
 Total: 5 items in 2 section(s)
+```
+
+**Output Format (with --checkbox):**
+```markdown
+### Quick Wins (< 30 min)
+
+| | Severity | File Line | Problem | Fix | Est Minutes |
+|---|------|------|------|------|------|
+| [ ] | HIGH | src/auth.ts:45 | Missing validation | Add zod | 30 |
 ```
 
 ---

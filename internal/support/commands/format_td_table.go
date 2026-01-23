@@ -14,11 +14,12 @@ import (
 
 // Flag variables
 var (
-	formatTDTableFile    string
-	formatTDTableContent string
-	formatTDTableSection string
-	formatTDTableJSON    bool
-	formatTDTableMinimal bool
+	formatTDTableFile     string
+	formatTDTableContent  string
+	formatTDTableSection  string
+	formatTDTableJSON     bool
+	formatTDTableMinimal  bool
+	formatTDTableCheckbox bool
 )
 
 // Constants
@@ -95,6 +96,7 @@ Examples:
 	cmd.Flags().StringVar(&formatTDTableSection, "section", sectionAll, "Section to format: quick_wins, backlog, td_files, all")
 	cmd.Flags().BoolVar(&formatTDTableJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&formatTDTableMinimal, "min", false, "Minimal output format")
+	cmd.Flags().BoolVar(&formatTDTableCheckbox, "checkbox", false, "Add checkbox column to tables")
 
 	return cmd
 }
@@ -128,7 +130,7 @@ func runFormatTDTable(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate tables
-	result := generateTables(sections, formatTDTableSection)
+	result := generateTables(sections, formatTDTableSection, formatTDTableCheckbox)
 
 	// Output
 	formatter := output.New(formatTDTableJSON, formatTDTableMinimal, cmd.OutOrStdout())
@@ -224,7 +226,7 @@ func parseFormatTDInput(input string) (map[string][]map[string]interface{}, erro
 	return nil, fmt.Errorf("could not parse input as routed output, {items:[...]}, {rows:[...]}, or raw array")
 }
 
-func generateTables(sections map[string][]map[string]interface{}, section string) FormatTDTableResult {
+func generateTables(sections map[string][]map[string]interface{}, section string, checkbox bool) FormatTDTableResult {
 	result := FormatTDTableResult{
 		Tables: make(map[string]string),
 		Summary: FormatTDSummary{
@@ -253,7 +255,7 @@ func generateTables(sections map[string][]map[string]interface{}, section string
 	// Generate tables
 	for _, s := range sectionsToFormat {
 		items := sections[s]
-		table := formatItemsAsTable(items)
+		table := formatItemsAsTable(items, checkbox)
 		result.Tables[s] = table
 		result.Summary.ItemsPerSection[s] = len(items)
 		result.Summary.TotalItems += len(items)
@@ -263,7 +265,7 @@ func generateTables(sections map[string][]map[string]interface{}, section string
 	return result
 }
 
-func formatItemsAsTable(items []map[string]interface{}) string {
+func formatItemsAsTable(items []map[string]interface{}, checkbox bool) string {
 	if len(items) == 0 {
 		return ""
 	}
@@ -306,7 +308,11 @@ func formatItemsAsTable(items []map[string]interface{}) string {
 	}
 
 	// Build header
-	sb.WriteString("| ")
+	if checkbox {
+		sb.WriteString("| | ")
+	} else {
+		sb.WriteString("| ")
+	}
 	for i, col := range columns {
 		sb.WriteString(formatColumnHeader(col))
 		if i < len(columns)-1 {
@@ -317,6 +323,9 @@ func formatItemsAsTable(items []map[string]interface{}) string {
 
 	// Build separator
 	sb.WriteString("|")
+	if checkbox {
+		sb.WriteString("---|")
+	}
 	for range columns {
 		sb.WriteString("------|")
 	}
@@ -324,7 +333,11 @@ func formatItemsAsTable(items []map[string]interface{}) string {
 
 	// Build rows
 	for _, item := range items {
-		sb.WriteString("| ")
+		if checkbox {
+			sb.WriteString("| [ ] | ")
+		} else {
+			sb.WriteString("| ")
+		}
 		for i, col := range columns {
 			value := formatCellValue(item[col])
 			sb.WriteString(value)
