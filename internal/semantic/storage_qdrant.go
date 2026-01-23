@@ -660,6 +660,7 @@ func (s *QdrantStorage) Stats(ctx context.Context) (*IndexStats, error) {
 }
 
 // Clear removes all points from the Qdrant collection (for force re-index)
+// Preserves calibration metadata across the clear operation.
 func (s *QdrantStorage) Clear(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -668,15 +669,74 @@ func (s *QdrantStorage) Clear(ctx context.Context) error {
 		return ErrStorageClosed
 	}
 
-	// Delete all points by using DeleteCollection and re-creating
-	// This is the cleanest way to ensure everything is cleared including indexes
+	// Save calibration metadata before deleting collection
+	// We need to use the unlocked version since we already hold the lock
+	var savedCalibration *CalibrationMetadata
+	points, err := s.client.Get(ctx, &qdrant.GetPoints{
+		CollectionName: s.collectionName,
+		Ids:            []*qdrant.PointId{qdrant.NewID(calibrationMetadataID())},
+		WithPayload:    qdrant.NewWithPayload(true),
+	})
+	if err == nil && len(points) > 0 {
+		if payload := points[0].Payload; payload != nil {
+			if jsonData, ok := payload["calibration_json"]; ok {
+				var meta CalibrationMetadata
+				if err := json.Unmarshal([]byte(jsonData.GetStringValue()), &meta); err == nil {
+					savedCalibration = &meta
+				}
+			}
+		}
+	}
+
+	// Delete collection entirely
 	if err := s.client.DeleteCollection(ctx, s.collectionName); err != nil {
 		return fmt.Errorf("failed to delete collection: %w", err)
 	}
 
-	// Re-create the collection with original settings
+	// Wait for deletion to complete (Qdrant may have async deletion)
+	for i := 0; i < 10; i++ {
+		collections, err := s.client.ListCollections(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to verify collection deletion: %w", err)
+		}
+		found := false
+		for _, c := range collections {
+			if c == s.collectionName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			break // Collection is gone
+		}
+		// Wait a bit and retry
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Re-create the collection with current embedding dimension
 	if err := s.ensureCollection(); err != nil {
 		return fmt.Errorf("failed to recreate collection: %w", err)
+	}
+
+	// Restore calibration metadata if we had one
+	if savedCalibration != nil {
+		jsonData, err := json.Marshal(savedCalibration)
+		if err == nil {
+			dummyEmbedding := make([]float32, s.embeddingDim)
+			point := &qdrant.PointStruct{
+				Id:      qdrant.NewID(calibrationMetadataID()),
+				Vectors: qdrant.NewVectors(dummyEmbedding...),
+				Payload: map[string]*qdrant.Value{
+					"type":             qdrant.NewValueString("calibration_metadata"),
+					"calibration_json": qdrant.NewValueString(string(jsonData)),
+				},
+			}
+			// Best effort - don't fail if restore fails
+			s.client.Upsert(ctx, &qdrant.UpsertPoints{
+				CollectionName: s.collectionName,
+				Points:         []*qdrant.PointStruct{point},
+			})
+		}
 	}
 
 	// Sync to parallel FTS index
