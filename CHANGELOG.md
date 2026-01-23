@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Previously: `memory_store`, `memory_list`, `memory_delete`, `memory_promote`, and `memory_stats` defaulted to SQLite even when config specified Qdrant
   - Now automatically applies `memory` profile defaults, matching the pattern of `search_code`, `search_docs`, and `search_memory` convenience wrappers
 
-## [1.8.0] - Unreleased
+## [1.8.0] - 2026-01-23
 
 ### Added
 
