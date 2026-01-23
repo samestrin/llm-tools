@@ -124,6 +124,9 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 
 	// Add subcommands
 	rootCmd.AddCommand(searchCmd())
+	rootCmd.AddCommand(searchAliasCmd("code-search", "code"))
+	rootCmd.AddCommand(searchAliasCmd("docs-search", "docs"))
+	rootCmd.AddCommand(searchAliasCmd("memory-search", "memory"))
 	rootCmd.AddCommand(multisearchCmd())
 	rootCmd.AddCommand(indexCmd())
 	rootCmd.AddCommand(indexStatusCmd())

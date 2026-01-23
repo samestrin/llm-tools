@@ -326,3 +326,104 @@ func findGitRoot() (string, error) {
 		dir = parent
 	}
 }
+
+// searchAliasCmd creates a convenience alias command for searching a specific profile.
+// For example: "code-search" is an alias for "search --profile code"
+func searchAliasCmd(name, profileName string) *cobra.Command {
+	var (
+		topK             int
+		threshold        float64
+		typeFilter       string
+		pathFilter       string
+		jsonOutput       bool
+		minOutput        bool
+		hybrid           bool
+		fusionK          int
+		fusionAlpha      float64
+		recencyBoost     bool
+		recencyFactor    float64
+		recencyDecay     float64
+		rerank           bool
+		rerankCandidates int
+		rerankThreshold  float64
+		noRerank         bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   name + " <query>",
+		Short: fmt.Sprintf("Search the %s semantic index", profileName),
+		Long: fmt.Sprintf(`Search the %s semantic index using natural language queries.
+This is a convenience alias for: search --profile %s <query>
+
+Returns ranked results based on semantic similarity.`, profileName, profileName),
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Set the profile
+			profile = profileName
+
+			query := args[0]
+			if len(args) > 1 {
+				query = strings.Join(args, " ")
+			}
+
+			// Validate hybrid parameters
+			if hybrid {
+				if fusionK <= 0 {
+					return fmt.Errorf("fusion-k must be a positive integer, got: %d", fusionK)
+				}
+				if fusionAlpha < 0.0 || fusionAlpha > 1.0 {
+					return fmt.Errorf("fusion-alpha must be between 0.0 and 1.0, got: %f", fusionAlpha)
+				}
+			}
+
+			// Validate recency parameters
+			if recencyBoost {
+				if recencyFactor < 0 {
+					return fmt.Errorf("recency-factor must be >= 0, got: %f", recencyFactor)
+				}
+				if recencyDecay <= 0 {
+					return fmt.Errorf("recency-decay must be > 0, got: %f", recencyDecay)
+				}
+			}
+
+			return runSearch(cmd.Context(), query, searchOpts{
+				topK:             topK,
+				threshold:        float32(threshold),
+				typeFilter:       typeFilter,
+				pathFilter:       pathFilter,
+				jsonOutput:       jsonOutput,
+				minOutput:        minOutput,
+				hybrid:           hybrid,
+				fusionK:          fusionK,
+				fusionAlpha:      fusionAlpha,
+				recencyBoost:     recencyBoost,
+				recencyFactor:    recencyFactor,
+				recencyDecay:     recencyDecay,
+				rerank:           rerank,
+				rerankCandidates: rerankCandidates,
+				rerankThreshold:  float32(rerankThreshold),
+				noRerank:         noRerank,
+			})
+		},
+	}
+
+	// Add flags (same as search command)
+	cmd.Flags().IntVarP(&topK, "top", "k", 10, "Number of results to return")
+	cmd.Flags().Float64VarP(&threshold, "threshold", "t", 0.0, "Minimum similarity score (0.0-1.0)")
+	cmd.Flags().StringVar(&typeFilter, "type", "", "Filter by chunk type (func, method, class, etc.)")
+	cmd.Flags().StringVar(&pathFilter, "path", "", "Filter by file path prefix")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output format")
+	cmd.Flags().BoolVar(&hybrid, "hybrid", false, "Enable hybrid search (dense + lexical with RRF)")
+	cmd.Flags().IntVar(&fusionK, "fusion-k", 60, "RRF smoothing constant (higher = less weight to top ranks)")
+	cmd.Flags().Float64Var(&fusionAlpha, "fusion-alpha", 0.7, "Dense vs lexical weight (0.0=lexical only, 1.0=dense only)")
+	cmd.Flags().BoolVar(&recencyBoost, "recency-boost", false, "Boost recently modified files")
+	cmd.Flags().Float64Var(&recencyFactor, "recency-factor", 0.5, "Recency boost strength (0.0-1.0)")
+	cmd.Flags().Float64Var(&recencyDecay, "recency-decay", 7.0, "Recency half-life in days")
+	cmd.Flags().BoolVar(&rerank, "rerank", false, "Enable reranking (auto-enabled if RERANKER_API_URL set)")
+	cmd.Flags().IntVar(&rerankCandidates, "rerank-candidates", 0, "Candidates to fetch for reranking (default: max(topK*5, 50))")
+	cmd.Flags().Float64Var(&rerankThreshold, "rerank-threshold", 0.0, "Minimum reranker score threshold")
+	cmd.Flags().BoolVar(&noRerank, "no-rerank", false, "Disable reranking even if configured")
+
+	return cmd
+}
