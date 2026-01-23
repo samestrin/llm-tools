@@ -668,18 +668,15 @@ func (s *QdrantStorage) Clear(ctx context.Context) error {
 		return ErrStorageClosed
 	}
 
-	// Delete all points by using nil filter (matches everything)
-	// Using nil instead of empty Must array because empty Must[] means "match nothing"
-	_, err := s.client.Delete(ctx, &qdrant.DeletePoints{
-		CollectionName: s.collectionName,
-		Points: &qdrant.PointsSelector{
-			PointsSelectorOneOf: &qdrant.PointsSelector_Filter{
-				Filter: nil, // nil filter matches all points
-			},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to clear collection: %w", err)
+	// Delete all points by using DeleteCollection and re-creating
+	// This is the cleanest way to ensure everything is cleared including indexes
+	if err := s.client.DeleteCollection(ctx, s.collectionName); err != nil {
+		return fmt.Errorf("failed to delete collection: %w", err)
+	}
+
+	// Re-create the collection with original settings
+	if err := s.ensureCollection(); err != nil {
+		return fmt.Errorf("failed to recreate collection: %w", err)
 	}
 
 	// Sync to parallel FTS index
