@@ -5,45 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.7.0] - 2026-01-23
 
-### Fixed
+### Added
 
 #### llm-semantic
 
-- **Qdrant large batch upload fix** - Fixed silent upload failures when indexing large codebases:
-  - Added automatic sub-batching in `QdrantStorage.CreateBatch` for batches > 100 points
-  - Previously, uploading 100,000+ chunks in a single request could timeout silently
-  - Now automatically splits into 100-point sub-batches for reliable uploads
-  - Added debug logging when sub-batching occurs
+- **`collection delete` command** - Delete all chunks for a specific profile/domain:
+  - `llm-semantic collection delete --profile memory` removes all memory embeddings
+  - Supports profiles: code, docs, memory, sprints
+  - Confirmation prompt (skipped with `--force`)
+  - Works with both SQLite and Qdrant storage backends
 
-- **Incremental commit indexing** - Redesigned `--embed-batch-size` for crash recovery:
-  - Old design: chunk ALL → embed ALL → store ALL → commit hashes (no recovery if interrupted)
-  - New design: for each batch: chunk → embed → store → commit (resumable from any point)
-  - Running the same command after interruption will skip already-indexed files
-  - Memory usage now bounded by batch size instead of entire codebase
-  - Progress is durably saved after each batch completes
-  - `--parallel` and `--batch-size` now work within each batch for faster uploads
+#### llm-semantic-mcp
+
+- **`llm_semantic_collection_delete` tool** - Delete all chunks for a specific profile from the semantic index:
+  - `profile` parameter: code, docs, memory, sprints
+  - `force` parameter: skip confirmation
+
+#### llm-support
+
+- **`--checkbox` flag for `format-td-table`** - Add checkbox column to technical debt tables for tracking completion:
+  - Adds empty checkboxes `[ ]` to the first column of each table
+  - Useful for tracking TD items in markdown documents with checklists
 
 ### Changed
 
-#### llm-semantic
+#### llm-semantic-mcp
 
-- **SearchMemory batched processing** - Reduced memory usage from O(n) to O(1000 + topK) for large indexes:
-  - Uses LIMIT/OFFSET pagination to fetch entries in batches of 1000
-  - Maintains min-heap priority queue to track topK results across batches
-  - Added benchmarks showing constant memory profile regardless of index size
-  - Avoids CGO dependencies like sqlite-vss
+- **Improved documentation** - Default config path explicitly shown in tool descriptions:
+  - Changed from "Requires config file with semantic.*_collection defined"
+  - To: "Uses default config (.planning/.config/config.yaml) with semantic.*_collection defined"
 
-- **Markdown chunker list context tracking** - Preserves parent list item context for code blocks:
-  - Tracks list hierarchy with indent-to-item mapping
-  - Code blocks under nested lists now include full list hierarchy in chunk names
-  - Supports both ordered (1.) and unordered (-, *, +) list markers
+### Fixed
 
-- **Memory stats query optimization** - Fixed N+1 query pattern for display:
-  - Added Question and CreatedAt fields to RetrievalStats via LEFT JOIN
-  - Eliminates separate GetMemory calls for each stat entry
-  - Single-query retrieval improves performance for large datasets
+#### llm-semantic-mcp
+
+- **Memory tools default to SQLite instead of respecting config** - Memory MCP tools now automatically inject the "memory" profile to respect `config.yaml` settings like `semantic.memory_storage: qdrant`:
+  - Previously: `memory_store`, `memory_list`, `memory_delete`, `memory_promote`, and `memory_stats` defaulted to SQLite even when config specified Qdrant
+  - Now automatically applies `memory` profile defaults, matching the pattern of `search_code`, `search_docs`, and `search_memory` convenience wrappers
+
+## [1.8.0] - Unreleased
 
 ### Added
 
@@ -530,7 +532,8 @@ Binary size: 14-15MB per platform.
 - OpenAI-compatible LLM API with retry and caching
 - Race-condition free (verified with `go test -race`)
 
-[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/samestrin/llm-tools/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/samestrin/llm-tools/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/samestrin/llm-tools/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/samestrin/llm-tools/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/samestrin/llm-tools/compare/v1.3.0...v1.4.0

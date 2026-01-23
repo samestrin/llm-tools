@@ -129,6 +129,7 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 	rootCmd.AddCommand(indexStatusCmd())
 	rootCmd.AddCommand(indexUpdateCmd())
 	rootCmd.AddCommand(memoryCmd())
+	rootCmd.AddCommand(collectionCmd())
 
 	return rootCmd
 }
