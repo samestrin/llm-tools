@@ -537,12 +537,11 @@ func (m *IndexManager) Status(ctx context.Context) (*IndexStats, error) {
 func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string, excludeTests bool) ([]string, error) {
 	var files []string
 
-	// Build effective exclude lists
-	dirExcludes := excludes
-	fileExcludes := excludes
+	// Build effective exclude list by combining user excludes with test patterns
+	allExcludes := excludes
 	if excludeTests {
-		dirExcludes = append(dirExcludes, TestDirPatterns...)
-		fileExcludes = append(fileExcludes, TestFilePatterns...)
+		allExcludes = append(allExcludes, TestDirPatterns...)
+		allExcludes = append(allExcludes, TestFilePatterns...)
 	}
 
 	// Separate patterns into simple (no **) and doublestar (with **) lists
@@ -557,7 +556,7 @@ func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string
 			simpleIncludes = append(simpleIncludes, inc)
 		}
 	}
-	for _, exc := range excludes {
+	for _, exc := range allExcludes {
 		if strings.Contains(exc, "**") {
 			doublestarExcludes = append(doublestarExcludes, exc)
 		} else {
@@ -601,8 +600,23 @@ func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string
 
 		// Check if file matches excludes
 		for _, pattern := range simpleExcludes {
+			// Check filename against pattern (handles patterns like *.test.ts)
 			if m, _ := filepath.Match(pattern, d.Name()); m {
 				return nil
+			}
+			// Check if any directory component exactly matches the pattern
+			// This catches files inside excluded directories (e.g., .stryker-tmp/docs/file.md)
+			// We use exact match for directories, not pattern matching
+			// because patterns like *.test.ts should not match directory names
+			if !strings.ContainsAny(pattern, "*?[") {
+				// Only check exact name matches for patterns without wildcards
+				pathParts := strings.Split(relPath, string(filepath.Separator))
+				for _, part := range pathParts {
+					// Use ToSlash for cross-platform consistency
+					if part == pattern || part == filepath.ToSlash(pattern) {
+						return nil
+					}
+				}
 			}
 		}
 		for _, pattern := range doublestarExcludes {
