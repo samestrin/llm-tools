@@ -668,14 +668,13 @@ func (s *QdrantStorage) Clear(ctx context.Context) error {
 		return ErrStorageClosed
 	}
 
-	// Delete all points by using an empty filter that matches everything
+	// Delete all points by using nil filter (matches everything)
+	// Using nil instead of empty Must array because empty Must[] means "match nothing"
 	_, err := s.client.Delete(ctx, &qdrant.DeletePoints{
 		CollectionName: s.collectionName,
 		Points: &qdrant.PointsSelector{
 			PointsSelectorOneOf: &qdrant.PointsSelector_Filter{
-				Filter: &qdrant.Filter{
-					Must: []*qdrant.Condition{}, // Empty filter matches all
-				},
+				Filter: nil, // nil filter matches all points
 			},
 		},
 	})
