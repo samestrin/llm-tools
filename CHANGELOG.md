@@ -96,6 +96,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HTML chunker fallback tests** - TestFallbackToText with comprehensive edge case coverage
 - **Markdown chunker list tests** - TestMarkdownChunker_ListContextTracking with 5 test cases for nested lists
 
+- **Search alias commands** - Convenience CLI commands for profile-specific searches:
+  - `llm-semantic code-search <query>` - alias for `search --profile code`
+  - `llm-semantic docs-search <query>` - alias for `search --profile docs`
+  - `llm-semantic memory-search <query>` - alias for `search --profile memory`
+  - All flags from `search` command are available
+
 ### Fixed
 
 #### llm-semantic
