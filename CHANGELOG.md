@@ -96,7 +96,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HTML chunker fallback tests** - TestFallbackToText with comprehensive edge case coverage
 - **Markdown chunker list tests** - TestMarkdownChunker_ListContextTracking with 5 test cases for nested lists
 
+### Fixed
 
+#### llm-semantic
+
+- **`--force` now properly clears Qdrant collections** - Fixed issue where `--force` re-index wasn't properly clearing existing data:
+  - Collection is now deleted and recreated with the correct embedding dimension
+  - Added wait loop to ensure collection deletion completes before recreation
+  - Preserves calibration metadata across the clear operation
+  - Fixes dimension mismatch errors when switching embedding models
 
 ## [1.6.0] - 2026-01-17
 
