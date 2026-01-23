@@ -15,10 +15,38 @@ type ToolDefinition struct {
 }
 
 // GetToolDefinitions returns tool definitions for the official MCP SDK
-// NOTE: This MCP exposes 14 batch/specialized tools. Single-file operations
-// should use Claude's native Read, Write, and Edit tools for better performance.
 func GetToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
+		// Single File Operations (for LLM compatibility)
+		{
+			Name:        ToolPrefix + "read_file",
+			Description: "Read a file with optional line range or byte offset",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"path": {"type": "string", "description": "File path to read"},
+					"line_start": {"type": "number", "description": "Starting line number"},
+					"line_count": {"type": "number", "description": "Number of lines to read"},
+					"start_offset": {"type": "number", "description": "Starting byte offset"},
+					"max_size": {"type": "number", "description": "Maximum JSON output size in characters (0 = default 70000, -1 = no limit)", "default": 70000}
+				},
+				"required": ["path"]
+			}`),
+		},
+		{
+			Name:        ToolPrefix + "write_file",
+			Description: "Writes or modifies a file with the specified content",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"path": {"type": "string", "description": "File path to write"},
+					"content": {"type": "string", "description": "Content to write"},
+					"append": {"type": "boolean", "description": "Append to file instead of overwrite", "default": false},
+					"create_dirs": {"type": "boolean", "description": "Create parent directories if needed", "default": true}
+				},
+				"required": ["path", "content"]
+			}`),
+		},
 		// Batch Reading
 		{
 			Name:        ToolPrefix + "read_multiple_files",

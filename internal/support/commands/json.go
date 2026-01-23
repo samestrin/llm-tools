@@ -34,10 +34,13 @@ func newJSONCmd() *cobra.Command {
 
 func newJSONParseCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "parse <file>",
-		Short: "Parse and pretty-print JSON",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runJSONParse,
+		Use:   "parse <file|json-string>",
+		Short: "Parse and pretty-print JSON (file path or JSON string)",
+		Long: `Parse and pretty-print JSON. Accepts either:
+- A file path: llm-support json parse file.json
+- A JSON string: llm-support json parse '{"key":"value"}'`,
+		Args: cobra.ExactArgs(1),
+		RunE: runJSONParse,
 	}
 	cmd.Flags().IntVar(&jsonIndent, "indent", 2, "Indentation spaces")
 	cmd.Flags().BoolVar(&jsonCompact, "compact", false, "Compact output")
@@ -46,13 +49,13 @@ func newJSONParseCmd() *cobra.Command {
 
 func newJSONQueryCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "query <file> <path>",
-		Short: "Query JSON with path expression",
-		Long: `Query JSON using gjson path syntax.
+		Use:   "query <file|json-string> <path>",
+		Short: "Query JSON with path expression (file path or JSON string)",
+		Long: `Query JSON using gjson path syntax. Accepts either a file path or JSON string.
 Examples:
-  json query file.json "users"
-  json query file.json "users.0.name"
-  json query file.json "users.#.name"`,
+  llm-support json query file.json "users"
+  llm-support json query '{"users":[{"name":"bob"}]}' "users.0.name"
+  llm-support json query file.json "users.#.name"`,
 		Args: cobra.ExactArgs(2),
 		RunE: runJSONQuery,
 	}
@@ -61,33 +64,51 @@ Examples:
 
 func newJSONValidateCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "validate <file>",
-		Short: "Validate JSON syntax",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runJSONValidate,
+		Use:   "validate <file|json-string>",
+		Short: "Validate JSON syntax (file path or JSON string)",
+		Long: `Validate JSON syntax. Accepts either a file path or JSON string.
+Examples:
+  llm-support json validate file.json
+  llm-support json validate '{"key":"value"}'`,
+		Args: cobra.ExactArgs(1),
+		RunE: runJSONValidate,
 	}
 	return cmd
 }
 
 func newJSONMergeCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "merge <file1> <file2> [files...]",
-		Short: "Merge multiple JSON files",
-		Args:  cobra.MinimumNArgs(2),
-		RunE:  runJSONMerge,
+		Use:   "merge <file1|json-string> <file2|json-string> [files...]",
+		Short: "Merge multiple JSON sources (file paths or JSON strings)",
+		Long: `Merge multiple JSON sources. Accepts either file paths or JSON strings.
+Examples:
+  llm-support json merge file1.json file2.json
+  llm-support json merge '{"a":1}' '{"b":2}'`,
+		Args: cobra.MinimumNArgs(2),
+		RunE: runJSONMerge,
 	}
 	return cmd
 }
 
 func runJSONParse(cmd *cobra.Command, args []string) error {
-	content, err := os.ReadFile(args[0])
+	input := args[0]
+
+	// Try file first
+	content, err := os.ReadFile(input)
 	if err != nil {
-		return fmt.Errorf("failed to read file: %w", err)
+		// File failed, try as JSON string
+		// Only attempt JSON parse if file error is clearly "not found"
+		if os.IsNotExist(err) {
+			content = []byte(input)
+		} else {
+			return fmt.Errorf("failed to read file: %w", err)
+		}
 	}
 
+	// Attempt to parse JSON
 	var data interface{}
 	if err := json.Unmarshal(content, &data); err != nil {
-		return fmt.Errorf("invalid JSON: %w", err)
+		return fmt.Errorf("invalid JSON: %w (tried both file and string)", err)
 	}
 
 	var output []byte
@@ -107,16 +128,24 @@ func runJSONParse(cmd *cobra.Command, args []string) error {
 }
 
 func runJSONQuery(cmd *cobra.Command, args []string) error {
-	content, err := os.ReadFile(args[0])
+	input := args[0]
+	path := args[1]
+
+	// Try file first
+	content, err := os.ReadFile(input)
 	if err != nil {
-		return fmt.Errorf("failed to read file: %w", err)
+		// File failed, try as JSON string
+		if os.IsNotExist(err) {
+			content = []byte(input)
+		} else {
+			return fmt.Errorf("failed to read file: %w", err)
+		}
 	}
 
 	if !gjson.ValidBytes(content) {
-		return fmt.Errorf("invalid JSON in file")
+		return fmt.Errorf("invalid JSON: tried both file and string")
 	}
 
-	path := args[1]
 	result := gjson.GetBytes(content, path)
 
 	if !result.Exists() {
@@ -140,14 +169,22 @@ func runJSONQuery(cmd *cobra.Command, args []string) error {
 }
 
 func runJSONValidate(cmd *cobra.Command, args []string) error {
-	content, err := os.ReadFile(args[0])
+	input := args[0]
+
+	// Try file first
+	content, err := os.ReadFile(input)
 	if err != nil {
-		return fmt.Errorf("failed to read file: %w", err)
+		// File failed, try as JSON string
+		if os.IsNotExist(err) {
+			content = []byte(input)
+		} else {
+			return fmt.Errorf("failed to read file: %w", err)
+		}
 	}
 
 	var data interface{}
 	if err := json.Unmarshal(content, &data); err != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "✗ INVALID: %s\n", err.Error())
+		fmt.Fprintf(cmd.OutOrStdout(), "✗ INVALID: %s (tried both file and string)\n", err.Error())
 		return fmt.Errorf("validation failed")
 	}
 
@@ -177,15 +214,21 @@ func countJSONElements(data interface{}) int {
 func runJSONMerge(cmd *cobra.Command, args []string) error {
 	result := make(map[string]interface{})
 
-	for _, file := range args {
-		content, err := os.ReadFile(file)
+	for _, input := range args {
+		// Try file first
+		content, err := os.ReadFile(input)
 		if err != nil {
-			return fmt.Errorf("failed to read %s: %w", file, err)
+			// File failed, try as JSON string
+			if os.IsNotExist(err) {
+				content = []byte(input)
+			} else {
+				return fmt.Errorf("failed to read %s: %w", input, err)
+			}
 		}
 
 		var data map[string]interface{}
 		if err := json.Unmarshal(content, &data); err != nil {
-			return fmt.Errorf("invalid JSON in %s: %w", file, err)
+			return fmt.Errorf("invalid JSON in %s: %w (tried both file and string)", input, err)
 		}
 
 		// Merge: later files override earlier ones

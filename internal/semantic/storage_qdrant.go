@@ -441,6 +441,50 @@ func (s *QdrantStorage) DeleteByFilePath(ctx context.Context, filePath string) (
 	return int(count), nil
 }
 
+func (s *QdrantStorage) DeleteByDomain(ctx context.Context, domain string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return 0, ErrStorageClosed
+	}
+
+	filter := &qdrant.Filter{
+		Must: []*qdrant.Condition{
+			qdrant.NewMatch("domain", domain),
+		},
+	}
+
+	// Count matching points using Count API
+	count, err := s.client.Count(ctx, &qdrant.CountPoints{
+		CollectionName: s.collectionName,
+		Filter:         filter,
+		Exact:          qdrant.PtrOf(true),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to count points: %w", err)
+	}
+
+	if count == 0 {
+		return 0, nil
+	}
+
+	// Delete by filter
+	_, err = s.client.Delete(ctx, &qdrant.DeletePoints{
+		CollectionName: s.collectionName,
+		Points: &qdrant.PointsSelector{
+			PointsSelectorOneOf: &qdrant.PointsSelector_Filter{
+				Filter: filter,
+			},
+		},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete points by domain: %w", err)
+	}
+
+	return int(count), nil
+}
+
 func (s *QdrantStorage) List(ctx context.Context, opts ListOptions) ([]Chunk, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

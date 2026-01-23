@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bmatcuk/doublestar/v4"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -544,21 +545,54 @@ func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string
 		fileExcludes = append(fileExcludes, TestFilePatterns...)
 	}
 
+	// Separate patterns into simple (no **) and doublestar (with **) lists
+	// Simple patterns use filepath.Match for backward compatibility
+	// Doublestar patterns use doublestar.Match for recursive matching
+	var simpleIncludes, simpleExcludes []string
+	var doublestarIncludes, doublestarExcludes []string
+	for _, inc := range includes {
+		if strings.Contains(inc, "**") {
+			doublestarIncludes = append(doublestarIncludes, inc)
+		} else {
+			simpleIncludes = append(simpleIncludes, inc)
+		}
+	}
+	for _, exc := range excludes {
+		if strings.Contains(exc, "**") {
+			doublestarExcludes = append(doublestarExcludes, exc)
+		} else {
+			simpleExcludes = append(simpleExcludes, exc)
+		}
+	}
+
 	err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
+		relPath := strings.TrimPrefix(path, rootPath)
+		relPath = strings.TrimPrefix(relPath, string(filepath.Separator))
+		if relPath == "" {
+			relPath = "."
+		}
+
 		// Skip excluded directories
 		if d.IsDir() {
-			relPath := strings.TrimPrefix(path, rootPath)
-			relPath = strings.TrimPrefix(relPath, string(filepath.Separator))
-
-			for _, exclude := range dirExcludes {
-				if matched, _ := filepath.Match(exclude, d.Name()); matched {
+			// Check simple patterns (against directory name)
+			for _, pattern := range simpleExcludes {
+				if m, _ := filepath.Match(pattern, d.Name()); m {
 					return filepath.SkipDir
 				}
-				if strings.Contains(relPath, exclude) {
+				if strings.Contains(relPath, pattern) {
+					return filepath.SkipDir
+				}
+			}
+			// Check doublestar patterns (against relative path)
+			for _, pattern := range doublestarExcludes {
+				if m, _ := doublestar.Match(pattern, d.Name()); m {
+					return filepath.SkipDir
+				}
+				if m, _ := doublestar.Match(pattern, relPath); m {
 					return filepath.SkipDir
 				}
 			}
@@ -566,8 +600,16 @@ func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string
 		}
 
 		// Check if file matches excludes
-		for _, exclude := range fileExcludes {
-			if matched, _ := filepath.Match(exclude, d.Name()); matched {
+		for _, pattern := range simpleExcludes {
+			if m, _ := filepath.Match(pattern, d.Name()); m {
+				return nil
+			}
+		}
+		for _, pattern := range doublestarExcludes {
+			if m, _ := doublestar.Match(pattern, d.Name()); m {
+				return nil
+			}
+			if m, _ := doublestar.Match(pattern, relPath); m {
 				return nil
 			}
 		}
@@ -575,10 +617,24 @@ func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string
 		// Check if file matches includes (if specified)
 		if len(includes) > 0 {
 			matched := false
-			for _, include := range includes {
-				if m, _ := filepath.Match(include, d.Name()); m {
+			// Check simple patterns (against filename)
+			for _, pattern := range simpleIncludes {
+				if m, _ := filepath.Match(pattern, d.Name()); m {
 					matched = true
 					break
+				}
+			}
+			// Check doublestar patterns (against relative path)
+			if !matched {
+				for _, pattern := range doublestarIncludes {
+					if m, _ := doublestar.Match(pattern, d.Name()); m {
+						matched = true
+						break
+					}
+					if m, _ := doublestar.Match(pattern, relPath); m {
+						matched = true
+						break
+					}
 				}
 			}
 			if !matched {

@@ -1763,6 +1763,9 @@ func buildFormatTDTableArgs(args map[string]interface{}) []string {
 	if section, ok := args["section"].(string); ok {
 		cmdArgs = append(cmdArgs, "--section", section)
 	}
+	if checkbox, ok := args["checkbox"].(bool); ok && checkbox {
+		cmdArgs = append(cmdArgs, "--checkbox")
+	}
 	return cmdArgs
 }
 

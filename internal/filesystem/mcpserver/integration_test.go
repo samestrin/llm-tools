@@ -16,8 +16,8 @@ func TestMCPToolDefinitions(t *testing.T) {
 		t.Fatal("Expected tool definitions, got none")
 	}
 
-	// Verify we have exactly 15 MCP tools (batch/specialized operations only)
-	expectedCount := 15
+	// Verify we have exactly 17 MCP tools (batch/specialized + single-file operations)
+	expectedCount := 17
 	if len(tools) != expectedCount {
 		t.Errorf("Expected %d tools, got %d", expectedCount, len(tools))
 	}
@@ -459,9 +459,8 @@ func TestRemovedToolsAreGone(t *testing.T) {
 	tools := GetToolDefinitions()
 
 	// These tools should NOT be in the MCP server (use Claude's native tools instead)
+	// Note: read_file and write_file are now included for LLM compatibility
 	deprecatedTools := []string{
-		"read_file",
-		"write_file",
 		"large_write_file",
 		"edit_block",
 		"edit_file",
@@ -492,8 +491,12 @@ func TestRemovedToolsAreGone(t *testing.T) {
 func TestExpectedToolsArePresent(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// These are the 15 batch/specialized tools that should remain
+	// These are the 17 tools that should be exposed
 	expectedTools := []string{
+		// Single-file operations (for LLM compatibility)
+		"read_file",
+		"write_file",
+		// Batch/specialized operations
 		"read_multiple_files",
 		"extract_lines",
 		"edit_blocks",

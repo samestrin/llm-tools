@@ -160,6 +160,13 @@ func TestBuildArgs_MemoryCommands(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "collection_delete",
+			cmdName: "collection_delete",
+			args:    map[string]interface{}{"domain": "docs"},
+			wantCmd: []string{"collection", "delete"},
+			wantErr: false,
+		},
+		{
 			name:    "unknown_command",
 			cmdName: "unknown_cmd",
 			args:    map[string]interface{}{},
@@ -661,9 +668,18 @@ func TestResolveProfileSettings_MissingConfigFile(t *testing.T) {
 		"config":  "/nonexistent/config.yaml",
 	}
 
+	// Missing config file should not error - just proceed without profile settings
 	err := resolveProfileSettings(args)
-	if err == nil {
-		t.Error("resolveProfileSettings() expected error for missing config file, got nil")
+	if err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
+	}
+
+	// No collection or storage should be added since config was missing
+	if _, ok := args["collection"]; ok {
+		t.Error("resolveProfileSettings() should not add collection when config file is missing")
+	}
+	if _, ok := args["storage"]; ok {
+		t.Error("resolveProfileSettings() should not add storage when config file is missing")
 	}
 }
 
@@ -1282,6 +1298,52 @@ func TestBuildMemoryDeleteArgs_AllParams(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("buildMemoryDeleteArgs() missing flag %s", flag)
+		}
+	}
+}
+
+func TestBuildCollectionDeleteArgs(t *testing.T) {
+	args := map[string]interface{}{
+		"profile": "code",
+		"force":   true,
+	}
+
+	result := buildCollectionDeleteArgs(args)
+
+	expected := []string{"collection", "delete", "--profile", "code", "--force"}
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("buildCollectionDeleteArgs() = %v, want %v", result, expected)
+	}
+}
+
+func TestBuildCollectionDeleteArgs_AllParams(t *testing.T) {
+	args := map[string]interface{}{
+		"profile":    "docs",
+		"force":      true,
+		"storage":    "qdrant",
+		"collection": "del-collection",
+	}
+
+	result := buildCollectionDeleteArgs(args)
+
+	// Check that --profile is first flag
+	if result[0] != "collection" || result[1] != "delete" {
+		t.Errorf("buildCollectionDeleteArgs() should start with [collection, delete]")
+	}
+	if result[2] != "--profile" || result[3] != "docs" {
+		t.Errorf("buildCollectionDeleteArgs() should have --profile docs, got %v", result[2:4])
+	}
+
+	for _, flag := range []string{"--force", "--storage", "--collection"} {
+		found := false
+		for _, arg := range result {
+			if arg == flag {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("buildCollectionDeleteArgs() missing flag %s", flag)
 		}
 	}
 }

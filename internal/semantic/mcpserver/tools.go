@@ -430,7 +430,7 @@ func GetToolDefinitions() []ToolDefinition {
 				"properties": {
 					"path": {
 						"type": "string",
-						"description": "Directory path to index (default: current directory)"
+						"description": "Directory path to index (default: current directory). Supports glob patterns like 'docs*' or 'path/*/docs' to match multiple directories"
 					},
 					"include": {
 						"type": "array",
@@ -504,7 +504,7 @@ func GetToolDefinitions() []ToolDefinition {
 				"properties": {
 					"path": {
 						"type": "string",
-						"description": "Directory path to update (default: current directory)"
+						"description": "Directory path to update (default: current directory). Supports glob patterns like 'docs*' or 'path/*/docs' to match multiple directories"
 					},
 					"include": {
 						"type": "array",

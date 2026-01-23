@@ -30,11 +30,31 @@ Only processes new or modified files.`,
 				path = args[0]
 			}
 
-			return runIndexUpdate(cmd.Context(), path, updateOpts{
-				includes:   includes,
-				excludes:   excludes,
-				jsonOutput: jsonOutput,
-			})
+			// Expand path with glob support (e.g., "docs*/", "path/to/docs*")
+			matches, err := filepath.Glob(path)
+			if err != nil {
+				return fmt.Errorf("invalid path pattern: %w", err)
+			}
+			if len(matches) == 0 {
+				return fmt.Errorf("no matches for path pattern: %s", path)
+			}
+
+			// Filter out paths that contain excluded directories
+			// This is needed because filepath.Glob() can expand to paths like ".stryker-tmp/docs/"
+			// even when ".stryker-tmp" is in the excludes list
+			matches = filterExcludedPaths(matches, excludes, false)
+
+			// Update each matched path
+			for _, match := range matches {
+				if err := runIndexUpdate(cmd.Context(), match, updateOpts{
+					includes:   includes,
+					excludes:   excludes,
+					jsonOutput: jsonOutput,
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 	}
 

@@ -13,7 +13,7 @@ import (
 
 const (
 	serverName         = "llm-filesystem-mcp"
-	serverVersion      = "1.6.0"
+	serverVersion      = "1.7.0"
 	serverInstructions = "llm-filesystem-mcp provides high-performance filesystem operations for Claude Code. It wraps the llm-filesystem CLI with 27 commands for reading, writing, editing, searching, and managing files."
 )
 

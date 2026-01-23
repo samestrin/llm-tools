@@ -401,6 +401,26 @@ func (s *SQLiteStorage) DeleteByFilePath(ctx context.Context, filePath string) (
 	return int(rows), nil
 }
 
+func (s *SQLiteStorage) DeleteByDomain(ctx context.Context, domain string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return 0, ErrStorageClosed
+	}
+
+	result, err := s.db.ExecContext(ctx, `DELETE FROM chunks WHERE COALESCE(domain, 'code') = ?`, domain)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete chunks by domain: %w", err)
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	return int(rows), nil
+}
+
 func (s *SQLiteStorage) List(ctx context.Context, opts ListOptions) ([]Chunk, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -88,6 +88,10 @@ type Storage interface {
 	// DeleteByFilePath removes all chunks for a given file path
 	DeleteByFilePath(ctx context.Context, filePath string) (int, error)
 
+	// DeleteByDomain removes all chunks for a given domain (e.g., "code", "docs", "memory")
+	// Returns the number of chunks deleted
+	DeleteByDomain(ctx context.Context, domain string) (int, error)
+
 	// List retrieves chunks based on filter options
 	List(ctx context.Context, opts ListOptions) ([]Chunk, error)
 

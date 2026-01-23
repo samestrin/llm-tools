@@ -244,6 +244,9 @@ func (m *mockCalibrationStorage) Stats(ctx context.Context) (*IndexStats, error)
 	return &IndexStats{ChunksTotal: len(m.chunks)}, nil
 }
 func (m *mockCalibrationStorage) Clear(ctx context.Context) error { return nil }
+func (m *mockCalibrationStorage) DeleteByDomain(ctx context.Context, domain string) (int, error) {
+	return 0, nil
+}
 func (m *mockCalibrationStorage) GetFileHash(ctx context.Context, filePath string) (string, error) {
 	return "", nil
 }
@@ -449,6 +452,9 @@ func (m *mockDifferentiatingStorage) Stats(ctx context.Context) (*IndexStats, er
 	return &IndexStats{ChunksTotal: len(m.chunks)}, nil
 }
 func (m *mockDifferentiatingStorage) Clear(ctx context.Context) error { return nil }
+func (m *mockDifferentiatingStorage) DeleteByDomain(ctx context.Context, domain string) (int, error) {
+	return 0, nil
+}
 func (m *mockDifferentiatingStorage) GetFileHash(ctx context.Context, filePath string) (string, error) {
 	return "", nil
 }
