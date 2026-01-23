@@ -113,13 +113,17 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 }
 
 // buildArgs builds CLI arguments for the given tool
-// NOTE: This MCP exposes 15 batch/specialized tools. Single-file operations
-// should use Claude's native Read, Write, and Edit tools for better performance.
 func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 	// Normalize parameter aliases before processing
 	args = normalizeArgs(args)
 
 	switch cmdName {
+	// Single File Operations
+	case "read_file":
+		return buildReadFileArgs(args), nil
+	case "write_file":
+		return buildWriteFileArgs(args), nil
+
 	// Batch Reading
 	case "read_multiple_files":
 		return buildReadMultipleFilesArgs(args), nil
@@ -165,6 +169,43 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
+}
+
+func buildReadFileArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"read-file"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	if lineStart, ok := getInt(args, "line_start"); ok {
+		cmdArgs = append(cmdArgs, "--line-start", strconv.Itoa(lineStart))
+	}
+	if lineCount, ok := getInt(args, "line_count"); ok {
+		cmdArgs = append(cmdArgs, "--line-count", strconv.Itoa(lineCount))
+	}
+	if startOffset, ok := getInt(args, "start_offset"); ok {
+		cmdArgs = append(cmdArgs, "--start-offset", strconv.Itoa(startOffset))
+	}
+	if maxSize, ok := getInt(args, "max_size"); ok {
+		cmdArgs = append(cmdArgs, "--max-size", strconv.Itoa(maxSize))
+	}
+	return cmdArgs
+}
+
+func buildWriteFileArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"write-file"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	if content, ok := args["content"].(string); ok {
+		cmdArgs = append(cmdArgs, "--content", content)
+	}
+	if getBool(args, "append") {
+		cmdArgs = append(cmdArgs, "--append")
+	}
+	if getBool(args, "create_dirs") {
+		cmdArgs = append(cmdArgs, "--create-dirs")
+	}
+	return cmdArgs
 }
 
 func buildReadMultipleFilesArgs(args map[string]interface{}) []string {

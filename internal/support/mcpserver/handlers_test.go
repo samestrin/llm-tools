@@ -1514,6 +1514,22 @@ func TestBuildFormatTDTableArgs(t *testing.T) {
 			},
 			want: []string{"format-td-table", "--file", "test.json", "--section", "backlog"},
 		},
+		{
+			name: "with checkbox",
+			args: map[string]interface{}{
+				"file":     "test.json",
+				"checkbox": true,
+			},
+			want: []string{"format-td-table", "--file", "test.json", "--checkbox"},
+		},
+		{
+			name: "checkbox false should not add flag",
+			args: map[string]interface{}{
+				"file":     "test.json",
+				"checkbox": false,
+			},
+			want: []string{"format-td-table", "--file", "test.json"},
+		},
 	}
 
 	for _, tt := range tests {

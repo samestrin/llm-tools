@@ -52,19 +52,44 @@ Walks the directory, parses code files, and generates embeddings.`,
 				path = args[0]
 			}
 
-			return runIndex(cmd.Context(), path, indexOpts{
-				includes:        includes,
-				excludes:        excludes,
-				excludeTests:    excludeTests,
-				force:           force,
-				jsonOutput:      jsonOutput,
-				verbose:         verbose,
-				recalibrate:     recalibrate,
-				skipCalibration: skipCalibration,
-				batchSize:       batchSize,
-				parallel:        parallel,
-				embedBatchSize:  embedBatchSize,
-			})
+			// Expand path with glob support (e.g., "docs*/", "path/to/docs*")
+			// If no glob wildcard found, use path as-is
+			matches, err := filepath.Glob(path)
+			if err != nil {
+				return fmt.Errorf("invalid path pattern: %w", err)
+			}
+			if len(matches) == 0 {
+				return fmt.Errorf("no matches for path pattern: %s", path)
+			}
+
+			// Filter out paths that contain excluded directories
+			// This is needed because filepath.Glob() can expand to paths like ".stryker-tmp/docs/"
+			// even when ".stryker-tmp" is in the excludes list
+			matches = filterExcludedPaths(matches, excludes, excludeTests)
+
+			if len(matches) == 0 && len(excludes) > 0 {
+				return fmt.Errorf("all matched paths were excluded by exclude patterns")
+			}
+
+			// Index each matched path
+			for _, match := range matches {
+				if err := runIndex(cmd.Context(), match, indexOpts{
+					includes:        includes,
+					excludes:        excludes,
+					excludeTests:    excludeTests,
+					force:           force,
+					jsonOutput:      jsonOutput,
+					verbose:         verbose,
+					recalibrate:     recalibrate,
+					skipCalibration: skipCalibration,
+					batchSize:       batchSize,
+					parallel:        parallel,
+					embedBatchSize:  embedBatchSize,
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 	}
 
@@ -543,4 +568,63 @@ func RegisterAllChunkers(factory *semantic.ChunkerFactory) {
 	for _, ext := range generic.SupportedExtensions() {
 		factory.Register(ext, generic)
 	}
+}
+
+// filterExcludedPaths removes paths that contain excluded directories
+// This is needed when path expansion (filepath.Glob) matches patterns like "docs*"
+// and expands to include excluded paths like ".stryker-tmp/docs/"
+func filterExcludedPaths(paths []string, excludes []string, excludeTests bool) []string {
+	if len(excludes) == 0 && !excludeTests {
+		return paths
+	}
+
+	// Add test exclude patterns if needed
+	allExcludes := make([]string, 0, len(excludes)+10)
+	allExcludes = append(allExcludes, excludes...)
+	if excludeTests {
+		allExcludes = append(allExcludes, semantic.TestDirPatterns...)
+	}
+
+	// Normalize paths for comparison (use forward slashes)
+	var filtered []string
+	for _, p := range paths {
+		// Convert path to use forward slashes for consistent matching
+		normalizedPath := filepath.ToSlash(p)
+
+		// Check if any exclude pattern matches this path
+		excluded := false
+		for _, exc := range allExcludes {
+			// Simple directory name check: if exclude is a simple pattern without special chars
+			// check if it appears anywhere in the path as a directory component
+			if !strings.ContainsAny(exc, "*?[") {
+				// Check if exclude appears as a directory component in the path
+				pathParts := strings.Split(normalizedPath, "/")
+				for _, part := range pathParts {
+					if part == exc {
+						excluded = true
+						break
+					}
+				}
+				if excluded {
+					break
+				}
+			}
+			// Check using filepath.Match or substring
+			if strings.Contains(normalizedPath, exc) {
+				excluded = true
+				break
+			}
+			// Check with glob-like matching
+			if matched, _ := filepath.Match(exc, filepath.Base(p)); matched {
+				excluded = true
+				break
+			}
+		}
+
+		if !excluded {
+			filtered = append(filtered, p)
+		}
+	}
+
+	return filtered
 }

@@ -2162,6 +2162,10 @@ func GetToolDefinitions() []ToolDefinition {
 						"enum": ["quick_wins", "backlog", "td_files", "all"],
 						"description": "Section to format: quick_wins, backlog, td_files, all (default: all)"
 					},
+					"checkbox": {
+						"type": "boolean",
+						"description": "Add checkbox column to tables for tracking completion"
+					},
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
