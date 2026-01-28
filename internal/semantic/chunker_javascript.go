@@ -16,11 +16,17 @@ type JSChunker struct {
 	asyncFuncPattern   *regexp.Regexp
 	exportFuncPattern  *regexp.Regexp
 	exportClassPattern *regexp.Regexp
+	// maxChunkSize limits chunk content to avoid exceeding embedding model context limits
+	// Code is token-dense (~2 chars/token), so 1500 chars ≈ 750 tokens, safe for 2048 context
+	maxChunkSize int
 }
 
 // NewJSChunker creates a new JavaScript/TypeScript chunker
 func NewJSChunker() *JSChunker {
 	return &JSChunker{
+		// maxChunkSize: 1500 chars ≈ 750 tokens for code, safe for 2048 token context limits
+		maxChunkSize: 1500,
+
 		// function name(params) { or function name(params): type {
 		functionPattern: regexp.MustCompile(`(?m)^(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+(\w+)\s*\([^)]*\)`),
 
@@ -303,6 +309,7 @@ func (c *JSChunker) extractSignature(lines []string, lineIdx int) string {
 }
 
 // extractContent extracts lines from startIdx to endIdx (inclusive)
+// Content is truncated to maxChunkSize to avoid exceeding embedding model context limits
 func (c *JSChunker) extractContent(lines []string, startIdx, endIdx int) string {
 	if startIdx < 0 {
 		startIdx = 0
@@ -314,7 +321,19 @@ func (c *JSChunker) extractContent(lines []string, startIdx, endIdx int) string 
 		return ""
 	}
 
-	return strings.Join(lines[startIdx:endIdx+1], "\n")
+	content := strings.Join(lines[startIdx:endIdx+1], "\n")
+
+	// Truncate if content exceeds maxChunkSize to stay within embedding model limits
+	if c.maxChunkSize > 0 && len(content) > c.maxChunkSize {
+		// Try to truncate at a line boundary
+		truncated := content[:c.maxChunkSize]
+		if lastNewline := strings.LastIndex(truncated, "\n"); lastNewline > c.maxChunkSize/2 {
+			truncated = truncated[:lastNewline]
+		}
+		return truncated + "\n// ... truncated"
+	}
+
+	return content
 }
 
 // SupportedExtensions returns the file extensions this chunker handles
