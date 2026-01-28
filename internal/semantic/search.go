@@ -86,6 +86,10 @@ func (s *Searcher) Search(ctx context.Context, query string, opts SearchOptions)
 		searchOpts.TopK = candidates
 		// Don't apply embedding threshold when reranking - let reranker decide
 		searchOpts.Threshold = 0
+		// If user provided threshold but no rerank threshold, use threshold as rerank threshold
+		if opts.RerankThreshold == 0 && opts.Threshold > 0 {
+			searchOpts.RerankThreshold = opts.Threshold
+		}
 	}
 
 	// Search storage
@@ -96,7 +100,7 @@ func (s *Searcher) Search(ctx context.Context, query string, opts SearchOptions)
 
 	// Apply reranking if enabled
 	if shouldRerank && len(results) > 0 {
-		results, err = s.applyReranking(ctx, query, results, opts)
+		results, err = s.applyReranking(ctx, query, results, searchOpts)
 		if err != nil {
 			// Log reranking error but fall back to embedding-only results
 			slog.Warn("reranking failed, using embedding scores", "error", err)

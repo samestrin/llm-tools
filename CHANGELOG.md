@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.2] - 2026-01-27
+
+### Fixed
+
+#### llm-semantic
+
+- **Threshold filtering with reranking** - When reranking is enabled and user provides `--threshold` but no `--rerank-threshold`, the threshold is now applied after reranking:
+  - Previously: threshold was ignored when reranking, returning all results regardless of score
+  - Now: `--threshold 0.5` correctly filters out results scoring below 0.5 after reranking
+  - This makes threshold behavior intuitive regardless of whether reranking is enabled
+
+- **JavaScript/TypeScript chunk size limits** - Reduced maximum chunk size to prevent exceeding embedding model context limits:
+  - JS/TS chunks now limited to 1500 characters (~750 tokens)
+  - Prevents "dimension mismatch" errors from truncated embeddings
+  - Large functions are truncated at line boundaries with `// ... truncated` marker
+
+### Changed
+
+#### llm-semantic
+
+- **Generic code chunk size** - Reduced default from 2000 to 1500 characters for better compatibility with models that have 2048-token context limits
+
 ## [1.7.0] - 2026-01-23
 
 ### Added

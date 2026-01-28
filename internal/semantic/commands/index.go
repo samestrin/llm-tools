@@ -20,9 +20,10 @@ const (
 
 	// Default maximum chunk sizes for different chunkers
 	// These values are tuned for embedding models that typically have 512-8192 token contexts
+	// Note: Code is token-dense (~2 chars/token vs ~4 for prose) due to camelCase, brackets, etc.
 	markdownMaxChunkSize = 4000 // ~1000 tokens, good for documentation sections
 	htmlMaxChunkSize     = 4000 // not currently used for size-based chunking (HTML uses semantic boundaries)
-	genericMaxChunkSize  = 2000 // smaller for generic code, ~500 tokens
+	genericMaxChunkSize  = 1500 // ~750 tokens for code (conservative for 2048-token context limits)
 )
 
 func indexCmd() *cobra.Command {
