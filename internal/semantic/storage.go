@@ -31,6 +31,10 @@ type SearchOptions struct {
 	Threshold  float32 `json:"threshold,omitempty"`   // Minimum similarity score (0.0 - 1.0)
 	Type       string  `json:"type,omitempty"`        // Filter by chunk type
 	PathFilter string  `json:"path_filter,omitempty"` // Filter by file path pattern (glob)
+	// ChunkIDs restricts vector search to only these chunk IDs.
+	// Used by prefilter search to narrow down candidates from lexical search.
+	// Empty slice means no restriction (search all chunks).
+	ChunkIDs []string `json:"chunk_ids,omitempty"`
 	// Profiles specifies which profiles (collections) to search across.
 	// NOTE: This field is NOT used by Storage.Search directly. It is used by
 	// higher-level APIs (Searcher, MultiProfileSearcher) to coordinate multi-profile

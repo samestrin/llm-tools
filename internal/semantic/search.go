@@ -244,6 +244,119 @@ func (s *Searcher) HybridSearch(ctx context.Context, query string, opts HybridSe
 	return results, nil
 }
 
+// PrefilterSearchOptions configures prefilter search behavior.
+type PrefilterSearchOptions struct {
+	SearchOptions     // Embedded search options
+	PrefilterTopK int // Number of candidates from lexical search (default: TopK * 10)
+}
+
+// PrefilterSearch performs a two-stage search: first lexical (FTS5) to narrow candidates,
+// then vector search on those candidates. This improves performance on large indexes by
+// reducing the vector search space while maintaining semantic relevance.
+// Returns an error if the storage doesn't support lexical search.
+func (s *Searcher) PrefilterSearch(ctx context.Context, query string, opts PrefilterSearchOptions) ([]SearchResult, error) {
+	if query == "" {
+		return nil, errors.New("query cannot be empty")
+	}
+	if opts.Threshold < 0 || opts.Threshold > 1 {
+		return nil, errors.New("threshold must be between 0.0 and 1.0")
+	}
+	if opts.TopK < 0 {
+		return nil, errors.New("topK must be non-negative")
+	}
+
+	// Check if storage supports lexical search
+	lexicalSearcher, ok := s.storage.(LexicalSearcher)
+	if !ok {
+		return nil, errors.New("prefilter search requires storage with lexical search support")
+	}
+
+	// Set defaults for prefilter candidates
+	prefilterTopK := opts.PrefilterTopK
+	if prefilterTopK <= 0 {
+		// Default: fetch 10x the desired results for prefiltering
+		prefilterTopK = opts.TopK * 10
+		if prefilterTopK < 100 {
+			prefilterTopK = 100
+		}
+	}
+
+	// Stage 1: Lexical search to get candidate chunk IDs
+	lexicalOpts := LexicalSearchOptions{
+		TopK:       prefilterTopK,
+		Type:       opts.Type,
+		PathFilter: opts.PathFilter,
+	}
+	lexicalResults, err := lexicalSearcher.LexicalSearch(ctx, query, lexicalOpts)
+	if err != nil {
+		// Log and fall back to regular search
+		slog.Warn("lexical prefilter failed, falling back to regular search", "error", err)
+		return s.Search(ctx, query, opts.SearchOptions)
+	}
+
+	// If no lexical matches, fall back to regular search
+	if len(lexicalResults) == 0 {
+		slog.Debug("no lexical matches for prefilter, falling back to regular search")
+		return s.Search(ctx, query, opts.SearchOptions)
+	}
+
+	// Extract chunk IDs from lexical results
+	chunkIDs := make([]string, len(lexicalResults))
+	for i, r := range lexicalResults {
+		chunkIDs[i] = r.Chunk.ID
+	}
+
+	slog.Debug("prefilter narrowed search space", "lexical_candidates", len(chunkIDs), "original_topk", opts.TopK)
+
+	// Stage 2: Vector search restricted to candidate chunks
+	searchOpts := opts.SearchOptions
+	searchOpts.ChunkIDs = chunkIDs
+
+	// Generate embedding for query
+	queryEmbedding, err := s.embedder.Embed(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine if reranking is enabled
+	shouldRerank := opts.Rerank && s.reranker != nil
+
+	// If reranking, adjust options
+	if shouldRerank {
+		candidates := opts.RerankCandidates
+		if candidates <= 0 {
+			candidates = opts.TopK * 5
+			if candidates < 50 {
+				candidates = 50
+			}
+		}
+		searchOpts.TopK = candidates
+		searchOpts.Threshold = 0
+		if opts.RerankThreshold == 0 && opts.Threshold > 0 {
+			searchOpts.RerankThreshold = opts.Threshold
+		}
+	}
+
+	// Search storage with chunk ID filter
+	results, err := s.storage.Search(ctx, queryEmbedding, searchOpts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply reranking if enabled
+	if shouldRerank && len(results) > 0 {
+		results, err = s.applyReranking(ctx, query, results, searchOpts)
+		if err != nil {
+			slog.Warn("reranking failed, using embedding scores", "error", err)
+		}
+	}
+
+	// Apply relevance labels
+	s.applyRelevanceLabels(ctx, results)
+
+	return results, nil
+}
+
 // SearchMultiple performs search with multiple query terms and combines results
 func (s *Searcher) SearchMultiple(ctx context.Context, queries []string, opts SearchOptions) ([]SearchResult, error) {
 	if len(queries) == 0 {

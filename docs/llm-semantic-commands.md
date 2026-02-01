@@ -91,6 +91,14 @@ llm-semantic search "authentication logic" --top 10 --threshold 0.7
 | `--fusion-k` | RRF fusion k parameter (higher = smoother ranking) | 60 |
 | `--fusion-alpha` | Fusion weight: 1.0 = dense only, 0.0 = lexical only | 0.7 |
 
+**Prefilter Search:**
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--prefilter` | Enable lexical prefiltering (narrow candidates with FTS5 before vector search) | false |
+| `--prefilter-top` | Number of lexical candidates for prefiltering | max(topK*10, 100) |
+
+Prefilter search uses lexical search (FTS5) to narrow down candidates before vector search. Unlike `--hybrid` which **fuses** lexical and vector results, `--prefilter` uses lexical search purely as a **filter** to reduce the vector search space. This is more efficient for large indexes.
+
 **Recency Boost:**
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -479,8 +487,45 @@ This approach combines the speed of embedding search with the precision of cross
 
 - Initial indexing can take 1-2 minutes for large codebases
 - Incremental updates are typically sub-second
-- Search queries return in <100ms
+- Search queries return in <100ms with proper configuration
 - Index is stored locally in `.llm-index/semantic.db` (SQLite default)
+
+### Storage Backend Recommendations
+
+Choose your storage backend based on index size:
+
+| Index Size | Recommended Storage | Search Flags | Expected Latency |
+|------------|---------------------|--------------|------------------|
+| < 10K chunks | SQLite | None | ~500ms |
+| 10K-50K chunks | SQLite | `--prefilter` | ~500ms-1s |
+| 50K-200K chunks | SQLite | `--prefilter` | ~1-2s |
+| > 50K chunks | **Qdrant** | None | ~300ms |
+| > 200K chunks | **Qdrant** | None | ~300-500ms |
+
+**Why Qdrant is faster for large indexes:**
+- SQLite uses brute-force O(n) cosine similarity (scans all chunks)
+- Qdrant uses HNSW indexing for O(log n) approximate nearest neighbor search
+- With 200K+ chunks, this difference is dramatic (seconds vs milliseconds)
+
+**When to use search flags:**
+
+| Flag | Use Case | Effect |
+|------|----------|--------|
+| `--prefilter` | Large SQLite indexes | Narrows search space with FTS5 before vector search |
+| `--hybrid` | Better recall needed | Fuses lexical + vector results (slightly slower) |
+| `--rerank` | Better precision needed | Cross-encoder re-scoring (adds ~1-2s) |
+| `--no-rerank` | Speed over precision | Disables reranker even when configured |
+
+**Typical search time breakdown (Qdrant):**
+- ~140ms: Embedding API call (query → vector)
+- ~10-50ms: Qdrant vector search
+- ~1-2s: Reranker (if enabled)
+
+**Tips for sub-second search:**
+1. Use Qdrant for indexes > 50K chunks
+2. Disable reranker with `--no-rerank` when speed matters
+3. Ensure embedding API is responsive (local Ollama or dedicated GPU server)
+4. Use `--prefilter` with SQLite to reduce vector comparisons
 
 ## Example Usage
 

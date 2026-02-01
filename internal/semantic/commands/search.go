@@ -32,6 +32,8 @@ func searchCmd() *cobra.Command {
 		rerankCandidates int      // Number of candidates to fetch for reranking
 		rerankThreshold  float64  // Minimum reranker score
 		noRerank         bool     // Explicitly disable reranking
+		prefilter        bool     // Enable lexical prefiltering
+		prefilterTopK    int      // Number of lexical candidates for prefiltering
 	)
 
 	cmd := &cobra.Command{
@@ -42,6 +44,11 @@ Returns ranked results based on semantic similarity.
 
 With --hybrid, performs combined dense (vector) and lexical (FTS5) search
 using Reciprocal Rank Fusion (RRF) for improved recall.
+
+With --prefilter, uses lexical search (FTS5) to narrow down candidates before
+vector search. This improves performance on large indexes by reducing the
+vector search space. Unlike --hybrid which fuses results, --prefilter uses
+lexical search purely as a filter.
 
 With --profiles, searches across multiple collections (e.g., code,docs) and
 merges results sorted by score. Each result includes its source profile.
@@ -114,6 +121,8 @@ how many candidates are fetched before reranking (default: max(topK*5, 50)).`,
 				rerankCandidates: rerankCandidates,
 				rerankThreshold:  float32(rerankThreshold),
 				noRerank:         noRerank,
+				prefilter:        prefilter,
+				prefilterTopK:    prefilterTopK,
 			})
 		},
 	}
@@ -135,6 +144,8 @@ how many candidates are fetched before reranking (default: max(topK*5, 50)).`,
 	cmd.Flags().IntVar(&rerankCandidates, "rerank-candidates", 0, "Number of candidates to fetch for reranking (default: max(topK*5, 50))")
 	cmd.Flags().Float64Var(&rerankThreshold, "rerank-threshold", 0.0, "Minimum reranker score (0.0-1.0)")
 	cmd.Flags().BoolVar(&noRerank, "no-rerank", false, "Disable reranking even when reranker is configured")
+	cmd.Flags().BoolVar(&prefilter, "prefilter", false, "Enable lexical prefiltering (narrow candidates with FTS5 before vector search)")
+	cmd.Flags().IntVar(&prefilterTopK, "prefilter-top", 0, "Number of lexical candidates for prefiltering (default: topK*10 or 100)")
 
 	return cmd
 }
@@ -157,6 +168,8 @@ type searchOpts struct {
 	rerankCandidates int
 	rerankThreshold  float32
 	noRerank         bool
+	prefilter        bool
+	prefilterTopK    int
 }
 
 func runSearch(ctx context.Context, query string, opts searchOpts) error {
@@ -210,6 +223,11 @@ func runSearch(ctx context.Context, query string, opts searchOpts) error {
 			SearchOptions: searchOpts,
 			FusionK:       opts.fusionK,
 			FusionAlpha:   opts.fusionAlpha,
+		})
+	} else if opts.prefilter {
+		results, err = searcher.PrefilterSearch(ctx, query, semantic.PrefilterSearchOptions{
+			SearchOptions: searchOpts,
+			PrefilterTopK: opts.prefilterTopK,
 		})
 	} else {
 		results, err = searcher.Search(ctx, query, searchOpts)
@@ -347,6 +365,8 @@ func searchAliasCmd(name, profileName string) *cobra.Command {
 		rerankCandidates int
 		rerankThreshold  float64
 		noRerank         bool
+		prefilter        bool
+		prefilterTopK    int
 	)
 
 	cmd := &cobra.Command{
@@ -403,6 +423,8 @@ Returns ranked results based on semantic similarity.`, profileName, profileName)
 				rerankCandidates: rerankCandidates,
 				rerankThreshold:  float32(rerankThreshold),
 				noRerank:         noRerank,
+				prefilter:        prefilter,
+				prefilterTopK:    prefilterTopK,
 			})
 		},
 	}
@@ -424,6 +446,8 @@ Returns ranked results based on semantic similarity.`, profileName, profileName)
 	cmd.Flags().IntVar(&rerankCandidates, "rerank-candidates", 0, "Candidates to fetch for reranking (default: max(topK*5, 50))")
 	cmd.Flags().Float64Var(&rerankThreshold, "rerank-threshold", 0.0, "Minimum reranker score threshold")
 	cmd.Flags().BoolVar(&noRerank, "no-rerank", false, "Disable reranking even if configured")
+	cmd.Flags().BoolVar(&prefilter, "prefilter", false, "Enable lexical prefiltering (narrow candidates with FTS5 before vector search)")
+	cmd.Flags().IntVar(&prefilterTopK, "prefilter-top", 0, "Number of lexical candidates for prefiltering (default: topK*10 or 100)")
 
 	return cmd
 }

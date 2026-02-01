@@ -189,6 +189,14 @@ func GetToolDefinitions() []ToolDefinition {
 					"no_rerank": {
 						"type": "boolean",
 						"description": "Disable reranking even when reranker is configured"
+					},
+					"prefilter": {
+						"type": "boolean",
+						"description": "Enable lexical prefiltering (narrow candidates with FTS5 before vector search)"
+					},
+					"prefilter_top": {
+						"type": "integer",
+						"description": "Number of lexical candidates for prefiltering (default: top_k*10 or 100)"
 					}
 				},
 				"required": ["query"]
