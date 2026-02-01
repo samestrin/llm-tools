@@ -577,6 +577,15 @@ func (s *QdrantStorage) Search(ctx context.Context, queryEmbedding []float32, op
 			},
 		})
 	}
+	if len(opts.ChunkIDs) > 0 {
+		// Filter by specific chunk IDs (used by prefilter search)
+		// Qdrant uses the chunk ID as the point ID - convert strings to PointIds
+		pointIDs := make([]*qdrant.PointId, len(opts.ChunkIDs))
+		for i, id := range opts.ChunkIDs {
+			pointIDs[i] = qdrant.NewID(id)
+		}
+		conditions = append(conditions, qdrant.NewHasID(pointIDs...))
+	}
 
 	var filter *qdrant.Filter
 	if len(conditions) > 0 {

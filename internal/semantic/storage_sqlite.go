@@ -500,6 +500,15 @@ func (s *SQLiteStorage) Search(ctx context.Context, queryEmbedding []float32, op
 		query += ` AND file_path LIKE ?`
 		args = append(args, opts.PathFilter+"%")
 	}
+	if len(opts.ChunkIDs) > 0 {
+		// Filter by specific chunk IDs (used by prefilter search)
+		placeholders := make([]string, len(opts.ChunkIDs))
+		for i, id := range opts.ChunkIDs {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		query += ` AND id IN (` + strings.Join(placeholders, ",") + `)`
+	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {

@@ -105,6 +105,10 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 				}
 			}
 
+			// Resolve storage type from config (if not explicitly set via flag)
+			// This must happen after loading config but before any command runs
+			storageType = resolveStorageType(cmd)
+
 			return nil
 		},
 	}

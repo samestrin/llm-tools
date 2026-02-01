@@ -354,6 +354,14 @@ func buildSearchArgs(args map[string]interface{}) []string {
 		cmdArgs = append(cmdArgs, "--no-rerank")
 	}
 
+	// Prefilter parameters
+	if getBool(args, "prefilter") {
+		cmdArgs = append(cmdArgs, "--prefilter")
+	}
+	if prefilterTop, ok := getInt(args, "prefilter_top"); ok && prefilterTop > 0 {
+		cmdArgs = append(cmdArgs, "--prefilter-top", strconv.Itoa(prefilterTop))
+	}
+
 	return cmdArgs
 }
 
