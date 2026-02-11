@@ -179,9 +179,8 @@ func TestExpectedClarifyToolNames(t *testing.T) {
 // TestLLMFilesystemToolCount verifies the correct number of filesystem tools
 func TestLLMFilesystemToolCount(t *testing.T) {
 	tools := filesystemserver.GetToolDefinitions()
-	// NOTE: Reduced to 15 batch/specialized tools in sprint 8.9
-	// Single-file operations should use Claude's native tools
-	expected := 15
+	// NOTE: Includes 2 single-file operations + 15 batch/specialized tools
+	expected := 17
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-filesystem tools, got %d", expected, len(tools))
 	}
@@ -229,10 +228,14 @@ func TestLLMFilesystemToolDescriptions(t *testing.T) {
 }
 
 // TestExpectedFilesystemToolNames verifies all expected filesystem tools exist
-// NOTE: Updated for 15 batch/specialized tools (sprint 8.9)
+// NOTE: Updated for 17 total tools (2 single-file + 15 batch/specialized)
 func TestExpectedFilesystemToolNames(t *testing.T) {
-	// 15 batch/specialized tools - single-file operations use Claude's native tools
+	// 17 total tools - 2 single-file + 15 batch/specialized
 	expectedNames := []string{
+		// Single File Operations
+		"llm_filesystem_read_file",
+		"llm_filesystem_write_file",
+
 		// Batch Reading
 		"llm_filesystem_read_multiple_files",
 		"llm_filesystem_extract_lines",
