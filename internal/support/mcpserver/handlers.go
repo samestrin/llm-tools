@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -67,6 +68,20 @@ var BinaryPath = "/usr/local/bin/llm-support"
 // CommandTimeout is the default timeout for command execution
 var CommandTimeout = 60 * time.Second
 
+// LLMTimeout is the timeout for LLM-based commands (prompt, complete, foreach)
+// These commands call external LLM APIs which can take longer than typical operations
+var LLMTimeout = 300 * time.Second // 5 minutes
+
+// Commands that require longer timeouts (LLM operations)
+var llmCommands = map[string]bool{
+	"prompt":   true,
+	"complete": true,
+	"foreach":  true,
+}
+
+// Debug enables verbose logging for debugging MCP tool execution
+var Debug = os.Getenv("LLM_SUPPORT_MCP_DEBUG") == "true"
+
 // ExecuteHandler executes the appropriate command for a tool
 func ExecuteHandler(toolName string, args map[string]interface{}) (string, error) {
 	// Strip prefix
@@ -81,20 +96,39 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 	// Add --json and --min flags for machine-parseable, token-optimized output
 	cmdArgs = append(cmdArgs, "--json", "--min")
 
-	// Execute command
-	ctx, cancel := context.WithTimeout(context.Background(), CommandTimeout)
+	// Determine timeout based on command type
+	timeout := CommandTimeout
+	if llmCommands[cmdName] {
+		timeout = LLMTimeout
+	}
+
+	// Execute command with appropriate timeout
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	if Debug {
+		fmt.Fprintln(os.Stderr, "[LLM_SUPPORT_MCP] Command:", BinaryPath, strings.Join(cmdArgs, " "))
+		fmt.Fprintf(os.Stderr, "[LLM_SUPPORT_MCP] Timeout: %v\n", timeout)
+	}
 
 	cmd := exec.CommandContext(ctx, BinaryPath, cmdArgs...)
 	output, err := cmd.CombinedOutput()
 
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", fmt.Errorf("command timed out after %v", CommandTimeout)
+		// Return captured output on timeout - it may contain partial results or error messages
+		errMsg := fmt.Errorf("command timed out after %v (captured %d bytes)", timeout, len(output))
+		if Debug {
+			fmt.Fprintf(os.Stderr, "[LLM_SUPPORT_MCP] Timeout error (captured output): %q\n", string(output))
+		}
+		return string(output), errMsg
 	}
 
 	if err != nil {
 		// Return output even on error (may contain useful error message)
 		if len(output) > 0 {
+			if Debug {
+				fmt.Fprintf(os.Stderr, "[LLM_SUPPORT_MCP] Command failed with output: %q\n", string(output))
+			}
 			return string(output), nil
 		}
 		return "", fmt.Errorf("command failed: %w", err)
@@ -344,10 +378,25 @@ func buildMarkdownHeadersArgs(args map[string]interface{}) []string {
 }
 
 func buildTemplateArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"template"}
+	// Note: The template command requires a positional file path, NOT a --file flag
+	// The template file is passed as the first positional argument
+	templateFile := ""
 	if file, ok := args["file"].(string); ok {
-		cmdArgs = append(cmdArgs, file)
+		templateFile = file
 	}
+	// Also check for template param alias
+	if file, ok := args["template"].(string); ok && templateFile == "" {
+		templateFile = file
+	}
+
+	if templateFile == "" {
+		// No file provided - return minimal args which will cause error
+		return []string{"template"}
+	}
+
+	// Build args: template command needs file as positional arg FIRST
+	cmdArgs := []string{"template", templateFile}
+
 	if vars, ok := args["vars"].(map[string]interface{}); ok {
 		for k, v := range vars {
 			cmdArgs = append(cmdArgs, "--var", fmt.Sprintf("%s=%v", k, v))
