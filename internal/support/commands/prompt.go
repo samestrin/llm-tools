@@ -165,8 +165,18 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 			variables[key] = value
 		}
 
+		// Debug: Show variables collected
+		fmt.Fprintf(cmd.ErrOrStderr(), "[DEBUG] Collected variables: %v\n", variables)
+
 		// Substitute variables
 		finalPrompt = substituteTemplate(templateText, variables)
+
+		// Debug: Show result (truncated if long)
+		if len(finalPrompt) > 200 {
+			fmt.Fprintf(cmd.ErrOrStderr(), "[DEBUG] Final prompt (first 200 chars): %s...\n", finalPrompt[:200])
+		} else {
+			fmt.Fprintf(cmd.ErrOrStderr(), "[DEBUG] Final prompt: %s\n", finalPrompt)
+		}
 
 		// Check for unsubstituted variables
 		unsubPattern := regexp.MustCompile(`\[\[(\w+)\]\]`)
