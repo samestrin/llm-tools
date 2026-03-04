@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -165,18 +166,8 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 			variables[key] = value
 		}
 
-		// Debug: Show variables collected
-		fmt.Fprintf(cmd.ErrOrStderr(), "[DEBUG] Collected variables: %v\n", variables)
-
 		// Substitute variables
 		finalPrompt = substituteTemplate(templateText, variables)
-
-		// Debug: Show result (truncated if long)
-		if len(finalPrompt) > 200 {
-			fmt.Fprintf(cmd.ErrOrStderr(), "[DEBUG] Final prompt (first 200 chars): %s...\n", finalPrompt[:200])
-		} else {
-			fmt.Fprintf(cmd.ErrOrStderr(), "[DEBUG] Final prompt: %s\n", finalPrompt)
-		}
 
 		// Check for unsubstituted variables
 		unsubPattern := regexp.MustCompile(`\[\[(\w+)\]\]`)
@@ -555,6 +546,11 @@ func executeLLM(binary, style, prompt, instruction string, timeout int) (string,
 		cmd.Stdin = strings.NewReader(stdinContent)
 	}
 
+	// Suppress stderr from third-party LLM CLIs (progress messages, warnings, etc.)
+	// On error, we capture stderr via exec.ExitError.Stderr
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
 	// Set timeout using a simple approach
 	done := make(chan error, 1)
 	var output []byte
@@ -574,7 +570,7 @@ func executeLLM(binary, style, prompt, instruction string, timeout int) (string,
 	case <-done:
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
-				return "", exitErr.ExitCode(), string(exitErr.Stderr)
+				return "", exitErr.ExitCode(), stderrBuf.String()
 			}
 			if os.IsNotExist(err) {
 				return "", 127, fmt.Sprintf("LLM CLI not found: %s", binary)

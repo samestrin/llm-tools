@@ -15,7 +15,7 @@ import (
 // This makes the MCP tools more forgiving when LLMs use alternative parameter names.
 var paramAliases = map[string][]string{
 	"path":     {"target", "file", "input", "dir", "directory", "file_path"},
-	"file":     {"path", "input", "template"},
+	"file":     {"path", "input"},
 	"manifest": {"path", "file", "package"},
 	"pattern":  {"regex", "search"},
 	"context":  {"description"},
@@ -925,10 +925,8 @@ func buildCompleteArgs(args map[string]interface{}) []string {
 	}
 	// Handle vars as a map
 	if vars, ok := args["vars"].(map[string]interface{}); ok {
-		for key, val := range vars {
-			if strVal, ok := val.(string); ok {
-				cmdArgs = append(cmdArgs, "--var", key+"="+strVal)
-			}
+		for k, v := range vars {
+			cmdArgs = append(cmdArgs, "--var", fmt.Sprintf("%s=%v", k, v))
 		}
 	}
 	if system, ok := args["system"].(string); ok {

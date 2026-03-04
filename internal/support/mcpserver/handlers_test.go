@@ -740,9 +740,9 @@ func TestNormalizeArgs(t *testing.T) {
 			want: map[string]interface{}{"path": "/home", "depth": 3},
 		},
 		{
-			name: "template -> file alias",
+			name: "template is not aliased to file",
 			args: map[string]interface{}{"template": "my.tmpl", "vars": map[string]interface{}{"x": 1}},
-			want: map[string]interface{}{"file": "my.tmpl", "vars": map[string]interface{}{"x": 1}},
+			want: map[string]interface{}{"template": "my.tmpl", "vars": map[string]interface{}{"x": 1}},
 		},
 		{
 			name: "canonical takes precedence over alias",
