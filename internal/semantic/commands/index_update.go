@@ -86,6 +86,21 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 		}
 	}
 
+	// Acquire cross-process lock (non-blocking for incremental update)
+	// If another index/update is running, skip silently — it will pick up our changes
+	idxLock := semantic.NewIndexLock(indexPath, storageType, resolveCollectionName())
+	locked, err := idxLock.TryLock()
+	if err != nil {
+		return fmt.Errorf("failed to check index lock: %w", err)
+	}
+	if !locked {
+		if !opts.jsonOutput {
+			fmt.Println("Another index operation is in progress, skipping update")
+		}
+		return nil
+	}
+	defer idxLock.Unlock()
+
 	// Create embedder based on --embedder flag
 	embedder, err := createEmbedder()
 	if err != nil {
