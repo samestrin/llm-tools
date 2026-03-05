@@ -15,6 +15,11 @@ import (
 )
 
 const (
+	// indexLockTimeout is how long index (rebuild) waits to acquire the lock
+	indexLockTimeout = 120 * time.Second
+)
+
+const (
 	// progressReportInterval is the number of files between progress reports
 	progressReportInterval = 100
 
@@ -139,6 +144,13 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 			return fmt.Errorf("failed to create index directory %q: %w", indexDir, err)
 		}
 	}
+
+	// Acquire cross-process lock (blocking with timeout for full rebuild)
+	idxLock := semantic.NewIndexLock(indexPath, storageType, resolveCollectionName())
+	if err := idxLock.Lock(indexLockTimeout); err != nil {
+		return fmt.Errorf("another index operation is in progress: %w", err)
+	}
+	defer idxLock.Unlock()
 
 	// Create embedder based on --embedder flag
 	embedder, err := createEmbedder()
