@@ -101,9 +101,17 @@ func runRouteTD(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Parse input JSON
+	// Parse input JSON - accept both {"rows": [...]} and bare [...]
 	var input RouteTDInput
-	if err := json.Unmarshal([]byte(content), &input); err != nil {
+	trimmed := strings.TrimSpace(content)
+	if strings.HasPrefix(trimmed, "[") {
+		// Bare array - wrap in {"rows": ...}
+		var rows []map[string]interface{}
+		if err := json.Unmarshal([]byte(trimmed), &rows); err != nil {
+			return fmt.Errorf("invalid JSON array input: %w", err)
+		}
+		input.Rows = rows
+	} else if err := json.Unmarshal([]byte(content), &input); err != nil {
 		return fmt.Errorf("invalid JSON input: %w", err)
 	}
 
