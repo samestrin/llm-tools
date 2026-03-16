@@ -24,6 +24,14 @@ var (
 	groupTDRootTheme        string
 	groupTDJSON             bool
 	groupTDMinimal          bool
+	groupTDAssignNumbers    bool
+	groupTDOutputFile       string
+	groupTDCheckbox         bool
+	groupTDSprintLabel      string
+	groupTDDateLabel        string
+	groupTDFormat           string
+	groupTDHeaders          string
+	groupTDDelimiter        string
 )
 
 // Constants
@@ -36,6 +44,9 @@ const (
 	defaultMinGroupSize = 3
 	defaultRootTheme    = "misc"
 	criticalSeverity    = "CRITICAL"
+	highSeverity        = "HIGH"
+	soloTheme           = "solo"
+	ungroupedLabel      = "U"
 )
 
 // GroupTDInput represents the input format
@@ -54,6 +65,7 @@ type GroupTDResult struct {
 // TDGroup represents a group of related TD items
 type TDGroup struct {
 	Theme        string                   `json:"theme"`
+	Number       interface{}              `json:"number,omitempty"`
 	PathPattern  string                   `json:"path_pattern,omitempty"`
 	Items        []map[string]interface{} `json:"items"`
 	Count        int                      `json:"count"`
@@ -116,6 +128,14 @@ Examples:
 	cmd.Flags().StringVar(&groupTDRootTheme, "root-theme", defaultRootTheme, "Theme for items without directory structure")
 	cmd.Flags().BoolVar(&groupTDJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&groupTDMinimal, "min", false, "Minimal output format")
+	cmd.Flags().BoolVar(&groupTDAssignNumbers, "assign-numbers", false, "Assign group numbers to items and groups")
+	cmd.Flags().StringVar(&groupTDOutputFile, "output-file", "", "Write grouped items as markdown table to file")
+	cmd.Flags().BoolVar(&groupTDCheckbox, "checkbox", false, "Add checkbox column (requires --output-file)")
+	cmd.Flags().StringVar(&groupTDSprintLabel, "sprint-label", "", "Sprint name for section header")
+	cmd.Flags().StringVar(&groupTDDateLabel, "date-label", "", "Date for section header")
+	cmd.Flags().StringVar(&groupTDFormat, "format", "json", "Input format: json or pipe")
+	cmd.Flags().StringVar(&groupTDHeaders, "headers", "", "Comma-separated headers for pipe format (required with --format=pipe)")
+	cmd.Flags().StringVar(&groupTDDelimiter, "delimiter", "|", "Field delimiter for pipe format")
 
 	return cmd
 }
@@ -150,18 +170,25 @@ func runGroupTD(cmd *cobra.Command, args []string) error {
 	}
 
 	// Parse input
-	items, err := parseGroupTDInput(input)
+	items, err := parseGroupTDInput(input, groupTDFormat, groupTDHeaders, groupTDDelimiter)
 	if err != nil {
 		return fmt.Errorf("failed to parse input: %w", err)
 	}
 
 	// Group items
-	result := groupItems(items, groupTDGroupBy, groupTDPathDepth, groupTDMinGroupSize, groupTDCriticalOverride, groupTDRootTheme)
+	result := groupItems(items, groupTDGroupBy, groupTDPathDepth, groupTDMinGroupSize, groupTDCriticalOverride, groupTDRootTheme, groupTDAssignNumbers)
 
 	// Validate no data loss
 	totalOutput := result.Summary.GroupedCount + result.Summary.UngroupedCount
 	if totalOutput != len(items) {
 		return fmt.Errorf("FATAL: Data loss detected - input: %d, output: %d", len(items), totalOutput)
+	}
+
+	// Write output file if requested
+	if groupTDOutputFile != "" {
+		if err := writeGroupedMarkdown(result, groupTDOutputFile, groupTDCheckbox, groupTDSprintLabel, groupTDDateLabel); err != nil {
+			return fmt.Errorf("failed to write output file: %w", err)
+		}
 	}
 
 	// Output
@@ -214,8 +241,12 @@ func getGroupTDInput(cmd *cobra.Command) (string, error) {
 	return "", fmt.Errorf("no input provided: use --file, --content, or pipe to stdin")
 }
 
-func parseGroupTDInput(input string) ([]map[string]interface{}, error) {
-	// Try parsing with items/rows wrapper
+func parseGroupTDInput(input string, format string, headers string, delimiter string) ([]map[string]interface{}, error) {
+	if format == "pipe" {
+		return parsePipeInput(input, headers, delimiter)
+	}
+
+	// JSON format (default) - try parsing with items/rows wrapper
 	var wrapped GroupTDInput
 	if err := json.Unmarshal([]byte(input), &wrapped); err == nil {
 		if wrapped.Items != nil {
@@ -235,7 +266,55 @@ func parseGroupTDInput(input string) ([]map[string]interface{}, error) {
 	return nil, fmt.Errorf("could not parse input as {items:[...]}, {rows:[...]}, or raw array")
 }
 
-func groupItems(items []map[string]interface{}, groupBy string, pathDepth, minGroupSize int, criticalOverride bool, rootTheme string) GroupTDResult {
+func parsePipeInput(input string, headersStr string, delimiter string) ([]map[string]interface{}, error) {
+	if headersStr == "" {
+		return nil, fmt.Errorf("--headers required with --format=pipe")
+	}
+
+	headers := strings.Split(headersStr, ",")
+	for i := range headers {
+		headers[i] = strings.TrimSpace(headers[i])
+	}
+
+	lines := strings.Split(strings.TrimSpace(input), "\n")
+	var items []map[string]interface{}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Skip empty lines and comments
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		fields := strings.Split(trimmed, delimiter)
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+
+		// Skip lines that don't have enough fields (likely malformed)
+		if len(fields) < 2 {
+			continue
+		}
+
+		row := make(map[string]interface{})
+		for j, header := range headers {
+			if j < len(fields) {
+				row[header] = fields[j]
+			} else {
+				row[header] = ""
+			}
+		}
+		items = append(items, row)
+	}
+
+	if len(items) == 0 {
+		return nil, fmt.Errorf("no data rows found in pipe input")
+	}
+
+	return items, nil
+}
+
+func groupItems(items []map[string]interface{}, groupBy string, pathDepth, minGroupSize int, criticalOverride bool, rootTheme string, assignNumbers bool) GroupTDResult {
 	// Step 1: Extract theme for each item
 	itemThemes := make(map[int]string)
 	for i, item := range items {
@@ -299,7 +378,36 @@ func groupItems(items []map[string]interface{}, groupBy string, pathDepth, minGr
 		}
 	}
 
-	// Step 6: Add critical items as separate group(s)
+	// Step 6: Solo detection - HIGH/CRITICAL ungrouped items run solo
+	// Only when assignNumbers is enabled (code-review pipeline)
+	if assignNumbers {
+		soloItems := []map[string]interface{}{}
+		remainingUngrouped := []map[string]interface{}{}
+		for _, item := range ungrouped {
+			severity, _ := item["SEVERITY"].(string)
+			sev := strings.ToUpper(severity)
+			if sev == criticalSeverity || sev == highSeverity {
+				soloItems = append(soloItems, item)
+			} else {
+				remainingUngrouped = append(remainingUngrouped, item)
+			}
+		}
+		ungrouped = remainingUngrouped
+
+		if len(soloItems) > 0 {
+			soloGroup := &TDGroup{
+				Theme:       soloTheme,
+				PathPattern: "HIGH/CRITICAL ungrouped items (run solo)",
+				Items:       soloItems,
+			}
+			for _, item := range soloItems {
+				soloGroup.TotalMinutes += extractEstMinutesInt(item)
+			}
+			groupMap[soloTheme] = soloGroup
+		}
+	}
+
+	// Step 7: Add critical items as separate group(s)
 	if len(criticalItems) > 0 {
 		criticalGroup := &TDGroup{
 			Theme:       "critical",
@@ -312,7 +420,7 @@ func groupItems(items []map[string]interface{}, groupBy string, pathDepth, minGr
 		groupMap["critical"] = criticalGroup
 	}
 
-	// Step 7: Convert map to sorted slice
+	// Step 8: Convert map to sorted slice
 	groups := []TDGroup{}
 	themeOrder := []string{}
 	for theme := range groupMap {
@@ -320,14 +428,21 @@ func groupItems(items []map[string]interface{}, groupBy string, pathDepth, minGr
 	}
 	sort.Strings(themeOrder)
 
-	// Put critical first if present
+	// Order: solo first, then critical, then alphabetical
 	finalOrder := []string{}
 	for _, t := range themeOrder {
-		if t == "critical" {
-			finalOrder = append([]string{"critical"}, finalOrder...)
-		} else {
-			finalOrder = append(finalOrder, t)
+		if t == soloTheme || t == "critical" {
+			continue
 		}
+		finalOrder = append(finalOrder, t)
+	}
+	// Prepend critical if present
+	if _, ok := groupMap["critical"]; ok {
+		finalOrder = append([]string{"critical"}, finalOrder...)
+	}
+	// Prepend solo if present
+	if _, ok := groupMap[soloTheme]; ok {
+		finalOrder = append([]string{soloTheme}, finalOrder...)
 	}
 
 	for _, theme := range finalOrder {
@@ -336,7 +451,32 @@ func groupItems(items []map[string]interface{}, groupBy string, pathDepth, minGr
 		groups = append(groups, *g)
 	}
 
-	// Step 8: Build result
+	// Step 9: Assign group numbers if requested
+	if assignNumbers {
+		num := 1
+		for i := range groups {
+			if groups[i].Theme == soloTheme {
+				groups[i].Number = 0
+			} else {
+				groups[i].Number = num
+				num++
+			}
+			// Inject group label into each item
+			label := fmt.Sprintf("%v", groups[i].Number)
+			if groups[i].Theme == soloTheme {
+				label = "Solo"
+			}
+			for j := range groups[i].Items {
+				groups[i].Items[j]["GROUP"] = label
+			}
+		}
+		// Label ungrouped items
+		for j := range ungrouped {
+			ungrouped[j]["GROUP"] = ungroupedLabel
+		}
+	}
+
+	// Step 10: Build result
 	groupedCount := 0
 	for _, g := range groups {
 		groupedCount += g.Count
@@ -544,4 +684,148 @@ func printGroupTDText(w io.Writer, result GroupTDResult, minimal bool) {
 	fmt.Fprintf(w, "Grouped:       %d\n", result.Summary.GroupedCount)
 	fmt.Fprintf(w, "Ungrouped:     %d\n", result.Summary.UngroupedCount)
 	fmt.Fprintf(w, "Group count:   %d\n", result.Summary.GroupCount)
+}
+
+func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool, sprintLabel, dateLabel string) error {
+	// Read existing file if it exists
+	existingContent := ""
+	if data, err := os.ReadFile(outputFile); err == nil {
+		existingContent = string(data)
+	}
+
+	// If file doesn't exist, create with header
+	if existingContent == "" {
+		existingContent = "# Technical Debt Backlog\n\nItems from code review. Use `/resolve-td --group=N` to fix by group.\nUse `/promote-tech-debt` to graduate items to formal TD sprint plans.\n"
+	}
+
+	// Build section header
+	sectionHeader := "### "
+	if dateLabel != "" {
+		sectionHeader += "[" + dateLabel + "] "
+	}
+	if sprintLabel != "" {
+		sectionHeader += "From Sprint: " + sprintLabel
+	}
+	if dateLabel == "" && sprintLabel == "" {
+		sectionHeader += "Items"
+	}
+
+	// Build markdown table
+	var buf strings.Builder
+	buf.WriteString("\n" + sectionHeader + "\n\n")
+
+	// Table header
+	if checkbox {
+		buf.WriteString("| Group | | Severity | File | Problem | Fix | Category | Est Minutes |\n")
+		buf.WriteString("|-------|---|----------|------|---------|-----|----------|-------------|\n")
+	} else {
+		buf.WriteString("| Group | Severity | File | Problem | Fix | Category | Est Minutes |\n")
+		buf.WriteString("|-------|----------|------|---------|-----|----------|-------------|\n")
+	}
+
+	// Collect all rows: groups first, then ungrouped
+	type rowData struct {
+		group    string
+		sortKey  int // 0=solo, 1..N=groups, 9999=ungrouped
+		severity string
+		fileLine string
+		problem  string
+		fix      string
+		category string
+		estMin   int
+	}
+
+	var rows []rowData
+
+	for _, g := range result.Groups {
+		groupLabel := fmt.Sprintf("%v", g.Number)
+		if g.Theme == soloTheme {
+			groupLabel = "Solo"
+		}
+		sortKey := 9998
+		if g.Theme == soloTheme {
+			sortKey = 0
+		} else if num, ok := g.Number.(int); ok {
+			sortKey = num
+		}
+
+		for _, item := range g.Items {
+			severity, _ := item["SEVERITY"].(string)
+			fileLine := extractFileLine(item)
+			problem, _ := item["PROBLEM"].(string)
+			fix, _ := item["FIX"].(string)
+			category, _ := item["CATEGORY"].(string)
+			estMin := extractEstMinutesInt(item)
+			rows = append(rows, rowData{
+				group:    groupLabel,
+				sortKey:  sortKey,
+				severity: severity,
+				fileLine: fileLine,
+				problem:  problem,
+				fix:      fix,
+				category: category,
+				estMin:   estMin,
+			})
+		}
+	}
+
+	// Ungrouped items
+	for _, item := range result.Ungrouped {
+		severity, _ := item["SEVERITY"].(string)
+		fileLine := extractFileLine(item)
+		problem, _ := item["PROBLEM"].(string)
+		fix, _ := item["FIX"].(string)
+		category, _ := item["CATEGORY"].(string)
+		estMin := extractEstMinutesInt(item)
+		rows = append(rows, rowData{
+			group:    ungroupedLabel,
+			sortKey:  9999,
+			severity: severity,
+			fileLine: fileLine,
+			problem:  problem,
+			fix:      fix,
+			category: category,
+			estMin:   estMin,
+		})
+	}
+
+	// Sort by sortKey (solo=0, groups=1..N, ungrouped=9999)
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].sortKey < rows[j].sortKey
+	})
+
+	// Write rows
+	for _, r := range rows {
+		if checkbox {
+			buf.WriteString(fmt.Sprintf("| %s | [ ] | %s | %s | %s | %s | %s | %d |\n",
+				r.group, r.severity, r.fileLine, r.problem, r.fix, r.category, r.estMin))
+		} else {
+			buf.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %d |\n",
+				r.group, r.severity, r.fileLine, r.problem, r.fix, r.category, r.estMin))
+		}
+	}
+
+	// Verify row count against buffer before writing
+	bufContent := buf.String()
+	bufLines := strings.Split(bufContent, "\n")
+	tableRowCount := 0
+	for _, line := range bufLines {
+		if strings.HasPrefix(line, "|") && !strings.Contains(line, "---") &&
+			!strings.HasPrefix(line, "| Group") {
+			tableRowCount++
+		}
+	}
+	expectedRows := len(rows)
+	if tableRowCount != expectedRows {
+		return fmt.Errorf("row count mismatch: expected %d, written %d", expectedRows, tableRowCount)
+	}
+
+	// Append section to existing content and write
+	fullContent := existingContent + bufContent
+
+	if err := os.WriteFile(outputFile, []byte(fullContent), 0644); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return nil
 }

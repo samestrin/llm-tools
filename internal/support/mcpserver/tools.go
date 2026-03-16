@@ -2181,7 +2181,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 57. Group TD items by path/category
 		{
 			Name:        ToolPrefix + "group_td",
-			Description: "Group technical debt items by path, category, or file using deterministic algorithm. Returns groups with themes, item counts, and total minutes. Items below min-group-size threshold go to ungrouped. CRITICAL severity items always get their own group.",
+			Description: "Group technical debt items by path, category, or file using deterministic algorithm. Returns groups with themes, item counts, and total minutes. Items below min-group-size threshold go to ungrouped. CRITICAL severity items always get their own group. With --assign-numbers, adds Solo group for HIGH/CRITICAL ungrouped items and numbers all groups. With --output-file, writes grouped items as markdown table directly to a file.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -2221,6 +2221,39 @@ func GetToolDefinitions() []ToolDefinition {
 					"min": {
 						"type": "boolean",
 						"description": "Minimal output - token-optimized format"
+					},
+					"assign_numbers": {
+						"type": "boolean",
+						"description": "Assign group numbers (0=Solo, 1..N=groups, U=ungrouped) and create Solo group for HIGH/CRITICAL ungrouped items"
+					},
+					"output_file": {
+						"type": "string",
+						"description": "Write grouped items as markdown table to this file (appends if file exists)"
+					},
+					"checkbox": {
+						"type": "boolean",
+						"description": "Add checkbox column in markdown table (requires output_file)"
+					},
+					"sprint_label": {
+						"type": "string",
+						"description": "Sprint name for section header in output file"
+					},
+					"date_label": {
+						"type": "string",
+						"description": "Date for section header in output file"
+					},
+					"format": {
+						"type": "string",
+						"enum": ["json", "pipe"],
+						"description": "Input format: json (default) or pipe (pipe-delimited text with # comments)"
+					},
+					"headers": {
+						"type": "string",
+						"description": "Comma-separated column headers for pipe format (required with format=pipe)"
+					},
+					"delimiter": {
+						"type": "string",
+						"description": "Field delimiter for pipe format (default: |)"
 					}
 				}
 			}`),

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -694,6 +695,628 @@ func TestGroupTDEmptyInput(t *testing.T) {
 	}
 	if len(result.Ungrouped) != 0 {
 		t.Errorf("expected 0 ungrouped, got %d", len(result.Ungrouped))
+	}
+}
+
+func TestGroupTDAssignNumbers(t *testing.T) {
+	input := `[
+		{"FILE_LINE": "src/auth/login.ts:10", "PROBLEM": "Issue 1", "EST_MINUTES": 30},
+		{"FILE_LINE": "src/auth/logout.ts:20", "PROBLEM": "Issue 2", "EST_MINUTES": 45},
+		{"FILE_LINE": "src/auth/validate.ts:30", "PROBLEM": "Issue 3", "EST_MINUTES": 60},
+		{"FILE_LINE": "src/api/users.ts:40", "PROBLEM": "Issue 4", "EST_MINUTES": 20},
+		{"FILE_LINE": "src/api/orders.ts:50", "PROBLEM": "Issue 5", "EST_MINUTES": 25},
+		{"FILE_LINE": "src/api/items.ts:60", "PROBLEM": "Issue 6", "EST_MINUTES": 15},
+		{"FILE_LINE": "lib/helper.ts:70", "PROBLEM": "Issue 7", "EST_MINUTES": 10, "SEVERITY": "LOW"}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json", "--min-group-size", "3", "--assign-numbers"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse output: %v\nOutput: %s", err, buf.String())
+	}
+
+	// Should have 2 groups: src-auth and src-api
+	if result.Summary.GroupCount != 2 {
+		t.Errorf("expected 2 groups, got %d", result.Summary.GroupCount)
+	}
+
+	// Groups should have Number field set
+	for _, g := range result.Groups {
+		if g.Number == nil {
+			t.Errorf("group %s should have Number set", g.Theme)
+		}
+	}
+
+	// Items should have GROUP field injected
+	for _, g := range result.Groups {
+		for _, item := range g.Items {
+			if _, ok := item["GROUP"]; !ok {
+				t.Errorf("item in group %s should have GROUP field", g.Theme)
+			}
+		}
+	}
+
+	// Ungrouped items should have GROUP="U"
+	for _, item := range result.Ungrouped {
+		groupLabel, ok := item["GROUP"].(string)
+		if !ok || groupLabel != "U" {
+			t.Errorf("ungrouped item should have GROUP='U', got %v", item["GROUP"])
+		}
+	}
+}
+
+func TestGroupTDSoloDetection(t *testing.T) {
+	input := `[
+		{"FILE_LINE": "src/auth/login.ts:10", "PROBLEM": "Issue 1", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/auth/logout.ts:20", "PROBLEM": "Issue 2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/auth/validate.ts:30", "PROBLEM": "Issue 3", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/users.ts:40", "PROBLEM": "Issue 4", "SEVERITY": "HIGH"},
+		{"FILE_LINE": "lib/helper.ts:50", "PROBLEM": "Issue 5", "SEVERITY": "LOW"},
+		{"FILE_LINE": "lib/utils.ts:60", "PROBLEM": "Issue 6", "SEVERITY": "MEDIUM"}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json", "--min-group-size", "3", "--assign-numbers", "--critical-override=false"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	json.Unmarshal(buf.Bytes(), &result)
+
+	// HIGH ungrouped item should go to Solo group
+	soloGroup := findGroupByTheme(result.Groups, "solo")
+	if soloGroup == nil {
+		t.Fatal("expected solo group for HIGH ungrouped item")
+	}
+	if soloGroup.Count != 1 {
+		t.Errorf("expected 1 solo item, got %d", soloGroup.Count)
+	}
+
+	// Solo group should have Number=0
+	if num, ok := soloGroup.Number.(float64); !ok || int(num) != 0 {
+		t.Errorf("solo group should have Number=0, got %v", soloGroup.Number)
+	}
+
+	// LOW/MEDIUM ungrouped should stay ungrouped (lib items)
+	for _, item := range result.Ungrouped {
+		sev, _ := item["SEVERITY"].(string)
+		if sev == "HIGH" || sev == "CRITICAL" {
+			t.Error("HIGH/CRITICAL items should not be in ungrouped when assign-numbers is true")
+		}
+	}
+}
+
+func TestGroupTDSoloAfterCriticalOverride(t *testing.T) {
+	input := `[
+		{"FILE_LINE": "src/auth/login.ts:10", "PROBLEM": "Issue 1", "SEVERITY": "CRITICAL"},
+		{"FILE_LINE": "src/auth/logout.ts:20", "PROBLEM": "Issue 2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/auth/validate.ts:30", "PROBLEM": "Issue 3", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/auth/session.ts:35", "PROBLEM": "Issue 3b", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/users.ts:40", "PROBLEM": "Issue 4", "SEVERITY": "HIGH"},
+		{"FILE_LINE": "lib/helper.ts:50", "PROBLEM": "Issue 5", "SEVERITY": "LOW"}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json", "--min-group-size", "3", "--assign-numbers", "--critical-override=true"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	json.Unmarshal(buf.Bytes(), &result)
+
+	// CRITICAL item should be in critical group (NOT solo)
+	criticalGroup := findGroupByTheme(result.Groups, "critical")
+	if criticalGroup == nil {
+		t.Fatal("expected critical group")
+	}
+	if criticalGroup.Count != 1 {
+		t.Errorf("expected 1 critical item, got %d", criticalGroup.Count)
+	}
+
+	// HIGH ungrouped item should be in solo group
+	soloGroup := findGroupByTheme(result.Groups, "solo")
+	if soloGroup == nil {
+		t.Fatal("expected solo group for HIGH ungrouped item")
+	}
+	if soloGroup.Count != 1 {
+		t.Errorf("expected 1 solo item, got %d", soloGroup.Count)
+	}
+
+	// Verify no duplication: total output should equal input
+	totalOutput := result.Summary.GroupedCount + result.Summary.UngroupedCount
+	if totalOutput != 6 {
+		t.Errorf("DATA LOSS: expected 6 items, got %d", totalOutput)
+	}
+}
+
+func TestGroupTDOutputFile(t *testing.T) {
+	input := `[
+		{"FILE_LINE": "src/auth/login.ts:10", "PROBLEM": "Missing auth", "FIX": "Add check", "SEVERITY": "HIGH", "CATEGORY": "security", "EST_MINUTES": 30},
+		{"FILE_LINE": "src/auth/logout.ts:20", "PROBLEM": "No cleanup", "FIX": "Clean session", "SEVERITY": "MEDIUM", "CATEGORY": "security", "EST_MINUTES": 45},
+		{"FILE_LINE": "src/auth/validate.ts:30", "PROBLEM": "Weak check", "FIX": "Use zod", "SEVERITY": "HIGH", "CATEGORY": "security", "EST_MINUTES": 60}
+	]`
+
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json", "--min-group-size", "3", "--assign-numbers",
+		"--output-file", outputFile, "--sprint-label", "1.0_feature", "--date-label", "2026-03-15"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify file was written
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("output file not created: %v", err)
+	}
+	content := string(data)
+
+	// Should have header
+	if !bytes.Contains(data, []byte("# Technical Debt Backlog")) {
+		t.Error("expected header in output file")
+	}
+
+	// Should have sprint label
+	if !bytes.Contains(data, []byte("From Sprint: 1.0_feature")) {
+		t.Error("expected sprint label in output")
+	}
+
+	// Should have date label
+	if !bytes.Contains(data, []byte("[2026-03-15]")) {
+		t.Error("expected date label in output")
+	}
+
+	// Should have 3 data rows (matching input items)
+	tableRows := 0
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		lineStr := string(line)
+		if bytes.HasPrefix(line, []byte("|")) && !bytes.Contains(line, []byte("---")) &&
+			!bytes.HasPrefix(line, []byte("| Group")) {
+			tableRows++
+		}
+		_ = lineStr
+	}
+	if tableRows != 3 {
+		t.Errorf("expected 3 table rows, got %d\nContent:\n%s", tableRows, content)
+	}
+}
+
+func TestGroupTDOutputFileAppend(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	// Write initial content
+	initialContent := "# Technical Debt Backlog\n\nExisting content.\n"
+	os.WriteFile(outputFile, []byte(initialContent), 0644)
+
+	input := `[
+		{"FILE_LINE": "src/a.ts:1", "PROBLEM": "P1", "SEVERITY": "LOW", "CATEGORY": "test", "EST_MINUTES": 10}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json", "--assign-numbers",
+		"--output-file", outputFile, "--sprint-label", "2.0_bugfix"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	// Existing content should be preserved
+	if !bytes.Contains(data, []byte("Existing content.")) {
+		t.Error("existing content was not preserved")
+	}
+
+	// New section should be appended
+	if !bytes.Contains(data, []byte("From Sprint: 2.0_bugfix")) {
+		t.Error("new sprint section not appended")
+	}
+}
+
+func TestGroupTDOutputFileCheckbox(t *testing.T) {
+	input := `[
+		{"FILE_LINE": "src/a.ts:1", "PROBLEM": "P1", "SEVERITY": "LOW", "CATEGORY": "test", "EST_MINUTES": 10}
+	]`
+
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json", "--assign-numbers",
+		"--output-file", outputFile, "--checkbox"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	// Should have checkbox column
+	if !bytes.Contains(data, []byte("[ ]")) {
+		t.Error("expected checkbox column in output")
+	}
+
+	// Header should have empty checkbox column
+	if !bytes.Contains(data, []byte("| Group | |")) {
+		t.Error("expected checkbox column header")
+	}
+}
+
+func TestGroupTDBackwardsCompat(t *testing.T) {
+	// Call without new flags - should produce identical output to before
+	input := `[
+		{"FILE_LINE": "src/auth/login.ts:10", "PROBLEM": "Issue 1", "EST_MINUTES": 30},
+		{"FILE_LINE": "src/auth/logout.ts:20", "PROBLEM": "Issue 2", "EST_MINUTES": 45},
+		{"FILE_LINE": "src/auth/validate.ts:30", "PROBLEM": "Issue 3", "EST_MINUTES": 60},
+		{"FILE_LINE": "src/api/users.ts:40", "PROBLEM": "Issue 4", "EST_MINUTES": 20, "SEVERITY": "HIGH"},
+		{"FILE_LINE": "lib/helper.ts:50", "PROBLEM": "Issue 5", "EST_MINUTES": 10, "SEVERITY": "LOW"}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json", "--min-group-size", "3"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	json.Unmarshal(buf.Bytes(), &result)
+
+	// Without --assign-numbers: no Number field, no Solo group, no GROUP field
+	for _, g := range result.Groups {
+		if g.Number != nil {
+			t.Errorf("without --assign-numbers, Number should be nil, got %v for group %s", g.Number, g.Theme)
+		}
+		for _, item := range g.Items {
+			if _, ok := item["GROUP"]; ok {
+				t.Error("without --assign-numbers, items should not have GROUP field")
+			}
+		}
+	}
+
+	// Should not have solo group without --assign-numbers
+	soloGroup := findGroupByTheme(result.Groups, "solo")
+	if soloGroup != nil {
+		t.Error("should not have solo group without --assign-numbers")
+	}
+
+	// Data integrity maintained
+	totalOutput := result.Summary.GroupedCount + result.Summary.UngroupedCount
+	if totalOutput != 5 {
+		t.Errorf("DATA LOSS: expected 5, got %d", totalOutput)
+	}
+}
+
+func TestGroupTDGroupNumberOrdering(t *testing.T) {
+	input := `[
+		{"SEVERITY": "CRITICAL", "FILE_LINE": "src/x.ts:1", "PROBLEM": "Crit issue"},
+		{"FILE_LINE": "src/auth/a.ts:10", "PROBLEM": "A1", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/auth/b.ts:20", "PROBLEM": "A2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/auth/c.ts:30", "PROBLEM": "A3", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/d.ts:40", "PROBLEM": "B1", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/e.ts:50", "PROBLEM": "B2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/f.ts:60", "PROBLEM": "B3", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "lib/x.ts:70", "PROBLEM": "Ungrouped", "SEVERITY": "HIGH"}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json", "--min-group-size", "3", "--assign-numbers", "--critical-override=true"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	json.Unmarshal(buf.Bytes(), &result)
+
+	// Expected order: solo(0), critical(1), src-api(2), src-auth(3)
+	if len(result.Groups) < 3 {
+		t.Fatalf("expected at least 3 groups, got %d", len(result.Groups))
+	}
+
+	// Solo should be first with Number=0
+	if result.Groups[0].Theme != "solo" {
+		t.Errorf("first group should be solo, got %s", result.Groups[0].Theme)
+	}
+	if num, ok := result.Groups[0].Number.(float64); !ok || int(num) != 0 {
+		t.Errorf("solo should have Number=0, got %v", result.Groups[0].Number)
+	}
+
+	// Critical should be second with Number=1
+	if result.Groups[1].Theme != "critical" {
+		t.Errorf("second group should be critical, got %s", result.Groups[1].Theme)
+	}
+	if num, ok := result.Groups[1].Number.(float64); !ok || int(num) != 1 {
+		t.Errorf("critical should have Number=1, got %v", result.Groups[1].Number)
+	}
+
+	// Alphabetical groups follow
+	for i := 2; i < len(result.Groups); i++ {
+		if num, ok := result.Groups[i].Number.(float64); !ok || int(num) != i {
+			t.Errorf("group %d (%s) should have Number=%d, got %v", i, result.Groups[i].Theme, i, result.Groups[i].Number)
+		}
+	}
+
+	// Verify data integrity
+	totalOutput := result.Summary.GroupedCount + result.Summary.UngroupedCount
+	if totalOutput != 8 {
+		t.Errorf("DATA LOSS: expected 8, got %d", totalOutput)
+	}
+}
+
+func TestGroupTDPipeFormat(t *testing.T) {
+	pipeInput := `# TD_STREAM - Technical Debt Items
+# Format: SEVERITY|FILE_LINE|PROBLEM|FIX|CATEGORY|EST_MINUTES
+HIGH|src/auth/login.ts:10|Missing validation|Add zod schema|security|30
+MEDIUM|src/auth/logout.ts:20|No error handling|Add try-catch|reliability|45
+LOW|src/auth/validate.ts:30|Magic number|Extract constant|maintainability|15
+MEDIUM|src/api/users.ts:40|N+1 query|Use eager loading|performance|60
+`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES",
+		"--json",
+		"--min-group-size", "2",
+	})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse output: %v\nOutput: %s", err, buf.String())
+	}
+
+	// Should have 4 items (comments and blank lines skipped)
+	if result.Summary.TotalItems != 4 {
+		t.Errorf("expected 4 items, got %d", result.Summary.TotalItems)
+	}
+
+	// src-auth has 3 items → qualifies as group
+	authGroup := findGroupByTheme(result.Groups, "src-auth")
+	if authGroup == nil {
+		t.Fatal("expected src-auth group")
+	}
+	if authGroup.Count != 3 {
+		t.Errorf("expected 3 items in src-auth, got %d", authGroup.Count)
+	}
+
+	// Verify field mapping
+	item := authGroup.Items[0]
+	if sev, ok := item["SEVERITY"].(string); !ok || sev != "HIGH" {
+		t.Errorf("expected SEVERITY=HIGH, got %v", item["SEVERITY"])
+	}
+	if fl, ok := item["FILE_LINE"].(string); !ok || fl != "src/auth/login.ts:10" {
+		t.Errorf("expected FILE_LINE=src/auth/login.ts:10, got %v", item["FILE_LINE"])
+	}
+}
+
+func TestGroupTDPipeFormatFromFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	pipeFile := filepath.Join(tmpDir, "td-stream.txt")
+
+	pipeContent := `# TD_STREAM
+HIGH|src/auth/a.ts:1|Problem 1|Fix 1|security|30
+HIGH|src/auth/b.ts:2|Problem 2|Fix 2|security|45
+HIGH|src/auth/c.ts:3|Problem 3|Fix 3|security|60
+`
+	os.WriteFile(pipeFile, []byte(pipeContent), 0644)
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--file", pipeFile,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES",
+		"--json",
+	})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	json.Unmarshal(buf.Bytes(), &result)
+
+	if result.Summary.TotalItems != 3 {
+		t.Errorf("expected 3 items, got %d", result.Summary.TotalItems)
+	}
+}
+
+func TestGroupTDPipeFormatNoHeaders(t *testing.T) {
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", "HIGH|src/a.ts:1|Problem|Fix|cat|30",
+		"--format", "pipe",
+		"--json",
+	})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when --headers missing with --format=pipe")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("--headers required")) {
+		t.Errorf("expected headers required error, got: %v", err)
+	}
+}
+
+func TestGroupTDPipeFormatOutputFile(t *testing.T) {
+	// End-to-end: pipe input → group → write README.md
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	pipeInput := `# TD_STREAM
+HIGH|src/auth/a.ts:1|Auth issue|Fix auth|security|30
+MEDIUM|src/auth/b.ts:2|Auth issue 2|Fix auth 2|security|45
+LOW|src/auth/c.ts:3|Auth issue 3|Fix auth 3|security|15
+MEDIUM|src/api/x.ts:4|API issue|Fix API|performance|60
+`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES",
+		"--json",
+		"--assign-numbers",
+		"--output-file", outputFile,
+		"--checkbox",
+		"--sprint-label", "1.0_test",
+		"--date-label", "2026-03-16",
+	})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	content := string(data)
+
+	// Should have header
+	if !bytes.Contains(data, []byte("# Technical Debt Backlog")) {
+		t.Error("missing file header")
+	}
+
+	// Should have sprint section
+	if !bytes.Contains(data, []byte("[2026-03-16] From Sprint: 1.0_test")) {
+		t.Error("missing sprint section header")
+	}
+
+	// Should have checkbox
+	if !bytes.Contains(data, []byte("[ ]")) {
+		t.Error("missing checkbox column")
+	}
+
+	// Count data rows (not headers, not separators)
+	lines := strings.Split(content, "\n")
+	dataRows := 0
+	for _, line := range lines {
+		if strings.HasPrefix(line, "|") && !strings.Contains(line, "---") &&
+			!strings.HasPrefix(line, "| Group") {
+			dataRows++
+		}
+	}
+	if dataRows != 4 {
+		t.Errorf("expected 4 data rows, got %d", dataRows)
+	}
+}
+
+func TestGroupTDOutputFileAppendRowCountBug(t *testing.T) {
+	// Regression test: row count verification should only count rows
+	// from the current write, not rows from previous sprint sections
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	// Write initial content with an existing sprint section (3 data rows)
+	initialContent := `# Technical Debt Backlog
+
+Items from code review.
+
+### [2026-03-01] From Sprint: previous_sprint
+
+| Group | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|----------|------|---------|-----|----------|-------------|
+| 1 | HIGH | src/old/a.ts:1 | Old issue 1 | Fix 1 | security | 30 |
+| 1 | MEDIUM | src/old/b.ts:2 | Old issue 2 | Fix 2 | security | 45 |
+| U | LOW | lib/old.ts:3 | Old issue 3 | Fix 3 | maint | 15 |
+`
+	os.WriteFile(outputFile, []byte(initialContent), 0644)
+
+	// Now append a new sprint section with 2 items
+	input := `[
+		{"FILE_LINE": "src/new/x.ts:1", "PROBLEM": "New issue 1", "SEVERITY": "HIGH", "FIX": "Fix new 1", "CATEGORY": "perf", "EST_MINUTES": 20},
+		{"FILE_LINE": "src/new/y.ts:2", "PROBLEM": "New issue 2", "SEVERITY": "LOW", "FIX": "Fix new 2", "CATEGORY": "perf", "EST_MINUTES": 10}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", input, "--json", "--assign-numbers",
+		"--output-file", outputFile,
+		"--sprint-label", "new_sprint",
+		"--date-label", "2026-03-16",
+		"--min-group-size", "1",
+	})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("REGRESSION: row count mismatch when appending to existing README.md: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	// Both sections should be present
+	if !bytes.Contains(data, []byte("previous_sprint")) {
+		t.Error("old sprint section missing")
+	}
+	if !bytes.Contains(data, []byte("new_sprint")) {
+		t.Error("new sprint section missing")
 	}
 }
 
