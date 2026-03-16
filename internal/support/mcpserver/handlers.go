@@ -1843,5 +1843,29 @@ func buildGroupTDArgs(args map[string]interface{}) []string {
 	if rootTheme, ok := args["root_theme"].(string); ok {
 		cmdArgs = append(cmdArgs, "--root-theme", rootTheme)
 	}
+	if assignNumbers, ok := args["assign_numbers"].(bool); ok && assignNumbers {
+		cmdArgs = append(cmdArgs, "--assign-numbers")
+	}
+	if outputFile, ok := args["output_file"].(string); ok && outputFile != "" {
+		cmdArgs = append(cmdArgs, "--output-file", outputFile)
+	}
+	if checkbox, ok := args["checkbox"].(bool); ok && checkbox {
+		cmdArgs = append(cmdArgs, "--checkbox")
+	}
+	if sprintLabel, ok := args["sprint_label"].(string); ok && sprintLabel != "" {
+		cmdArgs = append(cmdArgs, "--sprint-label", sprintLabel)
+	}
+	if dateLabel, ok := args["date_label"].(string); ok && dateLabel != "" {
+		cmdArgs = append(cmdArgs, "--date-label", dateLabel)
+	}
+	if format, ok := args["format"].(string); ok && format != "" {
+		cmdArgs = append(cmdArgs, "--format", format)
+	}
+	if headers, ok := args["headers"].(string); ok && headers != "" {
+		cmdArgs = append(cmdArgs, "--headers", headers)
+	}
+	if delimiter, ok := args["delimiter"].(string); ok && delimiter != "" {
+		cmdArgs = append(cmdArgs, "--delimiter", delimiter)
+	}
 	return cmdArgs
 }
