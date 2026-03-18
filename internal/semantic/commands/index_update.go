@@ -136,9 +136,16 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 	}
 
 	// Run update
+	// Resolve domain from --profile flag (defaults to "code" if empty)
+	domain := profile
+	if domain == "" {
+		domain = "code"
+	}
+
 	result, err := mgr.Update(ctx, absPath, semantic.UpdateOptions{
 		Includes: opts.includes,
 		Excludes: opts.excludes,
+		Domain:   domain,
 	})
 	if err != nil {
 		return fmt.Errorf("update failed: %w", err)

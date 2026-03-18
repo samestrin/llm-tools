@@ -477,6 +477,9 @@ func buildIndexArgs(args map[string]interface{}) []string {
 	if collection, ok := args["collection"].(string); ok && collection != "" {
 		cmdArgs = append(cmdArgs, "--collection", collection)
 	}
+	if profile, ok := args["profile"].(string); ok && profile != "" {
+		cmdArgs = append(cmdArgs, "--profile", profile)
+	}
 	if getBool(args, "recalibrate") {
 		cmdArgs = append(cmdArgs, "--recalibrate")
 	}
@@ -525,6 +528,9 @@ func buildUpdateArgs(args map[string]interface{}) []string {
 	}
 	if collection, ok := args["collection"].(string); ok && collection != "" {
 		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
+	if profile, ok := args["profile"].(string); ok && profile != "" {
+		cmdArgs = append(cmdArgs, "--profile", profile)
 	}
 
 	return cmdArgs

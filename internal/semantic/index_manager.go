@@ -90,6 +90,7 @@ type IndexOptions struct {
 	Excludes         []string               // Patterns to exclude (directories and files, e.g., "vendor", "*_test.go")
 	ExcludeTests     bool                   // Exclude common test files and directories
 	Force            bool                   // Re-index all files even if unchanged
+	Domain           string                 // Domain tag for indexed chunks (e.g., "code", "docs", "memory") - defaults to "code"
 	OnProgress       ProgressCallback       // Optional callback for progress updates
 	OnUploadProgress UploadProgressCallback // Optional callback for upload phase progress
 	BatchSize        int                    // Number of vectors to send per upsert (0 = unlimited)
@@ -102,6 +103,7 @@ type UpdateOptions struct {
 	Includes     []string // Glob patterns to include
 	Excludes     []string // Patterns to exclude (directories and files)
 	ExcludeTests bool     // Exclude common test files and directories
+	Domain       string   // Domain tag for indexed chunks (e.g., "code", "docs", "memory") - defaults to "code"
 }
 
 // IndexResult contains statistics from an indexing operation
@@ -210,7 +212,7 @@ func (m *IndexManager) indexPerFile(ctx context.Context, files []string, opts In
 		}
 
 		// Process the file
-		processErr := m.processFile(ctx, file, result, opts.BatchSize, opts.Parallel)
+		processErr := m.processFile(ctx, file, result, opts.BatchSize, opts.Parallel, opts.Domain)
 		if processErr != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", file, processErr))
 			result.FilesSkipped++
@@ -285,6 +287,13 @@ func (m *IndexManager) indexWithCrossFileBatching(ctx context.Context, files []s
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %v", file, err))
 			result.FilesSkipped++
 			continue
+		}
+
+		// Tag chunks with domain
+		if opts.Domain != "" {
+			for i := range chunks {
+				chunks[i].Domain = opts.Domain
+			}
 		}
 
 		// Add to current batch
@@ -509,7 +518,7 @@ func (m *IndexManager) Update(ctx context.Context, rootPath string, opts UpdateO
 
 			// Re-index the file (use 0 for unlimited batch size in updates, sequential)
 			indexResult := &IndexResult{}
-			if err := m.processFile(ctx, file, indexResult, 0, 0); err == nil {
+			if err := m.processFile(ctx, file, indexResult, 0, 0, opts.Domain); err == nil {
 				result.FilesUpdated++
 				result.ChunksCreated += indexResult.ChunksCreated
 			}
@@ -671,7 +680,7 @@ func (m *IndexManager) collectFiles(rootPath string, includes, excludes []string
 // processFile chunks and embeds a single file
 // batchSize controls how many vectors are sent per upsert (0 = unlimited)
 // parallel controls how many batch uploads run concurrently (0 or 1 = sequential)
-func (m *IndexManager) processFile(ctx context.Context, filePath string, result *IndexResult, batchSize, parallel int) error {
+func (m *IndexManager) processFile(ctx context.Context, filePath string, result *IndexResult, batchSize, parallel int, domain string) error {
 	// Get appropriate chunker
 	chunker, ok := m.factory.GetByExtension(filePath)
 	if !ok {
@@ -688,6 +697,13 @@ func (m *IndexManager) processFile(ctx context.Context, filePath string, result 
 	chunks, err := chunker.Chunk(filePath, content)
 	if err != nil {
 		return fmt.Errorf("failed to chunk file: %w", err)
+	}
+
+	// Tag chunks with domain
+	if domain != "" {
+		for i := range chunks {
+			chunks[i].Domain = domain
+		}
 	}
 
 	// Collect all chunk contents for batch embedding
