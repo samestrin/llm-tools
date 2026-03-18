@@ -327,11 +327,18 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 		}
 	}
 
+	// Resolve domain from --profile flag (defaults to "code" if empty)
+	domain := profile
+	if domain == "" {
+		domain = "code"
+	}
+
 	result, err := mgr.Index(ctx, absPath, semantic.IndexOptions{
 		Includes:         opts.includes,
 		Excludes:         opts.excludes,
 		ExcludeTests:     opts.excludeTests,
 		Force:            opts.force,
+		Domain:           domain,
 		OnProgress:       progressCallback,
 		OnUploadProgress: uploadProgressCallback,
 		BatchSize:        opts.batchSize,
