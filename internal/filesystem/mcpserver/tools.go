@@ -47,6 +47,29 @@ func GetToolDefinitions() []ToolDefinition {
 				"required": ["path", "content"]
 			}`),
 		},
+		// Batch Writing
+		{
+			Name:        ToolPrefix + "write_multiple_files",
+			Description: "Write multiple files in a single operation with auto-mkdir",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"files": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"path": {"type": "string", "description": "File path to write"},
+								"content": {"type": "string", "description": "Content to write"}
+							},
+							"required": ["path", "content"]
+						},
+						"description": "Files to write"
+					}
+				},
+				"required": ["files"]
+			}`),
+		},
 		// Batch Reading
 		{
 			Name:        ToolPrefix + "read_multiple_files",

@@ -6,6 +6,85 @@ import (
 	"testing"
 )
 
+func TestWriteMultipleFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	t.Run("happy path", func(t *testing.T) {
+		result, err := WriteMultipleFiles(WriteMultipleFilesOptions{
+			Files: []WriteFileEntry{
+				{Path: filepath.Join(tmpDir, "a.txt"), Content: "content a"},
+				{Path: filepath.Join(tmpDir, "b.txt"), Content: "content b"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("WriteMultipleFiles() error = %v", err)
+		}
+		if result.Success != 2 {
+			t.Errorf("Success = %d, want 2", result.Success)
+		}
+		if result.Failed != 0 {
+			t.Errorf("Failed = %d, want 0", result.Failed)
+		}
+		// Verify files exist with correct content
+		for _, entry := range []struct{ path, content string }{
+			{filepath.Join(tmpDir, "a.txt"), "content a"},
+			{filepath.Join(tmpDir, "b.txt"), "content b"},
+		} {
+			got, err := os.ReadFile(entry.path)
+			if err != nil {
+				t.Errorf("ReadFile(%s) error = %v", entry.path, err)
+			} else if string(got) != entry.content {
+				t.Errorf("File %s content = %q, want %q", entry.path, got, entry.content)
+			}
+		}
+	})
+
+	t.Run("partial failure", func(t *testing.T) {
+		result, err := WriteMultipleFiles(WriteMultipleFilesOptions{
+			Files: []WriteFileEntry{
+				{Path: filepath.Join(tmpDir, "ok.txt"), Content: "ok"},
+				{Path: "", Content: "bad"}, // empty path should fail
+			},
+		})
+		if err != nil {
+			t.Fatalf("WriteMultipleFiles() error = %v", err)
+		}
+		if result.Success != 1 {
+			t.Errorf("Success = %d, want 1", result.Success)
+		}
+		if result.Failed != 1 {
+			t.Errorf("Failed = %d, want 1", result.Failed)
+		}
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		_, err := WriteMultipleFiles(WriteMultipleFilesOptions{
+			Files: []WriteFileEntry{},
+		})
+		if err == nil {
+			t.Error("Expected error for empty files")
+		}
+	})
+
+	t.Run("auto mkdir", func(t *testing.T) {
+		result, err := WriteMultipleFiles(WriteMultipleFilesOptions{
+			Files: []WriteFileEntry{
+				{Path: filepath.Join(tmpDir, "deep", "nested", "file.txt"), Content: "nested"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("WriteMultipleFiles() error = %v", err)
+		}
+		if result.Success != 1 {
+			t.Errorf("Success = %d, want 1", result.Success)
+		}
+		got, _ := os.ReadFile(filepath.Join(tmpDir, "deep", "nested", "file.txt"))
+		if string(got) != "nested" {
+			t.Errorf("Content = %q, want %q", got, "nested")
+		}
+	})
+}
+
 func TestCreateDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 

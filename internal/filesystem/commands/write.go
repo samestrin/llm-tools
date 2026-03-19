@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/samestrin/llm-tools/internal/filesystem/core"
@@ -11,6 +12,7 @@ func addWriteCommands(rootCmd *cobra.Command) {
 	rootCmd.AddCommand(writeFileCmd())
 	rootCmd.AddCommand(largeWriteFileCmd())
 	rootCmd.AddCommand(getFileInfoCmd())
+	rootCmd.AddCommand(writeMultipleFilesCmd())
 	rootCmd.AddCommand(createDirectoryCmd())
 }
 
@@ -96,6 +98,38 @@ func largeWriteFileCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&verifyWrite, "verify", true, "Verify write after completion")
 	cmd.MarkFlagRequired("path")
 	cmd.MarkFlagRequired("content")
+
+	return cmd
+}
+
+func writeMultipleFilesCmd() *cobra.Command {
+	var filesJSON string
+
+	cmd := &cobra.Command{
+		Use:   "write-multiple-files",
+		Short: "Write multiple files in a single operation",
+		Long:  "Writes multiple files sequentially with auto-mkdir for parent directories",
+		Run: func(cmd *cobra.Command, args []string) {
+			var entries []core.WriteFileEntry
+			if err := json.Unmarshal([]byte(filesJSON), &entries); err != nil {
+				OutputError(fmt.Errorf("invalid --files JSON: %w", err))
+			}
+
+			result, err := core.WriteMultipleFiles(core.WriteMultipleFilesOptions{
+				Files:       entries,
+				AllowedDirs: GetAllowedDirs(),
+			})
+			if err != nil {
+				OutputError(err)
+			}
+			OutputResult(result, func() string {
+				return fmt.Sprintf("Wrote %d files, %d failed", result.Success, result.Failed)
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&filesJSON, "files", "", `JSON array of {path, content} objects (required)`)
+	cmd.MarkFlagRequired("files")
 
 	return cmd
 }

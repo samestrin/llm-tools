@@ -235,6 +235,50 @@ func TestGetFileInfo(t *testing.T) {
 	}
 }
 
+func TestWriteMultipleFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	args := map[string]interface{}{
+		"files": []interface{}{
+			map[string]interface{}{
+				"path":    filepath.Join(tmpDir, "wm1.txt"),
+				"content": "content1",
+			},
+			map[string]interface{}{
+				"path":    filepath.Join(tmpDir, "wm2.txt"),
+				"content": "content2",
+			},
+		},
+	}
+
+	result, err := server.handleWriteMultipleFiles(args)
+	if err != nil {
+		t.Fatalf("handleWriteMultipleFiles() error = %v", err)
+	}
+
+	if !strings.Contains(result, "success") {
+		t.Errorf("Expected success in result: %s", result)
+	}
+
+	// Verify files exist
+	for _, name := range []string{"wm1.txt", "wm2.txt"} {
+		if _, err := os.Stat(filepath.Join(tmpDir, name)); os.IsNotExist(err) {
+			t.Errorf("File %s was not created", name)
+		}
+	}
+}
+
+func TestWriteMultipleFilesMissingArgs(t *testing.T) {
+	tmpDir := t.TempDir()
+	server, _ := NewServer([]string{tmpDir})
+
+	_, err := server.handleWriteMultipleFiles(map[string]interface{}{})
+	if err == nil {
+		t.Error("Expected error for missing files arg")
+	}
+}
+
 func TestCreateDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	server, _ := NewServer([]string{tmpDir})

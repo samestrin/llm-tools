@@ -47,11 +47,11 @@ func TestServerToolCount(t *testing.T) {
 		t.Fatalf("NewServer() error = %v", err)
 	}
 
-	// Should have 14 batch/specialized tools registered
+	// Should have 15 batch/specialized tools registered
 	// NOTE: Single-file operations should use Claude's native tools
 	count := server.ToolCount()
-	if count != 14 {
-		t.Errorf("ToolCount() = %d, want 14", count)
+	if count != 15 {
+		t.Errorf("ToolCount() = %d, want 15", count)
 	}
 }
 
@@ -104,8 +104,8 @@ func TestServerMultipleAllowedDirs(t *testing.T) {
 	allowedDirs := []string{"/tmp", "/home", "/var"}
 	server, _ := NewServer(allowedDirs)
 
-	if server.ToolCount() != 14 {
-		t.Errorf("ToolCount() = %d, want 14", server.ToolCount())
+	if server.ToolCount() != 15 {
+		t.Errorf("ToolCount() = %d, want 15", server.ToolCount())
 	}
 
 	if server.Name() != "llm-filesystem" {

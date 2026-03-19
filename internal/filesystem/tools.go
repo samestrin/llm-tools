@@ -11,11 +11,34 @@ type ToolDefinition struct {
 	InputSchema json.RawMessage
 }
 
-// GetToolDefinitions returns the 14 batch/specialized tool definitions
-// NOTE: This legacy server exposes 14 tools. Single-file operations
+// GetToolDefinitions returns the 15 batch/specialized tool definitions
+// NOTE: This legacy server exposes 15 tools. Single-file operations
 // should use Claude's native Read, Write, and Edit tools for better performance.
 func GetToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
+		// Batch Writing
+		{
+			Name:        "llm_filesystem_write_multiple_files",
+			Description: "Write multiple files in a single operation with auto-mkdir",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"files": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"path": {"type": "string", "description": "File path to write"},
+								"content": {"type": "string", "description": "Content to write"}
+							},
+							"required": ["path", "content"]
+						},
+						"description": "Files to write"
+					}
+				},
+				"required": ["files"]
+			}`),
+		},
 		// Batch Reading
 		{
 			Name:        "llm_filesystem_read_multiple_files",

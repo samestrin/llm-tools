@@ -14,7 +14,7 @@ import (
 // This makes the MCP tools more forgiving when LLMs use alternative parameter names.
 var paramAliases = map[string][]string{
 	"path":   {"file_path", "filepath", "file", "target", "input", "dir", "directory"},
-	"paths":  {"file_paths", "filepaths", "files", "targets", "inputs"},
+	"paths":  {"file_paths", "filepaths", "targets", "inputs"},
 	"source": {"src", "from"},
 }
 
@@ -124,6 +124,10 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 	case "write_file":
 		return buildWriteFileArgs(args), nil
 
+	// Batch Writing
+	case "write_multiple_files":
+		return buildWriteMultipleFilesArgs(args), nil
+
 	// Batch Reading
 	case "read_multiple_files":
 		return buildReadMultipleFilesArgs(args), nil
@@ -201,6 +205,15 @@ func buildWriteFileArgs(args map[string]interface{}) []string {
 	}
 	if getBool(args, "create_dirs") {
 		cmdArgs = append(cmdArgs, "--create-dirs")
+	}
+	return cmdArgs
+}
+
+func buildWriteMultipleFilesArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"write-multiple-files"}
+	if files, ok := args["files"].([]interface{}); ok {
+		filesJSON, _ := json.Marshal(files)
+		cmdArgs = append(cmdArgs, "--files", string(filesJSON))
 	}
 	return cmdArgs
 }
