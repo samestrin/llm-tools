@@ -5,7 +5,7 @@ import (
 )
 
 // ExecuteHandler routes tool calls to their implementations
-// NOTE: This legacy server exposes 15 tools. Single-file operations
+// NOTE: This legacy server exposes 14 tools. Single-file operations
 // should use Claude's native Read, Write, and Edit tools for better performance.
 func (s *Server) ExecuteHandler(toolName string, args map[string]interface{}) (string, error) {
 	switch toolName {
@@ -26,9 +26,6 @@ func (s *Server) ExecuteHandler(toolName string, args map[string]interface{}) (s
 		return s.handleListDirectory(args)
 	case "llm_filesystem_get_directory_tree":
 		return s.handleGetDirectoryTree(args)
-	case "llm_filesystem_create_directories":
-		return s.handleCreateDirectories(args)
-
 	// Search Operations
 	case "llm_filesystem_search_files":
 		return s.handleSearchFiles(args)
@@ -63,7 +60,6 @@ func (s *Server) ExecuteHandler(toolName string, args map[string]interface{}) (s
 // handleSearchAndReplace - implemented in edit.go
 // handleListDirectory - implemented in directory.go
 // handleGetDirectoryTree - implemented in directory.go
-// handleCreateDirectories - implemented in write.go
 // handleSearchFiles - implemented in search.go
 // handleSearchCode - implemented in search.go
 // handleCopyFile - implemented in fileops.go

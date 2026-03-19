@@ -78,7 +78,6 @@ func TestExecuteHandlerAllTools(t *testing.T) {
 		toolName string
 		args     map[string]interface{}
 	}{
-		{"llm_filesystem_create_directories", map[string]interface{}{"paths": []interface{}{filepath.Join(tmpDir, "test_dir1"), filepath.Join(tmpDir, "test_dir2")}}},
 		{"llm_filesystem_search_files", map[string]interface{}{"path": tmpDir, "pattern": "*.txt"}},
 		{"llm_filesystem_search_code", map[string]interface{}{"path": tmpDir, "pattern": "content"}},
 		{"llm_filesystem_extract_lines", map[string]interface{}{"path": testFile, "start_line": float64(1), "end_line": float64(1)}},
