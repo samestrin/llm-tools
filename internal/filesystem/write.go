@@ -317,3 +317,37 @@ func (s *Server) handleCreateDirectory(args map[string]interface{}) (string, err
 
 	return string(jsonBytes), nil
 }
+
+func (s *Server) handleWriteMultipleFiles(args map[string]interface{}) (string, error) {
+	filesRaw, ok := args["files"].([]interface{})
+	if !ok || len(filesRaw) == 0 {
+		return "", fmt.Errorf("files is required")
+	}
+
+	var entries []core.WriteFileEntry
+	for _, f := range filesRaw {
+		m, ok := f.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		entries = append(entries, core.WriteFileEntry{
+			Path:    GetString(m, "path", ""),
+			Content: GetString(m, "content", ""),
+		})
+	}
+
+	result, err := core.WriteMultipleFiles(core.WriteMultipleFilesOptions{
+		Files:       entries,
+		AllowedDirs: s.allowedDirs,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal result: %w", err)
+	}
+
+	return string(resultBytes), nil
+}

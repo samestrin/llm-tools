@@ -83,6 +83,63 @@ func WriteFile(opts WriteFileOptions) (*WriteFileResult, error) {
 	}, nil
 }
 
+// WriteFileEntry represents a single file to write in a batch operation
+type WriteFileEntry struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+// WriteMultipleFilesOptions contains input parameters for WriteMultipleFiles
+type WriteMultipleFilesOptions struct {
+	Files       []WriteFileEntry
+	AllowedDirs []string
+}
+
+// WriteMultipleFilesResult represents the result of writing multiple files
+type WriteMultipleFilesResult struct {
+	Files   []WriteFileResult `json:"files"`
+	Success int               `json:"success"`
+	Failed  int               `json:"failed"`
+	Message string            `json:"message"`
+}
+
+// WriteMultipleFiles writes multiple files sequentially with auto-mkdir
+func WriteMultipleFiles(opts WriteMultipleFilesOptions) (*WriteMultipleFilesResult, error) {
+	if len(opts.Files) == 0 {
+		return nil, fmt.Errorf("files is required")
+	}
+
+	results := make([]WriteFileResult, len(opts.Files))
+	success := 0
+	failed := 0
+
+	for i, entry := range opts.Files {
+		result, err := WriteFile(WriteFileOptions{
+			Path:        entry.Path,
+			Content:     entry.Content,
+			CreateDirs:  true,
+			AllowedDirs: opts.AllowedDirs,
+		})
+		if err != nil {
+			results[i] = WriteFileResult{
+				Path:    entry.Path,
+				Message: err.Error(),
+			}
+			failed++
+		} else {
+			results[i] = *result
+			success++
+		}
+	}
+
+	return &WriteMultipleFilesResult{
+		Files:   results,
+		Success: success,
+		Failed:  failed,
+		Message: fmt.Sprintf("Wrote %d files, %d failed", success, failed),
+	}, nil
+}
+
 // LargeWriteFileOptions contains input parameters for LargeWriteFile
 type LargeWriteFileOptions struct {
 	Path        string

@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-// TestSchemaParityToolCount validates we have exactly 14 batch/specialized tools
+// TestSchemaParityToolCount validates we have exactly 15 batch/specialized tools
 // NOTE: Single-file operations should use Claude's native Read, Write, and Edit tools
 func TestSchemaParityToolCount(t *testing.T) {
 	tools := GetToolDefinitions()
-	if len(tools) != 14 {
-		t.Errorf("Expected 14 tools, got %d", len(tools))
+	if len(tools) != 15 {
+		t.Errorf("Expected 15 tools, got %d", len(tools))
 	}
 }
 
@@ -96,8 +96,11 @@ func TestSchemaParityExpectedTools(t *testing.T) {
 		toolMap[tool.Name] = true
 	}
 
-	// Expected 14 batch/specialized tools
+	// Expected 15 batch/specialized tools
 	expectedTools := []string{
+		// Batch Writing
+		"llm_filesystem_write_multiple_files",
+
 		// Batch Reading
 		"llm_filesystem_read_multiple_files",
 		"llm_filesystem_extract_lines",

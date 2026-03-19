@@ -16,8 +16,8 @@ func TestMCPToolDefinitions(t *testing.T) {
 		t.Fatal("Expected tool definitions, got none")
 	}
 
-	// Verify we have exactly 16 MCP tools (batch/specialized + single-file operations)
-	expectedCount := 16
+	// Verify we have exactly 17 MCP tools (batch/specialized + single-file operations)
+	expectedCount := 17
 	if len(tools) != expectedCount {
 		t.Errorf("Expected %d tools, got %d", expectedCount, len(tools))
 	}
@@ -119,6 +119,49 @@ func TestBuildArgsUnknownCommand(t *testing.T) {
 	_, err := buildArgs("unknown_command", args)
 	if err == nil {
 		t.Error("Expected error for unknown command")
+	}
+}
+
+// TestBuildArgsWriteMultipleFiles verifies write_multiple_files args are built correctly
+func TestBuildArgsWriteMultipleFiles(t *testing.T) {
+	args := map[string]interface{}{
+		"files": []interface{}{
+			map[string]interface{}{
+				"path":    "/tmp/a.txt",
+				"content": "hello",
+			},
+			map[string]interface{}{
+				"path":    "/tmp/b.txt",
+				"content": "world",
+			},
+		},
+	}
+
+	cmdArgs, err := buildArgs("write_multiple_files", args)
+	if err != nil {
+		t.Fatalf("buildArgs failed: %v", err)
+	}
+
+	if cmdArgs[0] != "write-multiple-files" {
+		t.Errorf("Expected 'write-multiple-files', got %s", cmdArgs[0])
+	}
+
+	// Verify --files flag with valid JSON
+	filesFound := false
+	for i, arg := range cmdArgs {
+		if arg == "--files" && i+1 < len(cmdArgs) {
+			var parsed []interface{}
+			if err := json.Unmarshal([]byte(cmdArgs[i+1]), &parsed); err == nil {
+				filesFound = true
+				if len(parsed) != 2 {
+					t.Errorf("Expected 2 files in JSON, got %d", len(parsed))
+				}
+			}
+			break
+		}
+	}
+	if !filesFound {
+		t.Error("Expected --files with valid JSON")
 	}
 }
 
@@ -324,6 +367,8 @@ func TestAllToolsHaveBuilders(t *testing.T) {
 		switch cmdName {
 		case "list_directory", "get_directory_tree", "delete_file":
 			args["path"] = "/tmp"
+		case "write_multiple_files":
+			args["files"] = []interface{}{map[string]interface{}{"path": "/tmp/a.txt", "content": "test"}}
 		case "read_multiple_files":
 			args["paths"] = []interface{}{"/tmp/a.txt"}
 		case "search_files", "search_code":
@@ -431,12 +476,13 @@ func TestRemovedToolsAreGone(t *testing.T) {
 func TestExpectedToolsArePresent(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// These are the 16 tools that should be exposed
+	// These are the 17 tools that should be exposed
 	expectedTools := []string{
 		// Single-file operations (for LLM compatibility)
 		"read_file",
 		"write_file",
 		// Batch/specialized operations
+		"write_multiple_files",
 		"read_multiple_files",
 		"extract_lines",
 		"edit_blocks",
