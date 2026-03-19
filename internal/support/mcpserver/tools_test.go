@@ -8,9 +8,9 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Verify we have exactly 64 tools
-	if len(tools) != 64 {
-		t.Errorf("Expected 64 tools, got %d", len(tools))
+	// Verify we have exactly 63 tools
+	if len(tools) != 63 {
+		t.Errorf("Expected 63 tools, got %d", len(tools))
 	}
 
 	// Verify all tools have the correct prefix
@@ -74,7 +74,6 @@ func TestGetToolDefinitions(t *testing.T) {
 		"llm_support_hash",
 		"llm_support_init_temp",
 		"llm_support_math",
-		"llm_support_prompt",
 		"llm_support_report",
 		"llm_support_stats",
 		"llm_support_toml_query",

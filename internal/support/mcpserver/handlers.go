@@ -74,7 +74,6 @@ var LLMTimeout = 300 * time.Second // 5 minutes
 
 // Commands that require longer timeouts (LLM operations)
 var llmCommands = map[string]bool{
-	"prompt":   true,
 	"complete": true,
 	"foreach":  true,
 }
@@ -223,8 +222,6 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildCleanTempArgs(args), nil
 	case "math":
 		return buildMathArgs(args), nil
-	case "prompt":
-		return buildPromptArgs(args), nil
 	case "report":
 		return buildReportArgs(args), nil
 	case "stats":
@@ -1376,76 +1373,6 @@ func buildMathArgs(args map[string]interface{}) []string {
 
 	if expr, ok := args["expression"].(string); ok {
 		cmdArgs = append(cmdArgs, expr)
-	}
-
-	return cmdArgs
-}
-
-func buildPromptArgs(args map[string]interface{}) []string {
-	cmdArgs := []string{"prompt"}
-
-	if prompt, ok := args["prompt"].(string); ok {
-		cmdArgs = append(cmdArgs, "--prompt", prompt)
-	}
-	if file, ok := args["file"].(string); ok {
-		cmdArgs = append(cmdArgs, "--file", file)
-	}
-	if template, ok := args["template"].(string); ok {
-		cmdArgs = append(cmdArgs, "--template", template)
-	}
-	if llm, ok := args["llm"].(string); ok {
-		cmdArgs = append(cmdArgs, "--llm", llm)
-	}
-	if instruction, ok := args["instruction"].(string); ok {
-		cmdArgs = append(cmdArgs, "--instruction", instruction)
-	}
-	if vars, ok := args["vars"].(map[string]interface{}); ok {
-		for k, v := range vars {
-			cmdArgs = append(cmdArgs, "--var", fmt.Sprintf("%s=%v", k, v))
-		}
-	}
-	if retries, ok := getInt(args, "retries"); ok {
-		cmdArgs = append(cmdArgs, "--retries", strconv.Itoa(retries))
-	}
-	if retryDelay, ok := getInt(args, "retry_delay"); ok {
-		cmdArgs = append(cmdArgs, "--retry-delay", strconv.Itoa(retryDelay))
-	}
-	if timeout, ok := getInt(args, "timeout"); ok {
-		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(timeout))
-	}
-	if getBool(args, "cache") {
-		cmdArgs = append(cmdArgs, "--cache")
-	}
-	if cacheTtl, ok := getInt(args, "cache_ttl"); ok {
-		cmdArgs = append(cmdArgs, "--cache-ttl", strconv.Itoa(cacheTtl))
-	}
-	if getBool(args, "refresh") {
-		cmdArgs = append(cmdArgs, "--refresh")
-	}
-	if minLength, ok := getInt(args, "min_length"); ok {
-		cmdArgs = append(cmdArgs, "--min-length", strconv.Itoa(minLength))
-	}
-	if mustContain, ok := args["must_contain"].([]interface{}); ok {
-		for _, m := range mustContain {
-			if s, ok := m.(string); ok {
-				cmdArgs = append(cmdArgs, "--must-contain", s)
-			}
-		}
-	}
-	if getBool(args, "no_error_check") {
-		cmdArgs = append(cmdArgs, "--no-error-check")
-	}
-	if output, ok := args["output"].(string); ok {
-		cmdArgs = append(cmdArgs, "--output", output)
-	}
-	if getBool(args, "strip") {
-		cmdArgs = append(cmdArgs, "--strip")
-	}
-	if getBoolDefault(args, "json", true) {
-		cmdArgs = append(cmdArgs, "--json")
-	}
-	if getBoolDefault(args, "min", true) {
-		cmdArgs = append(cmdArgs, "--min")
 	}
 
 	return cmdArgs
