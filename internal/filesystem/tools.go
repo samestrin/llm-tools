@@ -11,8 +11,8 @@ type ToolDefinition struct {
 	InputSchema json.RawMessage
 }
 
-// GetToolDefinitions returns the 15 batch/specialized tool definitions
-// NOTE: This legacy server exposes 15 tools. Single-file operations
+// GetToolDefinitions returns the 14 batch/specialized tool definitions
+// NOTE: This legacy server exposes 14 tools. Single-file operations
 // should use Claude's native Read, Write, and Edit tools for better performance.
 func GetToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
@@ -123,18 +123,6 @@ func GetToolDefinitions() []ToolDefinition {
 					"include_files": {"type": "boolean", "description": "Include files in the tree", "default": true}
 				},
 				"required": ["path"]
-			}`),
-		},
-		{
-			Name:        "llm_filesystem_create_directories",
-			Description: "Creates multiple directories in a single operation",
-			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"paths": {"type": "array", "items": {"type": "string"}, "description": "Directory paths to create"},
-					"recursive": {"type": "boolean", "description": "Create parent directories", "default": true}
-				},
-				"required": ["paths"]
 			}`),
 		},
 		// Search Operations

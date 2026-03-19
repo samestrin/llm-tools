@@ -179,8 +179,8 @@ func TestExpectedClarifyToolNames(t *testing.T) {
 // TestLLMFilesystemToolCount verifies the correct number of filesystem tools
 func TestLLMFilesystemToolCount(t *testing.T) {
 	tools := filesystemserver.GetToolDefinitions()
-	// NOTE: Includes 2 single-file operations + 15 batch/specialized tools
-	expected := 17
+	// NOTE: Includes 2 single-file operations + 14 batch/specialized tools
+	expected := 16
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-filesystem tools, got %d", expected, len(tools))
 	}
@@ -247,7 +247,6 @@ func TestExpectedFilesystemToolNames(t *testing.T) {
 		// Directory operations
 		"llm_filesystem_list_directory",
 		"llm_filesystem_get_directory_tree",
-		"llm_filesystem_create_directories",
 
 		// Search operations
 		"llm_filesystem_search_files",

@@ -8,10 +8,10 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Should have 15 batch/specialized tools
+	// Should have 14 batch/specialized tools
 	// NOTE: Single-file operations should use Claude's native tools
-	if len(tools) != 15 {
-		t.Errorf("GetToolDefinitions() = %d tools, want 15", len(tools))
+	if len(tools) != 14 {
+		t.Errorf("GetToolDefinitions() = %d tools, want 14", len(tools))
 	}
 
 	// Verify all tools have required fields
@@ -48,7 +48,7 @@ func TestGetToolDefinitionsValidJSON(t *testing.T) {
 func TestGetToolDefinitionsNames(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// 15 batch/specialized tools - single-file operations use Claude's native tools
+	// 14 batch/specialized tools - single-file operations use Claude's native tools
 	expectedTools := []string{
 		// Batch Reading
 		"llm_filesystem_read_multiple_files",
@@ -61,8 +61,6 @@ func TestGetToolDefinitionsNames(t *testing.T) {
 		// Directory operations
 		"llm_filesystem_list_directory",
 		"llm_filesystem_get_directory_tree",
-		"llm_filesystem_create_directories",
-
 		// Search operations
 		"llm_filesystem_search_files",
 		"llm_filesystem_search_code",

@@ -16,8 +16,8 @@ func TestMCPToolDefinitions(t *testing.T) {
 		t.Fatal("Expected tool definitions, got none")
 	}
 
-	// Verify we have exactly 17 MCP tools (batch/specialized + single-file operations)
-	expectedCount := 17
+	// Verify we have exactly 16 MCP tools (batch/specialized + single-file operations)
+	expectedCount := 16
 	if len(tools) != expectedCount {
 		t.Errorf("Expected %d tools, got %d", expectedCount, len(tools))
 	}
@@ -119,65 +119,6 @@ func TestBuildArgsUnknownCommand(t *testing.T) {
 	_, err := buildArgs("unknown_command", args)
 	if err == nil {
 		t.Error("Expected error for unknown command")
-	}
-}
-
-// TestBuildArgsCreateDirectories verifies create_directories args are built correctly
-func TestBuildArgsCreateDirectories(t *testing.T) {
-	args := map[string]interface{}{
-		"paths": []interface{}{
-			"/tmp/dir1",
-			"/tmp/dir2",
-			"/tmp/dir3",
-		},
-		"recursive": true,
-	}
-
-	cmdArgs, err := buildArgs("create_directories", args)
-	if err != nil {
-		t.Fatalf("buildArgs failed: %v", err)
-	}
-
-	if cmdArgs[0] != "create-directories" {
-		t.Errorf("Expected 'create-directories', got %s", cmdArgs[0])
-	}
-
-	// Verify all paths are included
-	pathCount := 0
-	for i, arg := range cmdArgs {
-		if arg == "--paths" && i+1 < len(cmdArgs) {
-			pathCount++
-		}
-	}
-	if pathCount != 3 {
-		t.Errorf("Expected 3 --paths flags, got %d", pathCount)
-	}
-}
-
-// TestBuildArgsCreateDirectoriesNoRecursive verifies recursive=false is passed
-func TestBuildArgsCreateDirectoriesNoRecursive(t *testing.T) {
-	args := map[string]interface{}{
-		"paths": []interface{}{
-			"/tmp/dir1",
-		},
-		"recursive": false,
-	}
-
-	cmdArgs, err := buildArgs("create_directories", args)
-	if err != nil {
-		t.Fatalf("buildArgs failed: %v", err)
-	}
-
-	// Verify recursive=false is included
-	recursiveFalseFound := false
-	for _, arg := range cmdArgs {
-		if arg == "--recursive=false" {
-			recursiveFalseFound = true
-			break
-		}
-	}
-	if !recursiveFalseFound {
-		t.Error("Expected --recursive=false in args")
 	}
 }
 
@@ -383,8 +324,6 @@ func TestAllToolsHaveBuilders(t *testing.T) {
 		switch cmdName {
 		case "list_directory", "get_directory_tree", "delete_file":
 			args["path"] = "/tmp"
-		case "create_directories":
-			args["paths"] = []interface{}{"/tmp/dir1", "/tmp/dir2"}
 		case "read_multiple_files":
 			args["paths"] = []interface{}{"/tmp/a.txt"}
 		case "search_files", "search_code":
@@ -462,6 +401,7 @@ func TestRemovedToolsAreGone(t *testing.T) {
 	// Note: read_file and write_file are now included for LLM compatibility
 	deprecatedTools := []string{
 		"large_write_file",
+		"create_directories",
 		"edit_block",
 		"edit_file",
 		"edit_multiple_blocks",
@@ -491,7 +431,7 @@ func TestRemovedToolsAreGone(t *testing.T) {
 func TestExpectedToolsArePresent(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// These are the 17 tools that should be exposed
+	// These are the 16 tools that should be exposed
 	expectedTools := []string{
 		// Single-file operations (for LLM compatibility)
 		"read_file",
@@ -503,7 +443,6 @@ func TestExpectedToolsArePresent(t *testing.T) {
 		"search_and_replace",
 		"list_directory",
 		"get_directory_tree",
-		"create_directories",
 		"search_files",
 		"search_code",
 		"copy_file",
