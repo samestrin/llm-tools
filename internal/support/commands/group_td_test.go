@@ -1318,6 +1318,13 @@ Items from code review.
 	if !bytes.Contains(data, []byte("new_sprint")) {
 		t.Error("new sprint section missing")
 	}
+
+	// New section should appear BEFORE old section (newest first)
+	newIdx := bytes.Index(data, []byte("new_sprint"))
+	oldIdx := bytes.Index(data, []byte("previous_sprint"))
+	if newIdx > oldIdx {
+		t.Error("new sprint section should appear before old sprint section (newest first)")
+	}
 }
 
 // Helper function

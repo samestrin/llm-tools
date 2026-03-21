@@ -268,6 +268,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildFormatTDTableArgs(args), nil
 	case "group_td":
 		return buildGroupTDArgs(args), nil
+	case "td_stats":
+		return buildTDStatsArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1794,5 +1796,14 @@ func buildGroupTDArgs(args map[string]interface{}) []string {
 	if delimiter, ok := args["delimiter"].(string); ok && delimiter != "" {
 		cmdArgs = append(cmdArgs, "--delimiter", delimiter)
 	}
+	return cmdArgs
+}
+
+func buildTDStatsArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"td-stats"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	cmdArgs = append(cmdArgs, "--json", "--min")
 	return cmdArgs
 }

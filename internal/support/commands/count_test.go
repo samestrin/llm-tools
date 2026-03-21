@@ -326,6 +326,96 @@ func TestCountLinesHumanReadableOutput(t *testing.T) {
 	}
 }
 
+// TestCountTableCheckboxes tests counting checkboxes in markdown tables
+func TestCountTableCheckboxes(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mdContent := `# Tech Debt
+
+| Status | Checkbox | Priority | File | Description | Fix | Source | Est |
+|--------|----------|----------|------|-------------|-----|--------|-----|
+| U | [ ] | MEDIUM | foo.py:1 | Missing tests | Add tests | review | 120 |
+| U | [ ] | HIGH | bar.py:1 | No validation | Add validation | review | 60 |
+| D | [x] | LOW | baz.py:1 | Done item | Fixed | review | 30 |
+`
+	mdFile := filepath.Join(tmpDir, "test.md")
+	os.WriteFile(mdFile, []byte(mdContent), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", mdFile, "--mode", "checkboxes"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "COUNT: 3") {
+		t.Errorf("output %q should contain COUNT: 3", output)
+	}
+	if !strings.Contains(output, "CHECKED: 1") {
+		t.Errorf("output %q should contain CHECKED: 1", output)
+	}
+	if !strings.Contains(output, "UNCHECKED: 2") {
+		t.Errorf("output %q should contain UNCHECKED: 2", output)
+	}
+}
+
+// TestCountTableCheckboxesStyleFilter tests --style table filter
+func TestCountTableCheckboxesStyleFilter(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// File with both list and table checkboxes
+	mdContent := `# Test
+- [x] List done
+- [ ] List pending
+
+| Col | Checkbox | Info |
+|-----|----------|------|
+| A | [ ] | Table unchecked |
+| B | [x] | Table checked |
+`
+	mdFile := filepath.Join(tmpDir, "mixed.md")
+	os.WriteFile(mdFile, []byte(mdContent), 0644)
+
+	// style=table should only count table checkboxes
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", mdFile, "--mode", "checkboxes", "--style", "table"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "COUNT: 2") {
+		t.Errorf("table style: output %q should contain COUNT: 2", output)
+	}
+	if !strings.Contains(output, "CHECKED: 1") {
+		t.Errorf("table style: output %q should contain CHECKED: 1", output)
+	}
+
+	// style=all should count both list and table
+	cmd2 := newCountCmd()
+	buf2 := new(bytes.Buffer)
+	cmd2.SetOut(buf2)
+	cmd2.SetArgs([]string{"--path", mdFile, "--mode", "checkboxes", "--style", "all"})
+
+	err = cmd2.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output2 := buf2.String()
+	if !strings.Contains(output2, "COUNT: 4") {
+		t.Errorf("all style: output %q should contain COUNT: 4", output2)
+	}
+}
+
 // TestCountFilesWithPattern tests file counting with glob pattern
 func TestCountFilesWithPattern(t *testing.T) {
 	tmpDir := t.TempDir()
