@@ -67,7 +67,7 @@ Output format:
 	cmd.Flags().StringVar(&countMode, "mode", "", "Count mode: checkboxes, lines, files")
 	cmd.Flags().BoolVarP(&countRecursive, "recursive", "r", false, "Recursive search")
 	cmd.Flags().StringVar(&countPattern, "pattern", "", "Glob pattern for files mode")
-	cmd.Flags().StringVar(&countStyle, "style", "all", "Checkbox style: all, list, heading")
+	cmd.Flags().StringVar(&countStyle, "style", "all", "Checkbox style: all, list, heading, table")
 	// Legacy flags for backwards compatibility with Python version
 	cmd.Flags().BoolVar(&countCheckboxes, "checkboxes", false, "Count checkboxes (legacy, use --mode checkboxes)")
 	cmd.Flags().BoolVar(&countLines, "lines", false, "Count lines (legacy, use --mode lines)")
@@ -154,6 +154,8 @@ func runCountCheckboxes(cmd *cobra.Command, target string, info os.FileInfo) err
 	listUncheckedRe := regexp.MustCompile(`- \[ \]`)
 	headingCheckedRe := regexp.MustCompile(`(?m)^#{1,6}\s+.*\[[xX]\]`)
 	headingUncheckedRe := regexp.MustCompile(`(?m)^#{1,6}\s+.*\[ \]`)
+	tableCheckedRe := regexp.MustCompile(`\|\s*\[[xX]\]\s*\|`)
+	tableUncheckedRe := regexp.MustCompile(`\|\s*\[ \]\s*\|`)
 
 	for _, filePath := range filesToCheck {
 		content, err := os.ReadFile(filePath)
@@ -176,6 +178,11 @@ func runCountCheckboxes(cmd *cobra.Command, target string, info os.FileInfo) err
 		if style == "all" || style == "heading" {
 			checked += len(headingCheckedRe.FindAllString(contentStr, -1))
 			unchecked += len(headingUncheckedRe.FindAllString(contentStr, -1))
+		}
+
+		if style == "all" || style == "table" {
+			checked += len(tableCheckedRe.FindAllString(contentStr, -1))
+			unchecked += len(tableUncheckedRe.FindAllString(contentStr, -1))
 		}
 	}
 

@@ -2170,5 +2170,20 @@ func GetToolDefinitions() []ToolDefinition {
 				}
 			}`),
 		},
+		// 58. Tech debt statistics
+		{
+			Name:        ToolPrefix + "td_stats",
+			Description: "Generate tech debt statistics from a markdown README containing a table with checkbox and severity columns. Reads the file, counts items by severity (CRITICAL/HIGH/MEDIUM/LOW) and status ([ ] open, [/] deferred, [x] resolved). Returns structured counts plus a pre-rendered markdown table in the 'markdown' field. Columns are auto-detected by header name.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Path to tech debt README file"
+					}
+				},
+				"required": ["path"]
+			}`),
+		},
 	}
 }

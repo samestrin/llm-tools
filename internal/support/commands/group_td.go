@@ -820,8 +820,15 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		return fmt.Errorf("row count mismatch: expected %d, written %d", expectedRows, tableRowCount)
 	}
 
-	// Append section to existing content and write
-	fullContent := existingContent + bufContent
+	// Insert new section after header block (newest first)
+	// Header ends after the intro paragraph. Find first "### " section marker
+	// to insert before it; if none exists, append to end.
+	insertPos := len(existingContent)
+	if idx := strings.Index(existingContent, "\n### "); idx >= 0 {
+		insertPos = idx
+	}
+
+	fullContent := existingContent[:insertPos] + bufContent + existingContent[insertPos:]
 
 	if err := os.WriteFile(outputFile, []byte(fullContent), 0644); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
