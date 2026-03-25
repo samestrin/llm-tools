@@ -31,6 +31,7 @@ type CountCheckboxResult struct {
 	Count     int     `json:"count"`
 	Checked   int     `json:"checked"`
 	Unchecked int     `json:"unchecked"`
+	Partial   int     `json:"partial"`
 	Percent   float64 `json:"percent"`
 }
 
@@ -52,7 +53,7 @@ func newCountCmd() *cobra.Command {
 		Long: `Count checkboxes, lines, or files in a path.
 
 Modes (use --mode or legacy flags):
-  --mode checkboxes  or  --checkboxes  - Count [ ] and [x] checkboxes in markdown files
+  --mode checkboxes  or  --checkboxes  - Count [ ], [/], and [x] checkboxes in markdown files
   --mode lines       or  --lines       - Count lines in files
   --mode files       or  --files       - Count files matching pattern
 
@@ -60,6 +61,7 @@ Output format:
   TOTAL: N
   CHECKED: N (for checkboxes mode)
   UNCHECKED: N (for checkboxes mode)
+  PARTIAL: N (for checkboxes mode)
   PERCENT: N% (for checkboxes mode)`,
 		RunE: runCount,
 	}
@@ -148,14 +150,18 @@ func runCountCheckboxes(cmd *cobra.Command, target string, info os.FileInfo) err
 
 	checked := 0
 	unchecked := 0
+	partial := 0
 
 	// Regex patterns for checkboxes
 	listCheckedRe := regexp.MustCompile(`- \[[xX]\]`)
 	listUncheckedRe := regexp.MustCompile(`- \[ \]`)
+	listPartialRe := regexp.MustCompile(`- \[/\]`)
 	headingCheckedRe := regexp.MustCompile(`(?m)^#{1,6}\s+.*\[[xX]\]`)
 	headingUncheckedRe := regexp.MustCompile(`(?m)^#{1,6}\s+.*\[ \]`)
+	headingPartialRe := regexp.MustCompile(`(?m)^#{1,6}\s+.*\[/\]`)
 	tableCheckedRe := regexp.MustCompile(`\|\s*\[[xX]\]\s*\|`)
 	tableUncheckedRe := regexp.MustCompile(`\|\s*\[ \]\s*\|`)
+	tablePartialRe := regexp.MustCompile(`\|\s*\[/\]\s*\|`)
 
 	for _, filePath := range filesToCheck {
 		content, err := os.ReadFile(filePath)
@@ -163,7 +169,7 @@ func runCountCheckboxes(cmd *cobra.Command, target string, info os.FileInfo) err
 			continue
 		}
 
-		contentStr := string(content)
+		contentStr := stripFencedCodeBlocks(string(content))
 
 		style := countStyle
 		if style == "" {
@@ -173,20 +179,23 @@ func runCountCheckboxes(cmd *cobra.Command, target string, info os.FileInfo) err
 		if style == "all" || style == "list" {
 			checked += len(listCheckedRe.FindAllString(contentStr, -1))
 			unchecked += len(listUncheckedRe.FindAllString(contentStr, -1))
+			partial += len(listPartialRe.FindAllString(contentStr, -1))
 		}
 
 		if style == "all" || style == "heading" {
 			checked += len(headingCheckedRe.FindAllString(contentStr, -1))
 			unchecked += len(headingUncheckedRe.FindAllString(contentStr, -1))
+			partial += len(headingPartialRe.FindAllString(contentStr, -1))
 		}
 
 		if style == "all" || style == "table" {
 			checked += len(tableCheckedRe.FindAllString(contentStr, -1))
 			unchecked += len(tableUncheckedRe.FindAllString(contentStr, -1))
+			partial += len(tablePartialRe.FindAllString(contentStr, -1))
 		}
 	}
 
-	total := checked + unchecked
+	total := checked + unchecked + partial
 	percent := 0.0
 	if total > 0 {
 		percent = float64(checked) / float64(total) * 100
@@ -196,6 +205,7 @@ func runCountCheckboxes(cmd *cobra.Command, target string, info os.FileInfo) err
 		Count:     total,
 		Checked:   checked,
 		Unchecked: unchecked,
+		Partial:   partial,
 		Percent:   percent,
 	}
 
@@ -205,8 +215,30 @@ func runCountCheckboxes(cmd *cobra.Command, target string, info os.FileInfo) err
 		fmt.Fprintf(w, "COUNT: %d\n", r.Count)
 		fmt.Fprintf(w, "CHECKED: %d\n", r.Checked)
 		fmt.Fprintf(w, "UNCHECKED: %d\n", r.Unchecked)
+		fmt.Fprintf(w, "PARTIAL: %d\n", r.Partial)
 		fmt.Fprintf(w, "PERCENT: %.0f%%\n", r.Percent)
 	})
+}
+
+// stripFencedCodeBlocks removes content inside fenced code blocks (``` or ~~~)
+// so that checkboxes inside code examples are not counted.
+func stripFencedCodeBlocks(content string) string {
+	lines := strings.Split(content, "\n")
+	var result []string
+	inFence := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			inFence = !inFence
+			continue
+		}
+		if !inFence {
+			result = append(result, line)
+		}
+	}
+
+	return strings.Join(result, "\n")
 }
 
 func runCountLines(cmd *cobra.Command, target string, info os.FileInfo) error {
