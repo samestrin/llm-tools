@@ -527,7 +527,11 @@ func extractTheme(item map[string]interface{}, groupBy string, pathDepth int, ro
 }
 
 func extractFileLine(item map[string]interface{}) string {
-	// Try FILE_LINE field
+	// Try FILE:LINE field (default in TD_STREAM format)
+	if fl, ok := item["FILE:LINE"].(string); ok && fl != "" {
+		return fl
+	}
+	// Try FILE_LINE field (legacy fallback)
 	if fl, ok := item["FILE_LINE"].(string); ok && fl != "" {
 		return fl
 	}

@@ -654,10 +654,12 @@ func TestExtractFileLine(t *testing.T) {
 		item     map[string]interface{}
 		expected string
 	}{
+		{"FILE:LINE", map[string]interface{}{"FILE:LINE": "src/a.ts:10"}, "src/a.ts:10"},
 		{"FILE_LINE", map[string]interface{}{"FILE_LINE": "src/a.ts:10"}, "src/a.ts:10"},
 		{"FILE", map[string]interface{}{"FILE": "src/b.ts"}, "src/b.ts"},
 		{"PATH", map[string]interface{}{"PATH": "src/c.ts"}, "src/c.ts"},
-		{"priority", map[string]interface{}{"FILE_LINE": "first", "FILE": "second"}, "first"},
+		{"FILE:LINE priority over FILE_LINE", map[string]interface{}{"FILE:LINE": "first", "FILE_LINE": "second"}, "first"},
+		{"FILE_LINE priority over FILE", map[string]interface{}{"FILE_LINE": "first", "FILE": "second"}, "first"},
 		{"missing", map[string]interface{}{"OTHER": "value"}, ""},
 	}
 

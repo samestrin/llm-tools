@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -360,6 +361,112 @@ func TestCountTableCheckboxes(t *testing.T) {
 	}
 	if !strings.Contains(output, "UNCHECKED: 2") {
 		t.Errorf("output %q should contain UNCHECKED: 2", output)
+	}
+}
+
+// TestCountPartialCheckboxes tests counting [/] partial checkboxes
+func TestCountPartialCheckboxes(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mdContent := `# Tasks
+- [x] Done task
+- [ ] Pending task
+- [/] In progress task
+- [/] Another partial
+
+| Col | Checkbox | Info |
+|-----|----------|------|
+| A | [ ] | Unchecked |
+| B | [x] | Checked |
+| C | [/] | Partial |
+`
+	mdFile := filepath.Join(tmpDir, "partial.md")
+	os.WriteFile(mdFile, []byte(mdContent), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", mdFile, "--mode", "checkboxes", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result CountCheckboxResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	if result.Count != 7 {
+		t.Errorf("count = %d, want 7", result.Count)
+	}
+	if result.Checked != 2 {
+		t.Errorf("checked = %d, want 2", result.Checked)
+	}
+	if result.Unchecked != 2 {
+		t.Errorf("unchecked = %d, want 2", result.Unchecked)
+	}
+	if result.Partial != 3 {
+		t.Errorf("partial = %d, want 3", result.Partial)
+	}
+}
+
+// TestCountSkipsFencedCodeBlocks tests that checkboxes inside ``` blocks are not counted
+func TestCountSkipsFencedCodeBlocks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mdContent := `# Tasks
+- [x] Real done task
+- [ ] Real pending task
+
+### DoD Report Template
+
+` + "```" + `
+Story-{N} DoD Complete
+Auto: {X}/5 | Story-Specific: {Y}/{Z}
+Manual Review: [ ] Code reviewed
+` + "```" + `
+
+Display each learning candidate:
+` + "```" + `
+### [N] {QUESTION}
+
+[ ] Capture this learning
+` + "```" + `
+
+- [/] Partial real task
+`
+	mdFile := filepath.Join(tmpDir, "fenced.md")
+	os.WriteFile(mdFile, []byte(mdContent), 0644)
+
+	cmd := newCountCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", mdFile, "--mode", "checkboxes", "--json"})
+
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result CountCheckboxResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse JSON: %v", err)
+	}
+
+	// Only the 3 real checkboxes should be counted, not the 2 inside code blocks
+	if result.Count != 3 {
+		t.Errorf("count = %d, want 3 (should skip fenced code blocks)", result.Count)
+	}
+	if result.Checked != 1 {
+		t.Errorf("checked = %d, want 1", result.Checked)
+	}
+	if result.Unchecked != 1 {
+		t.Errorf("unchecked = %d, want 1", result.Unchecked)
+	}
+	if result.Partial != 1 {
+		t.Errorf("partial = %d, want 1", result.Partial)
 	}
 }
 

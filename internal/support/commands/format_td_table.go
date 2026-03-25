@@ -273,7 +273,7 @@ func formatItemsAsTable(items []map[string]interface{}, checkbox bool) string {
 	var sb strings.Builder
 
 	// Determine columns from first item, with preferred order
-	preferredOrder := []string{"SEVERITY", "FILE_LINE", "CATEGORY", "PROBLEM", "FIX", "EST_MINUTES", "ID", "DESCRIPTION"}
+	preferredOrder := []string{"SEVERITY", "FILE:LINE", "FILE_LINE", "CATEGORY", "PROBLEM", "FIX", "EST_MINUTES", "ID", "DESCRIPTION"}
 	columns := []string{}
 	columnSet := make(map[string]bool)
 
