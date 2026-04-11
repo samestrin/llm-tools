@@ -104,6 +104,9 @@ func (s *SQLiteStorage) initSchema() error {
 		status TEXT DEFAULT 'pending',
 		occurrences INTEGER DEFAULT 1,
 		embedding BLOB,
+		file_path TEXT,
+		sprints TEXT,
+		files TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -129,6 +132,21 @@ func (s *SQLiteStorage) initSchema() error {
 
 	// Migrate existing databases: add domain column if missing
 	if err := s.migrateDomainColumn(); err != nil {
+		return err
+	}
+
+	// Migrate existing databases: add file_path column to memory table if missing
+	if err := s.migrateMemoryFilePathColumn(); err != nil {
+		return err
+	}
+
+	// Migrate existing databases: add content_hash column to chunks table if missing
+	if err := s.migrateContentHashColumn(); err != nil {
+		return err
+	}
+
+	// Initialize chunk_refs table for dependency tracking
+	if err := s.initChunkRefsSchema(); err != nil {
 		return err
 	}
 
@@ -173,6 +191,180 @@ func (s *SQLiteStorage) migrateMtimeColumn() error {
 	return nil
 }
 
+// migrateContentHashColumn adds content_hash column to existing chunks tables if missing.
+func (s *SQLiteStorage) migrateContentHashColumn() error {
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM pragma_table_info('chunks')
+		WHERE name = 'content_hash'
+	`).Scan(&count)
+	if err != nil {
+		return err
+	}
+
+	if count == 0 {
+		_, err = s.db.Exec(`ALTER TABLE chunks ADD COLUMN content_hash TEXT`)
+		if err != nil {
+			return fmt.Errorf("failed to add content_hash column: %w", err)
+		}
+		_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_chunks_content_hash ON chunks(content_hash)`)
+		if err != nil {
+			return fmt.Errorf("failed to create content_hash index: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// initChunkRefsSchema creates the chunk_refs table for dependency/call graph tracking.
+func (s *SQLiteStorage) initChunkRefsSchema() error {
+	schema := `
+	CREATE TABLE IF NOT EXISTS chunk_refs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		chunk_id TEXT NOT NULL,
+		ref_type TEXT NOT NULL,
+		ref_name TEXT NOT NULL,
+		ref_target_id TEXT,
+		FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_chunk_refs_chunk_id ON chunk_refs(chunk_id);
+	CREATE INDEX IF NOT EXISTS idx_chunk_refs_ref_name ON chunk_refs(ref_name);
+	CREATE INDEX IF NOT EXISTS idx_chunk_refs_target ON chunk_refs(ref_target_id);
+	`
+	_, err := s.db.Exec(schema)
+	return err
+}
+
+// StoreRefs stores chunk references in a single transaction.
+func (s *SQLiteStorage) StoreRefs(ctx context.Context, refs []ChunkRef) error {
+	if len(refs) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO chunk_refs (chunk_id, ref_type, ref_name, ref_target_id)
+		VALUES (?, ?, ?, ?)
+	`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, ref := range refs {
+		_, err = stmt.ExecContext(ctx, ref.ChunkID, string(ref.RefType), ref.RefName, nullableString(ref.RefTargetID))
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// GetRefs retrieves all references FROM a chunk (outgoing edges).
+func (s *SQLiteStorage) GetRefs(ctx context.Context, chunkID string) ([]ChunkRef, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT chunk_id, ref_type, ref_name, COALESCE(ref_target_id, '')
+		FROM chunk_refs WHERE chunk_id = ?
+	`, chunkID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var refs []ChunkRef
+	for rows.Next() {
+		var r ChunkRef
+		if err := rows.Scan(&r.ChunkID, &r.RefType, &r.RefName, &r.RefTargetID); err != nil {
+			return nil, err
+		}
+		refs = append(refs, r)
+	}
+	return refs, rows.Err()
+}
+
+// GetCallers retrieves all references TO a chunk (incoming edges).
+func (s *SQLiteStorage) GetCallers(ctx context.Context, chunkID string) ([]ChunkRef, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT chunk_id, ref_type, ref_name, COALESCE(ref_target_id, '')
+		FROM chunk_refs WHERE ref_target_id = ?
+	`, chunkID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var refs []ChunkRef
+	for rows.Next() {
+		var r ChunkRef
+		if err := rows.Scan(&r.ChunkID, &r.RefType, &r.RefName, &r.RefTargetID); err != nil {
+			return nil, err
+		}
+		refs = append(refs, r)
+	}
+	return refs, rows.Err()
+}
+
+// DeleteRefsByChunk removes all references from a chunk.
+func (s *SQLiteStorage) DeleteRefsByChunk(ctx context.Context, chunkID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	_, err := s.db.ExecContext(ctx, `DELETE FROM chunk_refs WHERE chunk_id = ?`, chunkID)
+	return err
+}
+
+// ResolveRefs batch-resolves ref_name to ref_target_id by matching against chunk names.
+func (s *SQLiteStorage) ResolveRefs(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE chunk_refs
+		SET ref_target_id = (
+			SELECT c.id FROM chunks c
+			WHERE c.name = chunk_refs.ref_name
+			LIMIT 1
+		)
+		WHERE ref_target_id IS NULL
+	`)
+	return err
+}
+
 // migrateDomainColumn adds domain column to existing databases if missing.
 func (s *SQLiteStorage) migrateDomainColumn() error {
 	// Check if column exists
@@ -190,6 +382,37 @@ func (s *SQLiteStorage) migrateDomainColumn() error {
 		_, err = s.db.Exec(`ALTER TABLE chunks ADD COLUMN domain TEXT DEFAULT 'code'`)
 		if err != nil {
 			return fmt.Errorf("failed to add domain column: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// migrateMemoryFilePathColumn adds file_path, sprints, and files columns to existing memory tables if missing.
+func (s *SQLiteStorage) migrateMemoryFilePathColumn() error {
+	columns := []struct {
+		name string
+		ddl  string
+	}{
+		{"file_path", "ALTER TABLE memory ADD COLUMN file_path TEXT"},
+		{"sprints", "ALTER TABLE memory ADD COLUMN sprints TEXT"},
+		{"files", "ALTER TABLE memory ADD COLUMN files TEXT"},
+	}
+
+	for _, col := range columns {
+		var count int
+		err := s.db.QueryRow(`
+			SELECT COUNT(*) FROM pragma_table_info('memory')
+			WHERE name = ?
+		`, col.name).Scan(&count)
+		if err != nil {
+			return err
+		}
+
+		if count == 0 {
+			if _, err = s.db.Exec(col.ddl); err != nil {
+				return fmt.Errorf("failed to add %s column to memory: %w", col.name, err)
+			}
 		}
 	}
 
@@ -216,11 +439,11 @@ func (s *SQLiteStorage) Create(ctx context.Context, chunk Chunk, embedding []flo
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, domain, embedding, file_mtime)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, domain, embedding, file_mtime, content_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, chunk.ID, chunk.FilePath, chunk.Type.String(), chunk.Name, chunk.Signature,
 		chunk.Content, chunk.StartLine, chunk.EndLine, chunk.Language, domain, embeddingBytes,
-		nullableInt64(chunk.FileMtime))
+		nullableInt64(chunk.FileMtime), nullableString(chunk.ContentHash))
 
 	if err != nil {
 		return fmt.Errorf("failed to insert chunk: %w", err)
@@ -248,8 +471,8 @@ func (s *SQLiteStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbed
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, domain, embedding, file_mtime)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO chunks (id, file_path, type, name, signature, content, start_line, end_line, language, domain, embedding, file_mtime, content_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -271,7 +494,8 @@ func (s *SQLiteStorage) CreateBatch(ctx context.Context, chunks []ChunkWithEmbed
 		_, err = stmt.ExecContext(ctx,
 			cwe.Chunk.ID, cwe.Chunk.FilePath, cwe.Chunk.Type.String(), cwe.Chunk.Name,
 			cwe.Chunk.Signature, cwe.Chunk.Content, cwe.Chunk.StartLine, cwe.Chunk.EndLine,
-			cwe.Chunk.Language, domain, embeddingBytes, nullableInt64(cwe.Chunk.FileMtime))
+			cwe.Chunk.Language, domain, embeddingBytes, nullableInt64(cwe.Chunk.FileMtime),
+			nullableString(cwe.Chunk.ContentHash))
 		if err != nil {
 			return fmt.Errorf("failed to insert chunk: %w", err)
 		}
@@ -622,6 +846,32 @@ func (s *SQLiteStorage) Clear(ctx context.Context) error {
 	return err
 }
 
+// ListIndexedFiles returns the set of file paths that have been indexed.
+func (s *SQLiteStorage) ListIndexedFiles(ctx context.Context) (map[string]bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT file_path FROM file_hashes`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list indexed files: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]bool)
+	for rows.Next() {
+		var fp string
+		if err := rows.Scan(&fp); err != nil {
+			return nil, fmt.Errorf("failed to scan file path: %w", err)
+		}
+		result[fp] = true
+	}
+	return result, rows.Err()
+}
+
 // GetFileHash retrieves the stored content hash for a file path
 func (s *SQLiteStorage) GetFileHash(ctx context.Context, filePath string) (string, error) {
 	s.mu.RLock()
@@ -698,12 +948,14 @@ func (s *SQLiteStorage) StoreMemory(ctx context.Context, entry MemoryEntry, embe
 		return fmt.Errorf("failed to encode embedding: %w", err)
 	}
 
-	// Store tags as comma-separated string
+	// Store arrays as comma-separated strings
 	tagsStr := strings.Join(entry.Tags, ",")
+	sprintsStr := strings.Join(entry.Sprints, ",")
+	filesStr := strings.Join(entry.Files, ",")
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO memory (id, question, answer, tags, source, status, occurrences, embedding, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO memory (id, question, answer, tags, source, status, occurrences, embedding, file_path, sprints, files, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			question = excluded.question,
 			answer = excluded.answer,
@@ -712,8 +964,11 @@ func (s *SQLiteStorage) StoreMemory(ctx context.Context, entry MemoryEntry, embe
 			status = excluded.status,
 			occurrences = excluded.occurrences,
 			embedding = excluded.embedding,
+			file_path = excluded.file_path,
+			sprints = excluded.sprints,
+			files = excluded.files,
 			updated_at = excluded.updated_at
-	`, entry.ID, entry.Question, entry.Answer, tagsStr, entry.Source, entry.Status, entry.Occurrences, embeddingBytes, entry.CreatedAt, entry.UpdatedAt)
+	`, entry.ID, entry.Question, entry.Answer, tagsStr, entry.Source, entry.Status, entry.Occurrences, embeddingBytes, entry.FilePath, sprintsStr, filesStr, entry.CreatedAt, entry.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to store memory: %w", err)
@@ -738,8 +993,8 @@ func (s *SQLiteStorage) StoreMemoryBatch(ctx context.Context, entries []MemoryWi
 	defer tx.Rollback()
 
 	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO memory (id, question, answer, tags, source, status, occurrences, embedding, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO memory (id, question, answer, tags, source, status, occurrences, embedding, file_path, sprints, files, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			question = excluded.question,
 			answer = excluded.answer,
@@ -748,6 +1003,9 @@ func (s *SQLiteStorage) StoreMemoryBatch(ctx context.Context, entries []MemoryWi
 			status = excluded.status,
 			occurrences = excluded.occurrences,
 			embedding = excluded.embedding,
+			file_path = excluded.file_path,
+			sprints = excluded.sprints,
+			files = excluded.files,
 			updated_at = excluded.updated_at
 	`)
 	if err != nil {
@@ -762,11 +1020,13 @@ func (s *SQLiteStorage) StoreMemoryBatch(ctx context.Context, entries []MemoryWi
 		}
 
 		tagsStr := strings.Join(mwe.Entry.Tags, ",")
+		sprintsStr := strings.Join(mwe.Entry.Sprints, ",")
+		filesStr := strings.Join(mwe.Entry.Files, ",")
 
 		_, err = stmt.ExecContext(ctx,
 			mwe.Entry.ID, mwe.Entry.Question, mwe.Entry.Answer, tagsStr,
 			mwe.Entry.Source, mwe.Entry.Status, mwe.Entry.Occurrences,
-			embeddingBytes, mwe.Entry.CreatedAt, mwe.Entry.UpdatedAt)
+			embeddingBytes, mwe.Entry.FilePath, sprintsStr, filesStr, mwe.Entry.CreatedAt, mwe.Entry.UpdatedAt)
 		if err != nil {
 			return fmt.Errorf("failed to store memory %s: %w", mwe.Entry.ID, err)
 		}
@@ -806,7 +1066,7 @@ func (s *SQLiteStorage) SearchMemory(ctx context.Context, queryEmbedding []float
 	for {
 		// Fetch a batch of memory entries
 		rows, err := s.db.QueryContext(ctx, `
-			SELECT id, question, answer, tags, source, status, occurrences, embedding, created_at, updated_at
+			SELECT id, question, answer, tags, source, status, occurrences, embedding, file_path, sprints, files, created_at, updated_at
 			FROM memory
 			ORDER BY id
 			LIMIT ? OFFSET ?
@@ -821,9 +1081,12 @@ func (s *SQLiteStorage) SearchMemory(ctx context.Context, queryEmbedding []float
 			var entry MemoryEntry
 			var tagsStr sql.NullString
 			var source sql.NullString
+			var filePath sql.NullString
+			var sprintsStr sql.NullString
+			var filesStr sql.NullString
 			var embeddingBytes []byte
 
-			err := rows.Scan(&entry.ID, &entry.Question, &entry.Answer, &tagsStr, &source, &entry.Status, &entry.Occurrences, &embeddingBytes, &entry.CreatedAt, &entry.UpdatedAt)
+			err := rows.Scan(&entry.ID, &entry.Question, &entry.Answer, &tagsStr, &source, &entry.Status, &entry.Occurrences, &embeddingBytes, &filePath, &sprintsStr, &filesStr, &entry.CreatedAt, &entry.UpdatedAt)
 			if err != nil {
 				rows.Close()
 				return nil, fmt.Errorf("failed to scan row: %w", err)
@@ -835,6 +1098,15 @@ func (s *SQLiteStorage) SearchMemory(ctx context.Context, queryEmbedding []float
 			}
 			if source.Valid {
 				entry.Source = source.String
+			}
+			if filePath.Valid {
+				entry.FilePath = filePath.String
+			}
+			if sprintsStr.Valid && sprintsStr.String != "" {
+				entry.Sprints = strings.Split(sprintsStr.String, ",")
+			}
+			if filesStr.Valid && filesStr.String != "" {
+				entry.Files = strings.Split(filesStr.String, ",")
 			}
 
 			// Decode embedding
@@ -933,12 +1205,15 @@ func (s *SQLiteStorage) GetMemory(ctx context.Context, id string) (*MemoryEntry,
 	var entry MemoryEntry
 	var tagsStr sql.NullString
 	var source sql.NullString
+	var filePath sql.NullString
+	var sprintsStr sql.NullString
+	var filesStr sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, question, answer, tags, source, status, occurrences, created_at, updated_at
+		SELECT id, question, answer, tags, source, status, occurrences, file_path, sprints, files, created_at, updated_at
 		FROM memory
 		WHERE id = ?
-	`, id).Scan(&entry.ID, &entry.Question, &entry.Answer, &tagsStr, &source, &entry.Status, &entry.Occurrences, &entry.CreatedAt, &entry.UpdatedAt)
+	`, id).Scan(&entry.ID, &entry.Question, &entry.Answer, &tagsStr, &source, &entry.Status, &entry.Occurrences, &filePath, &sprintsStr, &filesStr, &entry.CreatedAt, &entry.UpdatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrMemoryNotFound
@@ -952,6 +1227,15 @@ func (s *SQLiteStorage) GetMemory(ctx context.Context, id string) (*MemoryEntry,
 	}
 	if source.Valid {
 		entry.Source = source.String
+	}
+	if filePath.Valid {
+		entry.FilePath = filePath.String
+	}
+	if sprintsStr.Valid && sprintsStr.String != "" {
+		entry.Sprints = strings.Split(sprintsStr.String, ",")
+	}
+	if filesStr.Valid && filesStr.String != "" {
+		entry.Files = strings.Split(filesStr.String, ",")
 	}
 
 	return &entry, nil
@@ -992,7 +1276,7 @@ func (s *SQLiteStorage) ListMemory(ctx context.Context, opts MemoryListOptions) 
 		return nil, ErrStorageClosed
 	}
 
-	query := `SELECT id, question, answer, tags, source, status, occurrences, created_at, updated_at FROM memory WHERE 1=1`
+	query := `SELECT id, question, answer, tags, source, status, occurrences, file_path, sprints, files, created_at, updated_at FROM memory WHERE 1=1`
 	var args []interface{}
 
 	if opts.Status != "" {
@@ -1027,8 +1311,11 @@ func (s *SQLiteStorage) ListMemory(ctx context.Context, opts MemoryListOptions) 
 		var entry MemoryEntry
 		var tagsStr sql.NullString
 		var source sql.NullString
+		var filePath sql.NullString
+		var sprintsStr sql.NullString
+		var filesStr sql.NullString
 
-		err := rows.Scan(&entry.ID, &entry.Question, &entry.Answer, &tagsStr, &source, &entry.Status, &entry.Occurrences, &entry.CreatedAt, &entry.UpdatedAt)
+		err := rows.Scan(&entry.ID, &entry.Question, &entry.Answer, &tagsStr, &source, &entry.Status, &entry.Occurrences, &filePath, &sprintsStr, &filesStr, &entry.CreatedAt, &entry.UpdatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -1038,6 +1325,15 @@ func (s *SQLiteStorage) ListMemory(ctx context.Context, opts MemoryListOptions) 
 		}
 		if source.Valid {
 			entry.Source = source.String
+		}
+		if filePath.Valid {
+			entry.FilePath = filePath.String
+		}
+		if sprintsStr.Valid && sprintsStr.String != "" {
+			entry.Sprints = strings.Split(sprintsStr.String, ",")
+		}
+		if filesStr.Valid && filesStr.String != "" {
+			entry.Files = strings.Split(filesStr.String, ",")
 		}
 
 		// Apply tag filter (after loading since SQLite LIKE on comma-separated is complex)
@@ -1177,6 +1473,104 @@ func nullableInt64(v int64) interface{} {
 		return nil
 	}
 	return v
+}
+
+func nullableString(v string) interface{} {
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
+// GetChunksByFilePath returns lightweight chunk summaries for a given file path.
+func (s *SQLiteStorage) GetChunksByFilePath(ctx context.Context, filePath string) ([]ChunkSummary, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, COALESCE(content_hash, ''), name, start_line
+		FROM chunks WHERE file_path = ?
+	`, filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query chunks by file path: %w", err)
+	}
+	defer rows.Close()
+
+	var summaries []ChunkSummary
+	for rows.Next() {
+		var cs ChunkSummary
+		if err := rows.Scan(&cs.ID, &cs.ContentHash, &cs.Name, &cs.StartLine); err != nil {
+			return nil, fmt.Errorf("failed to scan chunk summary: %w", err)
+		}
+		summaries = append(summaries, cs)
+	}
+	return summaries, rows.Err()
+}
+
+// ReadEmbeddings retrieves embeddings for the given chunk IDs.
+func (s *SQLiteStorage) ReadEmbeddings(ctx context.Context, ids []string) (map[string][]float32, error) {
+	if len(ids) == 0 {
+		return map[string][]float32{}, nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	result := make(map[string][]float32, len(ids))
+
+	// Query in batches to avoid SQLite variable limit
+	const batchSize = 500
+	for i := 0; i < len(ids); i += batchSize {
+		end := i + batchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batch := ids[i:end]
+
+		placeholders := make([]string, len(batch))
+		args := make([]interface{}, len(batch))
+		for j, id := range batch {
+			placeholders[j] = "?"
+			args[j] = id
+		}
+
+		query := fmt.Sprintf("SELECT id, embedding FROM chunks WHERE id IN (%s)",
+			strings.Join(placeholders, ","))
+
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query embeddings: %w", err)
+		}
+
+		for rows.Next() {
+			var id string
+			var embBytes []byte
+			if err := rows.Scan(&id, &embBytes); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("failed to scan embedding: %w", err)
+			}
+			if embBytes != nil {
+				emb, err := decodeEmbedding(embBytes)
+				if err == nil {
+					result[id] = emb
+				}
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	return result, nil
 }
 
 // GetCalibrationMetadata retrieves stored calibration data.

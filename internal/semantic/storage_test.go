@@ -417,6 +417,48 @@ func StorageTestSuite(t *testing.T, newStorage func() (Storage, func())) {
 			t.Errorf("GetFileHash() = %q, want empty string after Clear()", got)
 		}
 	})
+
+	t.Run("ListIndexedFiles", func(t *testing.T) {
+		storage, cleanup := newStorage()
+		defer cleanup()
+
+		// Initially should return empty map
+		files, err := storage.ListIndexedFiles(context.Background())
+		if err != nil {
+			t.Fatalf("ListIndexedFiles() error = %v", err)
+		}
+		if len(files) != 0 {
+			t.Errorf("ListIndexedFiles() returned %d files, want 0", len(files))
+		}
+
+		// Set hashes for multiple files
+		_ = storage.SetFileHash(context.Background(), "/path/to/file1.go", "hash1")
+		_ = storage.SetFileHash(context.Background(), "/path/to/file2.go", "hash2")
+		_ = storage.SetFileHash(context.Background(), "/path/to/file3.py", "hash3")
+
+		files, err = storage.ListIndexedFiles(context.Background())
+		if err != nil {
+			t.Fatalf("ListIndexedFiles() error = %v", err)
+		}
+		if len(files) != 3 {
+			t.Errorf("ListIndexedFiles() returned %d files, want 3", len(files))
+		}
+		for _, f := range []string{"/path/to/file1.go", "/path/to/file2.go", "/path/to/file3.py"} {
+			if !files[f] {
+				t.Errorf("ListIndexedFiles() missing %s", f)
+			}
+		}
+
+		// After clearing, should be empty again
+		_ = storage.Clear(context.Background())
+		files, err = storage.ListIndexedFiles(context.Background())
+		if err != nil {
+			t.Fatalf("ListIndexedFiles() after Clear error = %v", err)
+		}
+		if len(files) != 0 {
+			t.Errorf("ListIndexedFiles() after Clear returned %d files, want 0", len(files))
+		}
+	})
 }
 
 // MemoryStorageTestSuite runs a standard set of tests for memory storage methods

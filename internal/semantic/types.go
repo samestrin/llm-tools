@@ -76,17 +76,19 @@ func (ct *ChunkType) UnmarshalJSON(data []byte) error {
 
 // Chunk represents a semantic unit of code (function, struct, etc.)
 type Chunk struct {
-	ID        string    `json:"id"`
-	FilePath  string    `json:"file_path"`
-	Type      ChunkType `json:"type"`
-	Name      string    `json:"name"`
-	Signature string    `json:"signature,omitempty"`
-	Content   string    `json:"content"`
-	StartLine int       `json:"start_line"`
-	EndLine   int       `json:"end_line"`
-	Language  string    `json:"language"`
-	Domain    string    `json:"domain,omitempty"`     // Source profile/collection (e.g., "code", "docs") - set during indexing based on profile
-	FileMtime int64     `json:"file_mtime,omitempty"` // Unix timestamp of file modification time
+	ID          string    `json:"id"`
+	FilePath    string    `json:"file_path"`
+	Type        ChunkType `json:"type"`
+	Name        string    `json:"name"`
+	Signature   string    `json:"signature,omitempty"`
+	Content     string    `json:"content"`
+	StartLine   int       `json:"start_line"`
+	EndLine     int       `json:"end_line"`
+	Language    string    `json:"language"`
+	Domain      string    `json:"domain,omitempty"`       // Source profile/collection (e.g., "code", "docs") - set during indexing based on profile
+	FileMtime   int64     `json:"file_mtime,omitempty"`   // Unix timestamp of file modification time
+	EmbedText   string    `json:"-"`                      // Transient: enriched text for embedding (not stored in DB)
+	ContentHash string    `json:"content_hash,omitempty"` // SHA256 of Content for diff-based re-indexing
 }
 
 // GenerateID creates a deterministic ID for the chunk based on its content
@@ -94,6 +96,12 @@ func (c *Chunk) GenerateID() string {
 	data := fmt.Sprintf("%s:%s:%d", c.FilePath, c.Name, c.StartLine)
 	hash := sha256.Sum256([]byte(data))
 	return fmt.Sprintf("%x", hash[:8])
+}
+
+// ComputeContentHash returns the SHA256 hex digest of the chunk's Content field.
+func (c *Chunk) ComputeContentHash() string {
+	hash := sha256.Sum256([]byte(c.Content))
+	return fmt.Sprintf("%x", hash)
 }
 
 // Preview returns a short preview of the chunk content for display purposes.

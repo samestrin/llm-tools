@@ -1240,3 +1240,70 @@ func TestIndexManager_IncrementalCommit(t *testing.T) {
 		t.Errorf("Expected %d files unchanged, got %d", result1.FilesProcessed, result2.FilesUnchanged)
 	}
 }
+
+func TestFileMatchesFilters(t *testing.T) {
+	factory := NewChunkerFactory()
+	factory.Register("go", NewGoChunker())
+	factory.Register("py", NewGenericChunker(4096))
+
+	mgr := NewIndexManager(nil, nil, factory)
+	rootPath := "/project"
+
+	tests := []struct {
+		name     string
+		absPath  string
+		includes []string
+		excludes []string
+		want     bool
+	}{
+		{
+			name:    "basic go file matches",
+			absPath: "/project/main.go",
+			want:    true,
+		},
+		{
+			name:     "excluded directory",
+			absPath:  "/project/vendor/lib.go",
+			excludes: []string{"vendor"},
+			want:     false,
+		},
+		{
+			name:     "excluded file pattern",
+			absPath:  "/project/main_test.go",
+			excludes: []string{"*_test.go"},
+			want:     false,
+		},
+		{
+			name:     "include filter matches",
+			absPath:  "/project/main.go",
+			includes: []string{"*.go"},
+			want:     true,
+		},
+		{
+			name:     "include filter excludes",
+			absPath:  "/project/main.py",
+			includes: []string{"*.go"},
+			want:     false,
+		},
+		{
+			name:    "unsupported extension",
+			absPath: "/project/readme.txt",
+			want:    false,
+		},
+		{
+			name:     "node_modules excluded",
+			absPath:  "/project/node_modules/pkg/index.go",
+			excludes: []string{"node_modules"},
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mgr.fileMatchesFilters(rootPath, tt.absPath, tt.includes, tt.excludes, false)
+			if got != tt.want {
+				t.Errorf("fileMatchesFilters() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

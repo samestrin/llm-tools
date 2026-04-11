@@ -37,12 +37,14 @@ var (
 	GlobalMinOutput  bool
 )
 
+const defaultConfigPath = ".planning/.config/config.yaml"
+
 // getDefaultAPIURL returns the API URL from environment or default
 func getDefaultAPIURL() string {
 	if url := os.Getenv("LLM_SEMANTIC_API_URL"); url != "" {
 		return url
 	}
-	return "http://localhost:11434"
+	return "http://localhost:8080"
 }
 
 // getDefaultModel returns the model from environment or empty (embedder-specific default)
@@ -72,7 +74,7 @@ func RootCmd() *cobra.Command {
 		Use:   "llm-semantic",
 		Short: "Semantic code search with local embeddings",
 		Long: `llm-semantic provides semantic code search using local embedding models.
-Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)`,
+Supports any OpenAI-compatible embedding API (TEI, Ollama, vLLM, OpenAI, Azure, etc.)`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -88,6 +90,13 @@ Supports any OpenAI-compatible embedding API (Ollama, vLLM, OpenAI, Azure, etc.)
 			// If user explicitly set --config but with only whitespace, report error
 			if configPath != "" && strings.TrimSpace(configPath) == "" {
 				return config.ErrConfigPathEmpty()
+			}
+
+			// Auto-discover config if not explicitly set
+			if configPath == "" {
+				if _, err := os.Stat(defaultConfigPath); err == nil {
+					configPath = defaultConfigPath
+				}
 			}
 
 			// Load config file if specified
@@ -335,7 +344,7 @@ func createEmbedder() (semantic.EmbedderInterface, error) {
 		}
 		modelName := model
 		if modelName == "" {
-			modelName = "nomic-embed-text" // Default for Ollama - 8K context, fast, good for code
+			modelName = "nomic-embed-text" // Default - 8K context, fast, good for code
 		}
 		cfg := semantic.EmbedderConfig{
 			APIURL: apiURL,
@@ -347,6 +356,19 @@ func createEmbedder() (semantic.EmbedderInterface, error) {
 	default:
 		return nil, fmt.Errorf("unknown embedder type: %s (use 'openai', 'cohere', 'huggingface', or 'openrouter')", embedderType)
 	}
+}
+
+// probeEmbeddingDim returns the embedding dimension, skipping the probe for SQLite.
+// SQLite stores embeddings as variable-length BLOBs and never uses the dimension value.
+func probeEmbeddingDim(ctx context.Context, embedder semantic.EmbedderInterface) (int, error) {
+	if storageType == "qdrant" {
+		testEmbed, err := embedder.Embed(ctx, "test")
+		if err != nil {
+			return 0, fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		}
+		return len(testEmbed), nil
+	}
+	return 0, nil
 }
 
 // TestHelpers provides functions for tests to override global configuration.
@@ -439,14 +461,10 @@ func initSearchComponents(ctx context.Context, createStorageFn func(indexPath st
 		return nil, nil, fmt.Errorf("failed to create embedder: %w", err)
 	}
 
-	// For Qdrant, we need to probe the embedder to get dimensions
-	embeddingDim := 0
-	if storageType == "qdrant" {
-		testEmbed, err := embedder.Embed(ctx, "test")
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to probe embedder for dimensions: %w", err)
-		}
-		embeddingDim = len(testEmbed)
+	// Probe embedding dimensions (skipped for SQLite)
+	embeddingDim, err := probeEmbeddingDim(ctx, embedder)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// Open storage
