@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(go test:*)",
-      "Bash(go build:*)",
-      "Bash(/tmp/llm-support-test td-stats:*)"
-    ]
-  }
-}
