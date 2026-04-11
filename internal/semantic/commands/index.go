@@ -44,6 +44,8 @@ func indexCmd() *cobra.Command {
 		batchSize       int
 		parallel        int
 		embedBatchSize  int
+		overlapLines    int
+		noParentContext bool
 	)
 
 	cmd := &cobra.Command{
@@ -91,6 +93,8 @@ Walks the directory, parses code files, and generates embeddings.`,
 					batchSize:       batchSize,
 					parallel:        parallel,
 					embedBatchSize:  embedBatchSize,
+					overlapLines:    overlapLines,
+					noParentContext: noParentContext,
 				}); err != nil {
 					return err
 				}
@@ -110,6 +114,8 @@ Walks the directory, parses code files, and generates embeddings.`,
 	cmd.Flags().IntVar(&batchSize, "batch-size", 0, "Number of vectors per upsert batch (0 = unlimited)")
 	cmd.Flags().IntVar(&parallel, "parallel", 0, "Number of parallel batch uploads (0 = sequential, requires --batch-size)")
 	cmd.Flags().IntVar(&embedBatchSize, "embed-batch-size", 0, "Number of chunks to embed per API call across files (0 = per-file batching)")
+	cmd.Flags().IntVar(&overlapLines, "overlap-lines", 3, "Lines of overlap between adjacent chunks (0 = disabled)")
+	cmd.Flags().BoolVar(&noParentContext, "no-parent-context", false, "Disable parent context (package/class) in embedding text")
 
 	return cmd
 }
@@ -126,6 +132,8 @@ type indexOpts struct {
 	batchSize       int
 	parallel        int
 	embedBatchSize  int
+	overlapLines    int
+	noParentContext bool
 }
 
 func runIndex(ctx context.Context, path string, opts indexOpts) error {
@@ -334,16 +342,18 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 	}
 
 	result, err := mgr.Index(ctx, absPath, semantic.IndexOptions{
-		Includes:         opts.includes,
-		Excludes:         opts.excludes,
-		ExcludeTests:     opts.excludeTests,
-		Force:            opts.force,
-		Domain:           domain,
-		OnProgress:       progressCallback,
-		OnUploadProgress: uploadProgressCallback,
-		BatchSize:        opts.batchSize,
-		Parallel:         opts.parallel,
-		EmbedBatchSize:   opts.embedBatchSize,
+		Includes:             opts.includes,
+		Excludes:             opts.excludes,
+		ExcludeTests:         opts.excludeTests,
+		Force:                opts.force,
+		Domain:               domain,
+		OnProgress:           progressCallback,
+		OnUploadProgress:     uploadProgressCallback,
+		BatchSize:            opts.batchSize,
+		Parallel:             opts.parallel,
+		EmbedBatchSize:       opts.embedBatchSize,
+		OverlapLines:         opts.overlapLines,
+		IncludeParentContext: !opts.noParentContext,
 	})
 
 	// Print final newline after TTY progress

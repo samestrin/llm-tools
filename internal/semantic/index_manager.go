@@ -86,16 +86,18 @@ var TestDirPatterns = []string{
 
 // IndexOptions configures indexing behavior
 type IndexOptions struct {
-	Includes         []string               // Glob patterns to include (e.g., "*.go")
-	Excludes         []string               // Patterns to exclude (directories and files, e.g., "vendor", "*_test.go")
-	ExcludeTests     bool                   // Exclude common test files and directories
-	Force            bool                   // Re-index all files even if unchanged
-	Domain           string                 // Domain tag for indexed chunks (e.g., "code", "docs", "memory") - defaults to "code"
-	OnProgress       ProgressCallback       // Optional callback for progress updates
-	OnUploadProgress UploadProgressCallback // Optional callback for upload phase progress
-	BatchSize        int                    // Number of vectors to send per upsert (0 = unlimited)
-	Parallel         int                    // Number of parallel batch uploads (0 or 1 = sequential)
-	EmbedBatchSize   int                    // Number of chunks to embed per API call across files (0 = per-file batching)
+	Includes             []string               // Glob patterns to include (e.g., "*.go")
+	Excludes             []string               // Patterns to exclude (directories and files, e.g., "vendor", "*_test.go")
+	ExcludeTests         bool                   // Exclude common test files and directories
+	Force                bool                   // Re-index all files even if unchanged
+	Domain               string                 // Domain tag for indexed chunks (e.g., "code", "docs", "memory") - defaults to "code"
+	OnProgress           ProgressCallback       // Optional callback for progress updates
+	OnUploadProgress     UploadProgressCallback // Optional callback for upload phase progress
+	BatchSize            int                    // Number of vectors to send per upsert (0 = unlimited)
+	Parallel             int                    // Number of parallel batch uploads (0 or 1 = sequential)
+	EmbedBatchSize       int                    // Number of chunks to embed per API call across files (0 = per-file batching)
+	OverlapLines         int                    // Lines of overlap between adjacent chunks (default 3, 0 = disabled)
+	IncludeParentContext bool                   // Prepend enclosing scope (package/class) to embedding text (default true)
 }
 
 // UpdateOptions configures incremental update behavior
@@ -126,9 +128,15 @@ type UpdateResult struct {
 
 // IndexManager handles indexing operations
 type IndexManager struct {
-	storage  Storage
-	embedder EmbedderInterface
-	factory  *ChunkerFactory
+	storage       Storage
+	embedder      EmbedderInterface
+	factory       *ChunkerFactory
+	overlapConfig OverlapConfig
+}
+
+// getOverlapConfig returns the current overlap configuration.
+func (m *IndexManager) getOverlapConfig() OverlapConfig {
+	return m.overlapConfig
 }
 
 // NewIndexManager creates a new IndexManager
@@ -158,6 +166,12 @@ func (m *IndexManager) Index(ctx context.Context, rootPath string, opts IndexOpt
 	}
 	if !info.IsDir() {
 		return nil, fmt.Errorf("path is not a directory: %s", rootPath)
+	}
+
+	// Set overlap configuration
+	m.overlapConfig = OverlapConfig{
+		OverlapLines:         opts.OverlapLines,
+		IncludeParentContext: opts.IncludeParentContext,
 	}
 
 	// Clear existing index if Force is set
@@ -295,6 +309,13 @@ func (m *IndexManager) indexWithCrossFileBatching(ctx context.Context, files []s
 			for i := range chunks {
 				chunks[i].Domain = opts.Domain
 			}
+		}
+
+		// Apply overlap and parent context enrichment
+		overlapCfg := m.getOverlapConfig()
+		if overlapCfg.OverlapLines > 0 || overlapCfg.IncludeParentContext {
+			fileContent, _ := os.ReadFile(file)
+			chunks = ApplyOverlap(chunks, fileContent, overlapCfg)
 		}
 
 		// Add to current batch
@@ -495,6 +516,13 @@ func (m *IndexManager) processFileWithDiff(ctx context.Context, filePath string,
 			chunks[i].Domain = domain
 		}
 		chunks[i].ContentHash = chunks[i].ComputeContentHash()
+	}
+
+	// Apply overlap and parent context enrichment
+	overlapCfg := m.getOverlapConfig()
+	if overlapCfg.OverlapLines > 0 || overlapCfg.IncludeParentContext {
+		fileContent, _ := os.ReadFile(filePath)
+		chunks = ApplyOverlap(chunks, fileContent, overlapCfg)
 	}
 
 	// Step 2: Get old chunk summaries from storage
@@ -924,11 +952,18 @@ func (m *IndexManager) processFile(ctx context.Context, filePath string, result 
 		return fmt.Errorf("failed to chunk file: %w", err)
 	}
 
-	// Tag chunks with domain
-	if domain != "" {
-		for i := range chunks {
+	// Tag chunks with domain and compute content hashes
+	for i := range chunks {
+		if domain != "" {
 			chunks[i].Domain = domain
 		}
+		chunks[i].ContentHash = chunks[i].ComputeContentHash()
+	}
+
+	// Apply overlap and parent context enrichment
+	overlapCfg := m.getOverlapConfig()
+	if overlapCfg.OverlapLines > 0 || overlapCfg.IncludeParentContext {
+		chunks = ApplyOverlap(chunks, content, overlapCfg)
 	}
 
 	// Collect all chunk contents for batch embedding
