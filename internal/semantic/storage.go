@@ -108,12 +108,24 @@ type Storage interface {
 	// Clear removes all chunks from storage (for force re-index)
 	Clear(ctx context.Context) error
 
+	// ListIndexedFiles returns the set of file paths that have been indexed.
+	// This is a lightweight operation that does not fetch chunk content or embeddings.
+	ListIndexedFiles(ctx context.Context) (map[string]bool, error)
+
 	// GetFileHash retrieves the stored content hash for a file path
 	// Returns empty string if file is not indexed
 	GetFileHash(ctx context.Context, filePath string) (string, error)
 
 	// SetFileHash stores the content hash for a file path
 	SetFileHash(ctx context.Context, filePath string, hash string) error
+
+	// GetChunksByFilePath returns lightweight chunk summaries for a given file path.
+	// Used for diff-based re-indexing to compare old vs new chunks.
+	GetChunksByFilePath(ctx context.Context, filePath string) ([]ChunkSummary, error)
+
+	// ReadEmbeddings retrieves embeddings for the given chunk IDs.
+	// Returns a map of chunk ID → embedding. Missing IDs are silently skipped.
+	ReadEmbeddings(ctx context.Context, ids []string) (map[string][]float32, error)
 
 	// Close releases any resources held by the storage
 	Close() error

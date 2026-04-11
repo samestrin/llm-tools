@@ -247,11 +247,20 @@ func (m *mockCalibrationStorage) Clear(ctx context.Context) error { return nil }
 func (m *mockCalibrationStorage) DeleteByDomain(ctx context.Context, domain string) (int, error) {
 	return 0, nil
 }
+func (m *mockCalibrationStorage) ListIndexedFiles(ctx context.Context) (map[string]bool, error) {
+	return nil, nil
+}
 func (m *mockCalibrationStorage) GetFileHash(ctx context.Context, filePath string) (string, error) {
 	return "", nil
 }
 func (m *mockCalibrationStorage) SetFileHash(ctx context.Context, filePath string, hash string) error {
 	return nil
+}
+func (m *mockCalibrationStorage) GetChunksByFilePath(ctx context.Context, filePath string) ([]ChunkSummary, error) {
+	return nil, nil
+}
+func (m *mockCalibrationStorage) ReadEmbeddings(ctx context.Context, ids []string) (map[string][]float32, error) {
+	return nil, nil
 }
 func (m *mockCalibrationStorage) Close() error { return nil }
 func (m *mockCalibrationStorage) StoreMemory(ctx context.Context, entry MemoryEntry, embedding []float32) error {
@@ -455,11 +464,20 @@ func (m *mockDifferentiatingStorage) Clear(ctx context.Context) error { return n
 func (m *mockDifferentiatingStorage) DeleteByDomain(ctx context.Context, domain string) (int, error) {
 	return 0, nil
 }
+func (m *mockDifferentiatingStorage) ListIndexedFiles(ctx context.Context) (map[string]bool, error) {
+	return nil, nil
+}
 func (m *mockDifferentiatingStorage) GetFileHash(ctx context.Context, filePath string) (string, error) {
 	return "", nil
 }
 func (m *mockDifferentiatingStorage) SetFileHash(ctx context.Context, filePath string, hash string) error {
 	return nil
+}
+func (m *mockDifferentiatingStorage) GetChunksByFilePath(ctx context.Context, filePath string) ([]ChunkSummary, error) {
+	return nil, nil
+}
+func (m *mockDifferentiatingStorage) ReadEmbeddings(ctx context.Context, ids []string) (map[string][]float32, error) {
+	return nil, nil
 }
 func (m *mockDifferentiatingStorage) Close() error { return nil }
 func (m *mockDifferentiatingStorage) StoreMemory(ctx context.Context, entry MemoryEntry, embedding []float32) error {
