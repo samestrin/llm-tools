@@ -66,7 +66,7 @@ func ErrConnectionFailed(cause error) *SemanticError {
 		Type:    ErrTypeConnection,
 		Message: "failed to connect to embedding API",
 		Cause:   cause,
-		Hint:    "Ensure the embedding server is running. Try: ollama serve",
+		Hint:    "Ensure the embedding server is running (e.g., TEI, Ollama, or any OpenAI-compatible server).",
 	}
 }
 
@@ -108,9 +108,9 @@ func ErrEmbeddingFailure(cause error) *SemanticError {
 
 	hint := "Check your API configuration with --api-url and --model flags."
 	if strings.Contains(strings.ToLower(errStr), "connection") {
-		hint = "The embedding server appears to be offline. Start it with: ollama serve"
+		hint = "The embedding server appears to be offline. Start your embedding server (TEI, Ollama, etc.)."
 	} else if strings.Contains(strings.ToLower(errStr), "model") {
-		hint = "The model may not be available. Try: ollama pull nomic-embed-text"
+		hint = "The model may not be available. Verify the model is loaded in your embedding server."
 	}
 
 	return &SemanticError{

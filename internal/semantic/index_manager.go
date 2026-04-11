@@ -117,10 +117,11 @@ type IndexResult struct {
 
 // UpdateResult contains statistics from an update operation
 type UpdateResult struct {
-	FilesUpdated  int
-	FilesRemoved  int
-	ChunksCreated int
-	ChunksRemoved int
+	FilesUpdated  int    `json:"files_updated"`
+	FilesRemoved  int    `json:"files_removed"`
+	ChunksCreated int    `json:"chunks_created"`
+	ChunksRemoved int    `json:"chunks_removed"`
+	Mode          string `json:"mode"` // "git" or "full"
 }
 
 // IndexManager handles indexing operations
@@ -350,7 +351,7 @@ func (m *IndexManager) indexWithCrossFileBatching(ctx context.Context, files []s
 		// Step 1: Embed all chunks in this batch
 		texts := make([]string, len(batch.chunks))
 		for i, pc := range batch.chunks {
-			texts[i] = pc.chunk.Content
+			texts[i] = EnrichForEmbedding(pc.chunk)
 		}
 
 		embeddings, err := m.embedder.EmbedBatch(ctx, texts)
@@ -477,14 +478,10 @@ func (m *IndexManager) chunkFile(filePath string) ([]Chunk, string, error) {
 func (m *IndexManager) Update(ctx context.Context, rootPath string, opts UpdateOptions) (*UpdateResult, error) {
 	result := &UpdateResult{}
 
-	// Get all indexed files from storage
-	indexedFiles := make(map[string]bool)
-	chunks, err := m.storage.List(ctx, ListOptions{})
+	// Get all indexed file paths from storage (lightweight — no chunk content or embeddings)
+	indexedFiles, err := m.storage.ListIndexedFiles(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list indexed chunks: %w", err)
-	}
-	for _, chunk := range chunks {
-		indexedFiles[chunk.FilePath] = true
+		return nil, fmt.Errorf("failed to list indexed files: %w", err)
 	}
 
 	// Collect current files
@@ -535,6 +532,130 @@ func (m *IndexManager) Update(ctx context.Context, rootPath string, opts UpdateO
 	}
 
 	return result, nil
+}
+
+// UpdateGit performs a git-aware incremental update. It uses git diff to find
+// changed/added/deleted files since the given ref (e.g., "HEAD~1"), filters them
+// against include/exclude patterns, and only re-indexes the affected files.
+func (m *IndexManager) UpdateGit(ctx context.Context, rootPath string, gitRef string, opts UpdateOptions) (*UpdateResult, error) {
+	result := &UpdateResult{}
+
+	// Get changed files from git
+	changed, deleted, err := gitChangedFiles(rootPath, gitRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get git changes: %w", err)
+	}
+
+	// Filter changed files against include/exclude patterns and supported extensions
+	for _, relPath := range changed {
+		absPath := filepath.Join(rootPath, relPath)
+
+		if !m.fileMatchesFilters(rootPath, absPath, opts.Includes, opts.Excludes, opts.ExcludeTests) {
+			continue
+		}
+
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		default:
+		}
+
+		needsUpdate, err := m.fileNeedsUpdate(ctx, absPath)
+		if err != nil || !needsUpdate {
+			continue
+		}
+
+		// Remove old chunks and re-index
+		removed, _ := m.storage.DeleteByFilePath(ctx, absPath)
+		result.ChunksRemoved += removed
+
+		indexResult := &IndexResult{}
+		if err := m.processFile(ctx, absPath, indexResult, 0, 0, opts.Domain); err == nil {
+			result.FilesUpdated++
+			result.ChunksCreated += indexResult.ChunksCreated
+		}
+	}
+
+	// Handle deleted files
+	for _, relPath := range deleted {
+		absPath := filepath.Join(rootPath, relPath)
+		removed, _ := m.storage.DeleteByFilePath(ctx, absPath)
+		if removed > 0 {
+			result.ChunksRemoved += removed
+			result.FilesRemoved++
+		}
+	}
+
+	return result, nil
+}
+
+// fileMatchesFilters checks if a single file passes the include/exclude/extension filters.
+func (m *IndexManager) fileMatchesFilters(rootPath, absPath string, includes, excludes []string, excludeTests bool) bool {
+	fileName := filepath.Base(absPath)
+	relPath := strings.TrimPrefix(absPath, rootPath)
+	relPath = strings.TrimPrefix(relPath, string(filepath.Separator))
+
+	allExcludes := excludes
+	if excludeTests {
+		allExcludes = append(allExcludes, TestDirPatterns...)
+		allExcludes = append(allExcludes, TestFilePatterns...)
+	}
+
+	// Check excludes
+	for _, pattern := range allExcludes {
+		if strings.Contains(pattern, "**") {
+			if m, _ := doublestar.Match(pattern, fileName); m {
+				return false
+			}
+			if m, _ := doublestar.Match(pattern, relPath); m {
+				return false
+			}
+		} else {
+			if m, _ := filepath.Match(pattern, fileName); m {
+				return false
+			}
+			// Check path components for exact directory matches
+			if !strings.ContainsAny(pattern, "*?[") {
+				for _, part := range strings.Split(relPath, string(filepath.Separator)) {
+					if part == pattern {
+						return false
+					}
+				}
+			}
+		}
+	}
+
+	// Check includes (if specified)
+	if len(includes) > 0 {
+		matched := false
+		for _, pattern := range includes {
+			if strings.Contains(pattern, "**") {
+				if m, _ := doublestar.Match(pattern, fileName); m {
+					matched = true
+					break
+				}
+				if m, _ := doublestar.Match(pattern, relPath); m {
+					matched = true
+					break
+				}
+			} else {
+				if m, _ := filepath.Match(pattern, fileName); m {
+					matched = true
+					break
+				}
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+
+	// Check if we have a chunker for this file type
+	if _, ok := m.factory.GetByExtension(absPath); !ok {
+		return false
+	}
+
+	return true
 }
 
 // Status returns index statistics
@@ -709,7 +830,7 @@ func (m *IndexManager) processFile(ctx context.Context, filePath string, result 
 	// Collect all chunk contents for batch embedding
 	texts := make([]string, len(chunks))
 	for i, chunk := range chunks {
-		texts[i] = chunk.Content
+		texts[i] = EnrichForEmbedding(chunk)
 	}
 
 	// Check for cancellation before batch embedding

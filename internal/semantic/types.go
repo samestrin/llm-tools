@@ -87,6 +87,7 @@ type Chunk struct {
 	Language  string    `json:"language"`
 	Domain    string    `json:"domain,omitempty"`     // Source profile/collection (e.g., "code", "docs") - set during indexing based on profile
 	FileMtime int64     `json:"file_mtime,omitempty"` // Unix timestamp of file modification time
+	EmbedText string    `json:"-"`                    // Transient: enriched text for embedding (not stored in DB)
 }
 
 // GenerateID creates a deterministic ID for the chunk based on its content

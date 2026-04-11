@@ -131,7 +131,7 @@ func TestErrEmbeddingFailure(t *testing.T) {
 		hintContain string
 	}{
 		{errors.New("connection refused"), "offline"},
-		{errors.New("model not found"), "pull"},
+		{errors.New("model not found"), "verify"},
 		{errors.New("general error"), "api-url"},
 	}
 
