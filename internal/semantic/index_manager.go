@@ -1045,6 +1045,9 @@ func (m *IndexManager) processFile(ctx context.Context, filePath string, result 
 	}
 	result.ChunksCreated += len(chunksWithEmbeddings)
 
+	// Extract and store chunk references if chunker supports it
+	m.extractAndStoreRefs(ctx, chunker, filePath, content, chunks)
+
 	// Store file hash after successfully processing all chunks
 	// This enables resume capability - files with matching hashes will be skipped
 	contentHash := sha256.Sum256(content)
@@ -1056,6 +1059,31 @@ func (m *IndexManager) processFile(ctx context.Context, filePath string, result 
 	}
 
 	return nil
+}
+
+// extractAndStoreRefs checks if the chunker implements RefExtractor and if
+// the storage implements RefStorage, then extracts and stores chunk references.
+func (m *IndexManager) extractAndStoreRefs(ctx context.Context, chunker Chunker, filePath string, content []byte, chunks []Chunk) {
+	re, ok := chunker.(RefExtractor)
+	if !ok {
+		return
+	}
+	rs, ok := m.storage.(RefStorage)
+	if !ok {
+		return
+	}
+
+	refs, err := re.ExtractRefs(filePath, content, chunks)
+	if err != nil || len(refs) == 0 {
+		return
+	}
+
+	// Delete old refs for these chunks first
+	for _, ch := range chunks {
+		_ = rs.DeleteRefsByChunk(ctx, ch.ID)
+	}
+
+	_ = rs.StoreRefs(ctx, refs)
 }
 
 // fileNeedsUpdate checks if a file has been modified since indexing
