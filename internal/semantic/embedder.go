@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 )
 
@@ -19,12 +21,19 @@ type EmbedderConfig struct {
 	MaxRetries int           // Maximum retry attempts
 }
 
-// DefaultEmbedderConfig returns sensible defaults
+// DefaultEmbedderConfig returns sensible defaults.
+// Timeout can be overridden via LLM_SEMANTIC_EMBEDDER_TIMEOUT env var (in seconds).
 func DefaultEmbedderConfig() EmbedderConfig {
+	timeout := 60 * time.Second
+	if s := os.Getenv("LLM_SEMANTIC_EMBEDDER_TIMEOUT"); s != "" {
+		if sec, err := strconv.Atoi(s); err == nil && sec > 0 {
+			timeout = time.Duration(sec) * time.Second
+		}
+	}
 	return EmbedderConfig{
-		APIURL:     "http://localhost:11434", // Ollama default
-		Model:      "nomic-embed-text",       // 768 dims, 8192 context - best all-rounder for code
-		Timeout:    30 * time.Second,
+		APIURL:     "http://localhost:8080", // TEI default (huggingface/text-embeddings-inference)
+		Model:      "nomic-embed-text",      // 768 dims, 8192 context - best all-rounder for code
+		Timeout:    timeout,
 		MaxRetries: 3,
 	}
 }
@@ -39,13 +48,18 @@ type Embedder struct {
 // NewEmbedder creates a new Embedder with the given configuration
 func NewEmbedder(cfg EmbedderConfig) (*Embedder, error) {
 	if cfg.APIURL == "" {
-		cfg.APIURL = "http://localhost:11434"
+		cfg.APIURL = "http://localhost:8080"
 	}
 	if cfg.Model == "" {
 		cfg.Model = "nomic-embed-text"
 	}
 	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
+		cfg.Timeout = 60 * time.Second
+		if s := os.Getenv("LLM_SEMANTIC_EMBEDDER_TIMEOUT"); s != "" {
+			if sec, err := strconv.Atoi(s); err == nil && sec > 0 {
+				cfg.Timeout = time.Duration(sec) * time.Second
+			}
+		}
 	}
 
 	return &Embedder{
