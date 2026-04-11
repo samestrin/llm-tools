@@ -510,39 +510,51 @@ func (s *QdrantStorage) List(ctx context.Context, opts ListOptions) ([]Chunk, er
 		filter = &qdrant.Filter{Must: conditions}
 	}
 
-	limit := uint32(10000)
-	if opts.Limit > 0 {
-		// Prevent uint32 overflow when calculating limit
-		sum := opts.Limit + opts.Offset
-		if sum > 0 && sum <= int(^uint32(0)) {
-			limit = uint32(sum)
-		}
-	}
+	// Paginate scrolling to avoid gRPC message size limits.
+	// Each page fetches up to 256 points — small enough to stay well under the 4MB default.
+	const pageSize = uint32(256)
+	var allPoints []*qdrant.RetrievedPoint
+	var offset *qdrant.PointId
 
-	scrollResult, err := s.client.Scroll(ctx, &qdrant.ScrollPoints{
-		CollectionName: s.collectionName,
-		Filter:         filter,
-		WithPayload:    qdrant.NewWithPayload(true),
-		Limit:          qdrant.PtrOf(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to scroll points: %w", err)
+	for {
+		scrollResult, nextOffset, err := s.client.ScrollAndOffset(ctx, &qdrant.ScrollPoints{
+			CollectionName: s.collectionName,
+			Filter:         filter,
+			WithPayload:    qdrant.NewWithPayload(true),
+			Limit:          qdrant.PtrOf(pageSize),
+			Offset:         offset,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to scroll points: %w", err)
+		}
+
+		allPoints = append(allPoints, scrollResult...)
+
+		// If caller specified a limit, stop early once we have enough
+		if opts.Limit > 0 && len(allPoints) >= opts.Offset+opts.Limit {
+			break
+		}
+
+		if nextOffset == nil {
+			break
+		}
+		offset = nextOffset
 	}
 
 	// Apply offset
 	start := opts.Offset
-	if start > len(scrollResult) {
-		start = len(scrollResult)
+	if start > len(allPoints) {
+		start = len(allPoints)
 	}
 
 	// Apply limit
-	end := len(scrollResult)
+	end := len(allPoints)
 	if opts.Limit > 0 && start+opts.Limit < end {
 		end = start + opts.Limit
 	}
 
 	chunks := make([]Chunk, 0, end-start)
-	for _, point := range scrollResult[start:end] {
+	for _, point := range allPoints[start:end] {
 		chunks = append(chunks, s.pointToChunk(point))
 	}
 
@@ -774,6 +786,91 @@ func (s *QdrantStorage) Close() error {
 	return s.client.Close()
 }
 
+// GetChunksByFilePath returns lightweight chunk summaries for a given file path.
+func (s *QdrantStorage) GetChunksByFilePath(ctx context.Context, filePath string) ([]ChunkSummary, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	// Use Qdrant scroll with file_path filter
+	filter := &qdrant.Filter{
+		Must: []*qdrant.Condition{
+			qdrant.NewMatch("file_path", filePath),
+		},
+	}
+
+	points, err := s.client.Scroll(ctx, &qdrant.ScrollPoints{
+		CollectionName: s.collectionName,
+		Filter:         filter,
+		WithPayload:    qdrant.NewWithPayloadInclude("content_hash", "name", "start_line"),
+		Limit:          qdrant.PtrOf(uint32(10000)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to scroll chunks by file path: %w", err)
+	}
+
+	summaries := make([]ChunkSummary, 0, len(points))
+	for _, point := range points {
+		cs := ChunkSummary{
+			ID: point.Id.GetUuid(),
+		}
+		if v, ok := point.Payload["content_hash"]; ok {
+			cs.ContentHash = v.GetStringValue()
+		}
+		if v, ok := point.Payload["name"]; ok {
+			cs.Name = v.GetStringValue()
+		}
+		if v, ok := point.Payload["start_line"]; ok {
+			cs.StartLine = int(v.GetIntegerValue())
+		}
+		summaries = append(summaries, cs)
+	}
+
+	return summaries, nil
+}
+
+// ReadEmbeddings retrieves embeddings for the given chunk IDs.
+func (s *QdrantStorage) ReadEmbeddings(ctx context.Context, ids []string) (map[string][]float32, error) {
+	if len(ids) == 0 {
+		return map[string][]float32{}, nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	pointIDs := make([]*qdrant.PointId, len(ids))
+	for i, id := range ids {
+		pointIDs[i] = qdrant.NewID(id)
+	}
+
+	points, err := s.client.Get(ctx, &qdrant.GetPoints{
+		CollectionName: s.collectionName,
+		Ids:            pointIDs,
+		WithVectors:    qdrant.NewWithVectorsEnable(true),
+		WithPayload:    qdrant.NewWithPayloadEnable(false),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get embeddings: %w", err)
+	}
+
+	result := make(map[string][]float32, len(points))
+	for _, point := range points {
+		id := point.Id.GetUuid()
+		if vec := point.Vectors.GetVector(); vec != nil {
+			result[id] = vec.Data
+		}
+	}
+
+	return result, nil
+}
+
 // LexicalSearch performs a full-text search using the parallel FTS5 index.
 // Returns results ranked by BM25 relevance score.
 func (s *QdrantStorage) LexicalSearch(ctx context.Context, query string, opts LexicalSearchOptions) ([]SearchResult, error) {
@@ -814,6 +911,9 @@ func (s *QdrantStorage) memoryToPoint(entry MemoryEntry, embedding []float32) *q
 			"entry_type":  qdrant.NewValueString("memory"), // Distinguishes from chunks
 			"created_at":  qdrant.NewValueString(entry.CreatedAt),
 			"updated_at":  qdrant.NewValueString(entry.UpdatedAt),
+			"file_path":   qdrant.NewValueString(entry.FilePath),
+			"sprints":     qdrant.NewValueString(strings.Join(entry.Sprints, ",")),
+			"files":       qdrant.NewValueString(strings.Join(entry.Files, ",")),
 		},
 	}
 }
@@ -860,6 +960,21 @@ func payloadToMemory(payload map[string]*qdrant.Value) *MemoryEntry {
 	}
 	if v, ok := payload["updated_at"]; ok {
 		entry.UpdatedAt = v.GetStringValue()
+	}
+	if v, ok := payload["file_path"]; ok {
+		entry.FilePath = v.GetStringValue()
+	}
+	if v, ok := payload["sprints"]; ok {
+		s := v.GetStringValue()
+		if s != "" {
+			entry.Sprints = strings.Split(s, ",")
+		}
+	}
+	if v, ok := payload["files"]; ok {
+		s := v.GetStringValue()
+		if s != "" {
+			entry.Files = strings.Split(s, ",")
+		}
 	}
 
 	return entry
@@ -1195,6 +1310,53 @@ func fileHashID(filePath string) string {
 	return stringToUUID("file_hash:" + filePath)
 }
 
+// ListIndexedFiles returns the set of file paths that have been indexed.
+// Uses paginated scrolling of lightweight file_hash points to avoid gRPC message size limits.
+func (s *QdrantStorage) ListIndexedFiles(ctx context.Context) (map[string]bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	filter := &qdrant.Filter{
+		Must: []*qdrant.Condition{
+			qdrant.NewMatch("type", "file_hash"),
+		},
+	}
+
+	result := make(map[string]bool)
+	var offset *qdrant.PointId
+	pageSize := uint32(500)
+
+	for {
+		scrollResult, nextOffset, err := s.client.ScrollAndOffset(ctx, &qdrant.ScrollPoints{
+			CollectionName: s.collectionName,
+			Filter:         filter,
+			WithPayload:    qdrant.NewWithPayloadInclude("file_path"),
+			Limit:          qdrant.PtrOf(pageSize),
+			Offset:         offset,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to scroll indexed files: %w", err)
+		}
+
+		for _, point := range scrollResult {
+			if v, ok := point.Payload["file_path"]; ok {
+				result[v.GetStringValue()] = true
+			}
+		}
+
+		if nextOffset == nil {
+			break
+		}
+		offset = nextOffset
+	}
+
+	return result, nil
+}
+
 // GetFileHash retrieves the stored content hash for a file path
 func (s *QdrantStorage) GetFileHash(ctx context.Context, filePath string) (string, error) {
 	s.mu.RLock()
@@ -1269,16 +1431,17 @@ func (s *QdrantStorage) chunkToPoint(chunk Chunk, embedding []float32) *qdrant.P
 		Id:      qdrant.NewID(stringToUUID(chunk.ID)),
 		Vectors: qdrant.NewVectors(embedding...),
 		Payload: map[string]*qdrant.Value{
-			"chunk_id":   qdrant.NewValueString(chunk.ID), // Store original ID in payload
-			"file_path":  qdrant.NewValueString(chunk.FilePath),
-			"type":       qdrant.NewValueString(chunk.Type.String()),
-			"name":       qdrant.NewValueString(chunk.Name),
-			"signature":  qdrant.NewValueString(chunk.Signature),
-			"content":    qdrant.NewValueString(chunk.Content),
-			"start_line": qdrant.NewValueInt(int64(chunk.StartLine)),
-			"end_line":   qdrant.NewValueInt(int64(chunk.EndLine)),
-			"language":   qdrant.NewValueString(chunk.Language),
-			"domain":     qdrant.NewValueString(domain),
+			"chunk_id":     qdrant.NewValueString(chunk.ID), // Store original ID in payload
+			"file_path":    qdrant.NewValueString(chunk.FilePath),
+			"type":         qdrant.NewValueString(chunk.Type.String()),
+			"name":         qdrant.NewValueString(chunk.Name),
+			"signature":    qdrant.NewValueString(chunk.Signature),
+			"content":      qdrant.NewValueString(chunk.Content),
+			"start_line":   qdrant.NewValueInt(int64(chunk.StartLine)),
+			"end_line":     qdrant.NewValueInt(int64(chunk.EndLine)),
+			"language":     qdrant.NewValueString(chunk.Language),
+			"domain":       qdrant.NewValueString(domain),
+			"content_hash": qdrant.NewValueString(chunk.ContentHash),
 		},
 	}
 }
