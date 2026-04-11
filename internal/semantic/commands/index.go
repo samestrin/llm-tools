@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/samestrin/llm-tools/internal/semantic"
+	"github.com/samestrin/llm-tools/internal/semantic/treesitter"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -554,31 +555,32 @@ func truncatePath(path string, maxLen int) string {
 // RegisterAllChunkers registers all supported language chunkers with the factory.
 // This is a shared function used by both index and index-update commands.
 func RegisterAllChunkers(factory *semantic.ChunkerFactory) {
-	// Go chunker
+	// Go chunker (already AST-based via go/ast, stays as-is)
 	factory.Register("go", semantic.NewGoChunker())
 
+	// Tree-sitter chunkers (pure Go, accurate AST parsing)
 	// JS/TS chunker
-	jsChunker := semantic.NewJSChunker()
-	for _, ext := range jsChunker.SupportedExtensions() {
-		factory.Register(ext, jsChunker)
+	tsJSChunker := treesitter.NewJSChunker()
+	for _, ext := range tsJSChunker.SupportedExtensions() {
+		factory.Register(ext, tsJSChunker)
 	}
 
 	// Python chunker
-	pyChunker := semantic.NewPythonChunker()
-	for _, ext := range pyChunker.SupportedExtensions() {
-		factory.Register(ext, pyChunker)
+	tsPyChunker := treesitter.NewPythonChunker()
+	for _, ext := range tsPyChunker.SupportedExtensions() {
+		factory.Register(ext, tsPyChunker)
 	}
 
 	// PHP chunker
-	phpChunker := semantic.NewPHPChunker()
-	for _, ext := range phpChunker.SupportedExtensions() {
-		factory.Register(ext, phpChunker)
+	tsPHPChunker := treesitter.NewPHPChunker()
+	for _, ext := range tsPHPChunker.SupportedExtensions() {
+		factory.Register(ext, tsPHPChunker)
 	}
 
 	// Rust chunker
-	rustChunker := semantic.NewRustChunker()
-	for _, ext := range rustChunker.SupportedExtensions() {
-		factory.Register(ext, rustChunker)
+	tsRustChunker := treesitter.NewRustChunker()
+	for _, ext := range tsRustChunker.SupportedExtensions() {
+		factory.Register(ext, tsRustChunker)
 	}
 
 	// Markdown chunker for documentation files
