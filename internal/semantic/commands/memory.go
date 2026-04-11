@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/samestrin/llm-tools/internal/semantic"
@@ -45,6 +46,9 @@ func memoryStoreCmd() *cobra.Command {
 		answer     string
 		tags       string
 		source     string
+		filePath   string
+		sprints    string
+		files      string
 		jsonOutput bool
 		minOutput  bool
 	)
@@ -66,6 +70,9 @@ Example:
 				answer:     answer,
 				tags:       tags,
 				source:     source,
+				filePath:   filePath,
+				sprints:    sprints,
+				files:      files,
 				jsonOutput: jsonOutput,
 				minOutput:  minOutput,
 			})
@@ -76,6 +83,9 @@ Example:
 	cmd.Flags().StringVarP(&answer, "answer", "a", "", "Answer or decision made (required)")
 	cmd.Flags().StringVarP(&tags, "tags", "t", "", "Comma-separated context tags")
 	cmd.Flags().StringVarP(&source, "source", "s", "manual", "Origin source")
+	cmd.Flags().StringVarP(&filePath, "file-path", "f", "", "Write memory as markdown file at this path")
+	cmd.Flags().StringVar(&sprints, "sprints", "", "Comma-separated sprint references (e.g., 'sprint-42,sprint-43')")
+	cmd.Flags().StringVar(&files, "files", "", "Comma-separated file references (e.g., 'src/auth.ts,src/db.go')")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Minimal output format")
 
@@ -90,6 +100,9 @@ type memoryStoreOpts struct {
 	answer     string
 	tags       string
 	source     string
+	filePath   string
+	sprints    string
+	files      string
 	jsonOutput bool
 	minOutput  bool
 }
@@ -112,12 +125,10 @@ func runMemoryStore(ctx context.Context, opts memoryStoreOpts) error {
 	}
 
 	// Get embedding dimension
-	embeddingDim := 0
-	testEmbed, err := embedder.Embed(ctx, "test")
+	embeddingDim, err := probeEmbeddingDim(ctx, embedder)
 	if err != nil {
-		return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		return err
 	}
-	embeddingDim = len(testEmbed)
 
 	// Open storage
 	storage, err := createStorage(indexPath, embeddingDim)
@@ -135,11 +146,36 @@ func runMemoryStore(ctx context.Context, opts memoryStoreOpts) error {
 		}
 	}
 	entry.Source = opts.source
+	if opts.sprints != "" {
+		entry.Sprints = strings.Split(opts.sprints, ",")
+		for i := range entry.Sprints {
+			entry.Sprints[i] = strings.TrimSpace(entry.Sprints[i])
+		}
+	}
+	if opts.files != "" {
+		entry.Files = strings.Split(opts.files, ",")
+		for i := range entry.Files {
+			entry.Files[i] = strings.TrimSpace(entry.Files[i])
+		}
+	}
 
 	// Generate embedding
 	embedding, err := embedder.Embed(ctx, entry.EmbeddingText())
 	if err != nil {
 		return fmt.Errorf("failed to generate embedding: %w", err)
+	}
+
+	// Write markdown file if file_path is provided (before DB store for fail-fast)
+	if opts.filePath != "" {
+		entry.FilePath = opts.filePath
+		if dir := filepath.Dir(opts.filePath); dir != "." {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("failed to create directory for memory file: %w", err)
+			}
+		}
+		if err := os.WriteFile(opts.filePath, []byte(entry.MemoryFileContent()), 0644); err != nil {
+			return fmt.Errorf("failed to write memory file: %w", err)
+		}
 	}
 
 	// Store the entry
@@ -156,6 +192,9 @@ func runMemoryStore(ctx context.Context, opts memoryStoreOpts) error {
 		if !opts.minOutput {
 			result["question"] = entry.Question
 			result["answer"] = entry.Answer
+		}
+		if opts.filePath != "" {
+			result["file_path"] = opts.filePath
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -238,12 +277,10 @@ func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
 	}
 
 	// Get embedding dimension
-	embeddingDim := 0
-	testEmbed, err := embedder.Embed(ctx, "test")
+	embeddingDim, err := probeEmbeddingDim(ctx, embedder)
 	if err != nil {
-		return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		return err
 	}
-	embeddingDim = len(testEmbed)
 
 	// Open storage
 	storage, err := createStorage(indexPath, embeddingDim)
@@ -418,12 +455,10 @@ func runMemoryPromote(ctx context.Context, opts memoryPromoteOpts) error {
 		return fmt.Errorf("failed to create embedder: %w", err)
 	}
 
-	embeddingDim := 0
-	testEmbed, err := embedder.Embed(ctx, "test")
+	embeddingDim, err := probeEmbeddingDim(ctx, embedder)
 	if err != nil {
-		return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		return err
 	}
-	embeddingDim = len(testEmbed)
 
 	// Open storage
 	storage, err := createStorage(indexPath, embeddingDim)
@@ -617,12 +652,10 @@ func runMemoryImport(ctx context.Context, opts memoryImportOpts) error {
 	}
 
 	// Get embedding dimension
-	embeddingDim := 0
-	testEmbed, err := embedder.Embed(ctx, "test")
+	embeddingDim, err := probeEmbeddingDim(ctx, embedder)
 	if err != nil {
-		return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		return err
 	}
-	embeddingDim = len(testEmbed)
 
 	// Open storage
 	storage, err := createStorage(indexPath, embeddingDim)
@@ -757,12 +790,10 @@ func runMemoryList(ctx context.Context, opts memoryListOpts) error {
 		return fmt.Errorf("failed to create embedder: %w", err)
 	}
 
-	embeddingDim := 0
-	testEmbed, err := embedder.Embed(ctx, "test")
+	embeddingDim, err := probeEmbeddingDim(ctx, embedder)
 	if err != nil {
-		return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		return err
 	}
-	embeddingDim = len(testEmbed)
 
 	// Open storage
 	storage, err := createStorage(indexPath, embeddingDim)
@@ -875,12 +906,10 @@ func runMemoryDelete(ctx context.Context, opts memoryDeleteOpts) error {
 		return fmt.Errorf("failed to create embedder: %w", err)
 	}
 
-	embeddingDim := 0
-	testEmbed, err := embedder.Embed(ctx, "test")
+	embeddingDim, err := probeEmbeddingDim(ctx, embedder)
 	if err != nil {
-		return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		return err
 	}
-	embeddingDim = len(testEmbed)
 
 	// Open storage
 	storage, err := createStorage(indexPath, embeddingDim)
@@ -1022,12 +1051,10 @@ func runMemoryStats(ctx context.Context, opts memoryStatsOpts) error {
 		return fmt.Errorf("failed to create embedder: %w", err)
 	}
 
-	embeddingDim := 0
-	testEmbed, err := embedder.Embed(ctx, "test")
+	embeddingDim, err := probeEmbeddingDim(ctx, embedder)
 	if err != nil {
-		return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		return err
 	}
-	embeddingDim = len(testEmbed)
 
 	// Open storage
 	storage, err := createStorage(indexPath, embeddingDim)

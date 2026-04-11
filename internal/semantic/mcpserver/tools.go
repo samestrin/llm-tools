@@ -596,6 +596,18 @@ func GetToolDefinitions() []ToolDefinition {
 					"config": {
 						"type": "string",
 						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
+					},
+					"file_path": {
+						"type": "string",
+						"description": "Optional file path to write memory as markdown with YAML frontmatter. Parent directories created automatically."
+					},
+					"sprints": {
+						"type": "string",
+						"description": "Comma-separated sprint references (e.g., 'sprint-42,sprint-43')"
+					},
+					"files": {
+						"type": "string",
+						"description": "Comma-separated file references (e.g., 'src/auth.ts,src/db.go')"
 					}
 				},
 				"required": ["question", "answer"]

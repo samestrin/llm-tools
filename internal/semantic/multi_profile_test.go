@@ -514,6 +514,9 @@ func (m *mockFailingStorage) Stats(ctx context.Context) (*IndexStats, error) {
 func (m *mockFailingStorage) Clear(ctx context.Context) error {
 	return nil
 }
+func (m *mockFailingStorage) ListIndexedFiles(ctx context.Context) (map[string]bool, error) {
+	return nil, m.err
+}
 func (m *mockFailingStorage) GetFileHash(ctx context.Context, filePath string) (string, error) {
 	return "", nil
 }
