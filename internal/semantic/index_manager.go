@@ -471,7 +471,114 @@ func (m *IndexManager) chunkFile(filePath string) ([]Chunk, string, error) {
 		return nil, "", fmt.Errorf("failed to chunk file: %w", err)
 	}
 
+	// Compute content hashes for diff-based re-indexing
+	for i := range chunks {
+		chunks[i].ContentHash = chunks[i].ComputeContentHash()
+	}
+
 	return chunks, hashStr, nil
+}
+
+// processFileWithDiff re-indexes a file using content-aware diffing.
+// Only chunks whose content actually changed are re-embedded. Moved but
+// unchanged code has its embedding reused. Returns (chunksCreated, chunksRemoved, error).
+func (m *IndexManager) processFileWithDiff(ctx context.Context, filePath string, domain string) (int, int, error) {
+	// Step 1: Re-chunk the file
+	chunks, fileHash, err := m.chunkFile(filePath)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Tag domain and compute content hashes
+	for i := range chunks {
+		if domain != "" {
+			chunks[i].Domain = domain
+		}
+		chunks[i].ContentHash = chunks[i].ComputeContentHash()
+	}
+
+	// Step 2: Get old chunk summaries from storage
+	oldSummaries, err := m.storage.GetChunksByFilePath(ctx, filePath)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to get old chunks: %w", err)
+	}
+
+	// Step 3: Diff old vs new
+	diff := DiffChunks(oldSummaries, chunks)
+
+	// Step 4: Delete old chunks that are no longer present
+	chunksRemoved := 0
+	for _, oldID := range diff.Delete {
+		if err := m.storage.Delete(ctx, oldID); err != nil {
+			return 0, 0, fmt.Errorf("failed to delete old chunk %s: %w", oldID, err)
+		}
+		chunksRemoved++
+	}
+
+	// Step 5: Fetch reusable embeddings
+	reuseOldIDs := make([]string, 0, len(diff.Reuse))
+	for _, oldID := range diff.Reuse {
+		reuseOldIDs = append(reuseOldIDs, oldID)
+	}
+	reusedEmbeddings, err := m.storage.ReadEmbeddings(ctx, reuseOldIDs)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to read old embeddings: %w", err)
+	}
+
+	// Step 6: Store reused chunks (delete old ID first if different, then create with new)
+	for newIdx, oldID := range diff.Reuse {
+		newChunk := chunks[newIdx]
+		emb, ok := reusedEmbeddings[oldID]
+		if !ok {
+			// Embedding not found — fall back to re-embed
+			diff.NeedEmbed = append(diff.NeedEmbed, newIdx)
+			continue
+		}
+		// Delete old chunk if ID changed
+		if newChunk.ID != oldID {
+			_ = m.storage.Delete(ctx, oldID)
+			chunksRemoved++
+		}
+		if err := m.storage.Create(ctx, newChunk, emb); err != nil {
+			return 0, 0, fmt.Errorf("failed to store reused chunk: %w", err)
+		}
+	}
+
+	// Step 7: Embed and store new/changed chunks
+	chunksCreated := len(diff.Reuse) // reused counts as "created" in the new index
+	if len(diff.NeedEmbed) > 0 {
+		texts := make([]string, len(diff.NeedEmbed))
+		embedChunks := make([]Chunk, len(diff.NeedEmbed))
+		for i, idx := range diff.NeedEmbed {
+			embedChunks[i] = chunks[idx]
+			texts[i] = EnrichForEmbedding(chunks[idx])
+		}
+
+		embeddings, err := m.embedder.EmbedBatch(ctx, texts)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to generate embeddings: %w", err)
+		}
+
+		cwes := make([]ChunkWithEmbedding, len(embedChunks))
+		for i := range embedChunks {
+			cwes[i] = ChunkWithEmbedding{
+				Chunk:     embedChunks[i],
+				Embedding: embeddings[i],
+			}
+		}
+
+		if err := m.storage.CreateBatch(ctx, cwes); err != nil {
+			return 0, 0, fmt.Errorf("failed to store new chunks: %w", err)
+		}
+		chunksCreated += len(cwes)
+	}
+
+	// Step 8: Update file hash
+	if err := m.storage.SetFileHash(ctx, filePath, fileHash); err != nil {
+		return 0, 0, fmt.Errorf("failed to set file hash: %w", err)
+	}
+
+	return chunksCreated, chunksRemoved, nil
 }
 
 // Update performs incremental index update
@@ -509,15 +616,12 @@ func (m *IndexManager) Update(ctx context.Context, rootPath string, opts UpdateO
 		}
 
 		if needsUpdate {
-			// Remove old chunks for this file
-			removed, _ := m.storage.DeleteByFilePath(ctx, file)
-			result.ChunksRemoved += removed
-
-			// Re-index the file (use 0 for unlimited batch size in updates, sequential)
-			indexResult := &IndexResult{}
-			if err := m.processFile(ctx, file, indexResult, 0, 0, opts.Domain); err == nil {
+			// Use content-aware diff to only re-embed changed chunks
+			created, removed, err := m.processFileWithDiff(ctx, file, opts.Domain)
+			if err == nil {
 				result.FilesUpdated++
-				result.ChunksCreated += indexResult.ChunksCreated
+				result.ChunksCreated += created
+				result.ChunksRemoved += removed
 			}
 		}
 	}
