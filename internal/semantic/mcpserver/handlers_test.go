@@ -620,20 +620,15 @@ func TestResolveProfileSettings_NoProfile(t *testing.T) {
 }
 
 func TestResolveProfileSettings_ProfileWithoutConfig(t *testing.T) {
-	// Profile without config should do nothing
+	// Profile with missing config should fail fast
 	args := map[string]interface{}{
 		"query":   "test",
 		"profile": "code",
 	}
 
 	err := resolveProfileSettings(args)
-	if err != nil {
-		t.Fatalf("resolveProfileSettings() error = %v", err)
-	}
-
-	// No collection or storage should be added
-	if _, ok := args["collection"]; ok {
-		t.Error("resolveProfileSettings() should not add collection when no config")
+	if err == nil {
+		t.Fatal("resolveProfileSettings() should error when profile is set but config is missing")
 	}
 }
 
@@ -668,18 +663,10 @@ func TestResolveProfileSettings_MissingConfigFile(t *testing.T) {
 		"config":  "/nonexistent/config.yaml",
 	}
 
-	// Missing config file should not error - just proceed without profile settings
+	// Missing config file should fail fast when profile is set
 	err := resolveProfileSettings(args)
-	if err != nil {
-		t.Fatalf("resolveProfileSettings() error = %v", err)
-	}
-
-	// No collection or storage should be added since config was missing
-	if _, ok := args["collection"]; ok {
-		t.Error("resolveProfileSettings() should not add collection when config file is missing")
-	}
-	if _, ok := args["storage"]; ok {
-		t.Error("resolveProfileSettings() should not add storage when config file is missing")
+	if err == nil {
+		t.Fatal("resolveProfileSettings() should error when profile is set but config file is missing")
 	}
 }
 
@@ -1138,6 +1125,7 @@ func TestResolveProfileSettings_EmptyProfile(t *testing.T) {
 }
 
 func TestResolveProfileSettings_EmptyConfig(t *testing.T) {
+	// Empty config path with profile should fall back to default path and fail if missing
 	args := map[string]interface{}{
 		"query":   "test",
 		"profile": "code",
@@ -1145,13 +1133,8 @@ func TestResolveProfileSettings_EmptyConfig(t *testing.T) {
 	}
 
 	err := resolveProfileSettings(args)
-	if err != nil {
-		t.Fatalf("resolveProfileSettings() error = %v", err)
-	}
-
-	// Nothing should be added with empty config
-	if _, ok := args["collection"]; ok {
-		t.Error("resolveProfileSettings() should not add collection with empty config")
+	if err == nil {
+		t.Fatal("resolveProfileSettings() should error when profile is set but default config is missing")
 	}
 }
 
@@ -1650,9 +1633,15 @@ func TestBuildSearchCodeArgs(t *testing.T) {
 	}
 
 	args := map[string]interface{}{
-		"query":  "authentication middleware",
-		"config": configPath,
-		"top_k":  float64(5),
+		"query":   "authentication middleware",
+		"config":  configPath,
+		"top_k":   float64(5),
+		"profile": "code", // Injected by ExecuteHandler in production
+	}
+
+	// Simulate ExecuteHandler: resolve profile settings before buildArgs
+	if err := resolveProfileSettings(args); err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
 	}
 
 	result := buildSearchCodeArgs(args)
@@ -1691,8 +1680,14 @@ func TestBuildSearchDocsArgs(t *testing.T) {
 	}
 
 	args := map[string]interface{}{
-		"query":  "API authentication",
-		"config": configPath,
+		"query":   "API authentication",
+		"config":  configPath,
+		"profile": "docs", // Injected by ExecuteHandler in production
+	}
+
+	// Simulate ExecuteHandler: resolve profile settings before buildArgs
+	if err := resolveProfileSettings(args); err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
 	}
 
 	result := buildSearchDocsArgs(args)
@@ -1726,9 +1721,15 @@ func TestBuildSearchMemoryArgs(t *testing.T) {
 	}
 
 	args := map[string]interface{}{
-		"query":  "authentication decisions",
-		"config": configPath,
-		"tags":   "auth,security",
+		"query":   "authentication decisions",
+		"config":  configPath,
+		"tags":    "auth,security",
+		"profile": "memory", // Injected by ExecuteHandler in production
+	}
+
+	// Simulate what ExecuteHandler does before buildArgs
+	if err := resolveProfileSettings(args); err != nil {
+		t.Fatalf("resolveProfileSettings() error = %v", err)
 	}
 
 	result := buildSearchMemoryArgs(args)
@@ -1750,9 +1751,10 @@ func TestBuildSearchMemoryArgs(t *testing.T) {
 }
 
 func TestBuildSearchCodeArgs_WithoutConfig(t *testing.T) {
-	// Test that it works even without config (just sets profile)
+	// Profile is injected by ExecuteHandler; without config, resolveProfileSettings fails fast
 	args := map[string]interface{}{
-		"query": "test query",
+		"query":   "test query",
+		"profile": "code", // Injected by ExecuteHandler in production
 	}
 
 	result := buildSearchCodeArgs(args)
@@ -1762,7 +1764,7 @@ func TestBuildSearchCodeArgs_WithoutConfig(t *testing.T) {
 	}
 
 	if args["profile"] != "code" {
-		t.Errorf("buildSearchCodeArgs() should set profile to 'code', got %v", args["profile"])
+		t.Errorf("buildSearchCodeArgs() should have profile 'code', got %v", args["profile"])
 	}
 }
 
@@ -1790,19 +1792,19 @@ func TestBuildArgs_ConvenienceWrappers(t *testing.T) {
 	}{
 		{
 			cmdName:     "search_code",
-			args:        map[string]interface{}{"query": "test", "config": configPath},
+			args:        map[string]interface{}{"query": "test", "config": configPath, "profile": "code"},
 			wantCommand: "search",
 			wantProfile: "code",
 		},
 		{
 			cmdName:     "search_docs",
-			args:        map[string]interface{}{"query": "test", "config": configPath},
+			args:        map[string]interface{}{"query": "test", "config": configPath, "profile": "docs"},
 			wantCommand: "search",
 			wantProfile: "docs",
 		},
 		{
 			cmdName:     "search_memory",
-			args:        map[string]interface{}{"query": "test", "config": configPath},
+			args:        map[string]interface{}{"query": "test", "config": configPath, "profile": "memory"},
 			wantCommand: "memory",
 			wantProfile: "memory",
 		},
@@ -1810,6 +1812,11 @@ func TestBuildArgs_ConvenienceWrappers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.cmdName, func(t *testing.T) {
+			// Simulate ExecuteHandler: resolve profile settings before buildArgs
+			if err := resolveProfileSettings(tt.args); err != nil {
+				t.Fatalf("resolveProfileSettings() error = %v", err)
+			}
+
 			result, err := buildArgs(tt.cmdName, tt.args)
 			if err != nil {
 				t.Errorf("buildArgs(%s) error = %v", tt.cmdName, err)

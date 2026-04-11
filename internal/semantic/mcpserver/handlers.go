@@ -25,6 +25,7 @@ var CommandTimeout = 120 * time.Second
 type argBuilder struct {
 	build    func(args map[string]interface{}) []string
 	validate func(args map[string]interface{}) error // optional validation, nil means no extra validation
+	profile  string                                  // auto-injected profile (e.g., "memory", "code"); empty = no injection
 }
 
 // commandRegistry maps command names to their argument builders.
@@ -32,19 +33,19 @@ type argBuilder struct {
 // and makes it easy to see which commands exist.
 var commandRegistry = map[string]argBuilder{
 	"search":            {build: buildSearchArgs, validate: validateSearchArgs},
-	"search_code":       {build: buildSearchCodeArgs, validate: validateSearchArgs},
-	"search_docs":       {build: buildSearchDocsArgs, validate: validateSearchArgs},
-	"search_memory":     {build: buildSearchMemoryArgs, validate: validateSearchArgs},
+	"search_code":       {build: buildSearchCodeArgs, validate: validateSearchArgs, profile: "code"},
+	"search_docs":       {build: buildSearchDocsArgs, validate: validateSearchArgs, profile: "docs"},
+	"search_memory":     {build: buildSearchMemoryArgs, validate: validateSearchArgs, profile: "memory"},
 	"multisearch":       {build: buildMultisearchArgs, validate: validateMultisearchArgs},
 	"index":             {build: buildIndexArgs, validate: nil},
 	"index_status":      {build: buildStatusArgs, validate: nil},
 	"index_update":      {build: buildUpdateArgs, validate: nil},
-	"memory_store":      {build: buildMemoryStoreArgs, validate: nil},
-	"memory_search":     {build: buildMemorySearchArgs, validate: validateMemorySearchArgs},
-	"memory_promote":    {build: buildMemoryPromoteArgs, validate: nil},
-	"memory_list":       {build: buildMemoryListArgs, validate: nil},
-	"memory_delete":     {build: buildMemoryDeleteArgs, validate: nil},
-	"memory_stats":      {build: buildMemoryStatsArgs, validate: nil},
+	"memory_store":      {build: buildMemoryStoreArgs, validate: nil, profile: "memory"},
+	"memory_search":     {build: buildMemorySearchArgs, validate: validateMemorySearchArgs, profile: "memory"},
+	"memory_promote":    {build: buildMemoryPromoteArgs, validate: nil, profile: "memory"},
+	"memory_list":       {build: buildMemoryListArgs, validate: nil, profile: "memory"},
+	"memory_delete":     {build: buildMemoryDeleteArgs, validate: nil, profile: "memory"},
+	"memory_stats":      {build: buildMemoryStatsArgs, validate: nil, profile: "memory"},
 	"collection_delete": {build: buildCollectionDeleteArgs, validate: nil},
 }
 
@@ -127,11 +128,10 @@ func resolveProfileSettings(args map[string]interface{}) error {
 		configPath = defaultConfigPath
 	}
 
-	// Load the config file (ignore error if file doesn't exist)
+	// Load the config file - fail fast if profile is set but config can't be loaded
 	cfg, err := loadConfig(configPath)
 	if err != nil {
-		// Config file not found or invalid - proceed without profile settings
-		return nil
+		return fmt.Errorf("config required for profile %q: %w (expected at %s)", profile, err, configPath)
 	}
 
 	// Look up profile-specific values
@@ -175,7 +175,14 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 	// Strip prefix to get command name
 	cmdName := stripPrefix(toolName)
 
-	// Resolve profile-based settings before building args
+	// Inject profile from registry if the command has one and user didn't explicitly set it
+	if builder, ok := commandRegistry[cmdName]; ok && builder.profile != "" {
+		if _, hasProfile := args["profile"].(string); !hasProfile || args["profile"] == "" {
+			args["profile"] = builder.profile
+		}
+	}
+
+	// Resolve profile-based settings before building args (now with profile injected)
 	if err := resolveProfileSettings(args); err != nil {
 		return "", fmt.Errorf("failed to resolve profile settings: %w", err)
 	}
@@ -201,6 +208,16 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 	}
 	if !hasMin {
 		cmdArgs = append(cmdArgs, "--min")
+	}
+
+	// Pass config and profile to CLI so it can resolve storage/collection from config
+	if cfgPath, ok := args["config"].(string); ok && cfgPath != "" {
+		cmdArgs = append(cmdArgs, "--config", cfgPath)
+	} else if _, hasProfile := args["profile"].(string); hasProfile {
+		cmdArgs = append(cmdArgs, "--config", defaultConfigPath)
+	}
+	if p, ok := args["profile"].(string); ok && p != "" {
+		cmdArgs = append(cmdArgs, "--profile", p)
 	}
 
 	// Execute command
@@ -367,31 +384,16 @@ func buildSearchArgs(args map[string]interface{}) []string {
 
 // buildSearchCodeArgs builds args for search_code (convenience wrapper with code profile)
 func buildSearchCodeArgs(args map[string]interface{}) []string {
-	// Inject code profile and resolve settings
-	// Note: resolveProfileSettings was already called in ExecuteHandler before this,
-	// but at that point profile wasn't set yet. We need to resolve again.
-	args["profile"] = "code"
-	_ = resolveProfileSettings(args) // Resolve profile to collection/storage
 	return buildSearchArgs(args)
 }
 
 // buildSearchDocsArgs builds args for search_docs (convenience wrapper with docs profile)
 func buildSearchDocsArgs(args map[string]interface{}) []string {
-	// Inject docs profile and resolve settings
-	// Note: resolveProfileSettings was already called in ExecuteHandler before this,
-	// but at that point profile wasn't set yet. We need to resolve again.
-	args["profile"] = "docs"
-	_ = resolveProfileSettings(args) // Resolve profile to collection/storage
 	return buildSearchArgs(args)
 }
 
 // buildSearchMemoryArgs builds args for search_memory (convenience wrapper with memory profile)
 func buildSearchMemoryArgs(args map[string]interface{}) []string {
-	// Inject memory profile and resolve settings
-	// Note: resolveProfileSettings was already called in ExecuteHandler before this,
-	// but at that point profile wasn't set yet. We need to resolve again.
-	args["profile"] = "memory"
-	_ = resolveProfileSettings(args) // Resolve profile to collection/storage
 	return buildMemorySearchArgs(args)
 }
 
@@ -618,11 +620,6 @@ func getStringSlice(args map[string]interface{}, key string) []string {
 // Memory command builders
 
 func buildMemoryStoreArgs(args map[string]interface{}) []string {
-	// Inject memory profile for convenience (respects config.yaml defaults)
-	// Note: resolveProfileSettings was already called in ExecuteHandler before this,
-	// but at that point profile wasn't set yet. We need to resolve again.
-	args["profile"] = "memory"
-	_ = resolveProfileSettings(args)
 	cmdArgs := []string{"memory", "store"}
 
 	if question, ok := args["question"].(string); ok && question != "" {
@@ -642,6 +639,15 @@ func buildMemoryStoreArgs(args map[string]interface{}) []string {
 	}
 	if collection, ok := args["collection"].(string); ok && collection != "" {
 		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
+	if filePath, ok := args["file_path"].(string); ok && filePath != "" {
+		cmdArgs = append(cmdArgs, "--file-path", filePath)
+	}
+	if sprints, ok := args["sprints"].(string); ok && sprints != "" {
+		cmdArgs = append(cmdArgs, "--sprints", sprints)
+	}
+	if files, ok := args["files"].(string); ok && files != "" {
+		cmdArgs = append(cmdArgs, "--files", files)
 	}
 
 	return cmdArgs
@@ -676,9 +682,7 @@ func buildMemorySearchArgs(args map[string]interface{}) []string {
 }
 
 func buildMemoryPromoteArgs(args map[string]interface{}) []string {
-	// Inject memory profile for convenience (respects config.yaml defaults)
-	args["profile"] = "memory"
-	_ = resolveProfileSettings(args)
+	// Profile injected by ExecuteHandler from registry
 	cmdArgs := []string{"memory", "promote"}
 
 	if id, ok := args["id"].(string); ok && id != "" {
@@ -704,9 +708,7 @@ func buildMemoryPromoteArgs(args map[string]interface{}) []string {
 }
 
 func buildMemoryListArgs(args map[string]interface{}) []string {
-	// Inject memory profile for convenience (respects config.yaml defaults)
-	args["profile"] = "memory"
-	_ = resolveProfileSettings(args)
+	// Profile injected by ExecuteHandler from registry
 	cmdArgs := []string{"memory", "list"}
 
 	if limit, ok := getInt(args, "limit"); ok {
@@ -726,9 +728,7 @@ func buildMemoryListArgs(args map[string]interface{}) []string {
 }
 
 func buildMemoryDeleteArgs(args map[string]interface{}) []string {
-	// Inject memory profile for convenience (respects config.yaml defaults)
-	args["profile"] = "memory"
-	_ = resolveProfileSettings(args)
+	// Profile injected by ExecuteHandler from registry
 	cmdArgs := []string{"memory", "delete"}
 
 	if id, ok := args["id"].(string); ok && id != "" {
@@ -775,9 +775,7 @@ func buildCollectionDeleteArgs(args map[string]interface{}) []string {
 }
 
 func buildMemoryStatsArgs(args map[string]interface{}) []string {
-	// Inject memory profile for convenience (respects config.yaml defaults)
-	args["profile"] = "memory"
-	_ = resolveProfileSettings(args)
+	// Profile injected by ExecuteHandler from registry
 	cmdArgs := []string{"memory", "stats"}
 
 	if id, ok := args["id"].(string); ok && id != "" {

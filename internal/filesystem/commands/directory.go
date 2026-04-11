@@ -90,7 +90,7 @@ func getDirectoryTreeCmd() *cobra.Command {
 			}
 			OutputResult(result, func() string {
 				var sb strings.Builder
-				sb.WriteString(fmt.Sprintf("Tree: %s\n", result.Tree.Path))
+				sb.WriteString(fmt.Sprintf("Tree: %s\n", result.BasePath))
 				sb.WriteString(fmt.Sprintf("Dirs: %d, Files: %d, Size: %d bytes\n\n",
 					result.TotalDirs, result.TotalFiles, result.TotalSize))
 				printTree(&sb, result.Tree, "", true)

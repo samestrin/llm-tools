@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -102,10 +103,12 @@ type IndexOptions struct {
 
 // UpdateOptions configures incremental update behavior
 type UpdateOptions struct {
-	Includes     []string // Glob patterns to include
-	Excludes     []string // Patterns to exclude (directories and files)
-	ExcludeTests bool     // Exclude common test files and directories
-	Domain       string   // Domain tag for indexed chunks (e.g., "code", "docs", "memory") - defaults to "code"
+	Includes             []string // Glob patterns to include
+	Excludes             []string // Patterns to exclude (directories and files)
+	ExcludeTests         bool     // Exclude common test files and directories
+	Domain               string   // Domain tag for indexed chunks (e.g., "code", "docs", "memory") - defaults to "code"
+	OverlapLines         int      // Lines of overlap between adjacent chunks (default 3, 0 = disabled)
+	IncludeParentContext bool     // Prepend enclosing scope (package/class) to embedding text (default true)
 }
 
 // IndexResult contains statistics from an indexing operation
@@ -131,11 +134,21 @@ type IndexManager struct {
 	storage       Storage
 	embedder      EmbedderInterface
 	factory       *ChunkerFactory
-	overlapConfig OverlapConfig
+	overlapConfig OverlapConfig // set per-operation, not shared across goroutines
+	mu            sync.Mutex    // protects overlapConfig
 }
 
-// getOverlapConfig returns the current overlap configuration.
+// setOverlapConfig safely sets the overlap configuration.
+func (m *IndexManager) setOverlapConfig(cfg OverlapConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.overlapConfig = cfg
+}
+
+// getOverlapConfig safely reads the overlap configuration.
 func (m *IndexManager) getOverlapConfig() OverlapConfig {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.overlapConfig
 }
 
@@ -168,11 +181,11 @@ func (m *IndexManager) Index(ctx context.Context, rootPath string, opts IndexOpt
 		return nil, fmt.Errorf("path is not a directory: %s", rootPath)
 	}
 
-	// Set overlap configuration
-	m.overlapConfig = OverlapConfig{
+	// Set overlap configuration (thread-safe)
+	m.setOverlapConfig(OverlapConfig{
 		OverlapLines:         opts.OverlapLines,
 		IncludeParentContext: opts.IncludeParentContext,
-	}
+	})
 
 	// Clear existing index if Force is set
 	if opts.Force {
@@ -314,8 +327,9 @@ func (m *IndexManager) indexWithCrossFileBatching(ctx context.Context, files []s
 		// Apply overlap and parent context enrichment
 		overlapCfg := m.getOverlapConfig()
 		if overlapCfg.OverlapLines > 0 || overlapCfg.IncludeParentContext {
-			fileContent, _ := os.ReadFile(file)
-			chunks = ApplyOverlap(chunks, fileContent, overlapCfg)
+			if fileContent, err := os.ReadFile(file); err == nil {
+				chunks = ApplyOverlap(chunks, fileContent, overlapCfg)
+			}
 		}
 
 		// Add to current batch
@@ -521,8 +535,9 @@ func (m *IndexManager) processFileWithDiff(ctx context.Context, filePath string,
 	// Apply overlap and parent context enrichment
 	overlapCfg := m.getOverlapConfig()
 	if overlapCfg.OverlapLines > 0 || overlapCfg.IncludeParentContext {
-		fileContent, _ := os.ReadFile(filePath)
-		chunks = ApplyOverlap(chunks, fileContent, overlapCfg)
+		if fileContent, err := os.ReadFile(filePath); err == nil {
+			chunks = ApplyOverlap(chunks, fileContent, overlapCfg)
+		}
 	}
 
 	// Step 2: Get old chunk summaries from storage
@@ -553,7 +568,8 @@ func (m *IndexManager) processFileWithDiff(ctx context.Context, filePath string,
 		return 0, 0, fmt.Errorf("failed to read old embeddings: %w", err)
 	}
 
-	// Step 6: Store reused chunks (delete old ID first if different, then create with new)
+	// Step 6: Store reused chunks (always delete old, then create new to avoid unique constraint)
+	reuseCount := 0
 	for newIdx, oldID := range diff.Reuse {
 		newChunk := chunks[newIdx]
 		emb, ok := reusedEmbeddings[oldID]
@@ -562,18 +578,19 @@ func (m *IndexManager) processFileWithDiff(ctx context.Context, filePath string,
 			diff.NeedEmbed = append(diff.NeedEmbed, newIdx)
 			continue
 		}
-		// Delete old chunk if ID changed
+		// Always delete old chunk first (even same ID) to avoid unique constraint violation
+		_ = m.storage.Delete(ctx, oldID)
 		if newChunk.ID != oldID {
-			_ = m.storage.Delete(ctx, oldID)
 			chunksRemoved++
 		}
 		if err := m.storage.Create(ctx, newChunk, emb); err != nil {
 			return 0, 0, fmt.Errorf("failed to store reused chunk: %w", err)
 		}
+		reuseCount++
 	}
 
 	// Step 7: Embed and store new/changed chunks
-	chunksCreated := len(diff.Reuse) // reused counts as "created" in the new index
+	chunksCreated := reuseCount
 	if len(diff.NeedEmbed) > 0 {
 		texts := make([]string, len(diff.NeedEmbed))
 		embedChunks := make([]Chunk, len(diff.NeedEmbed))
@@ -612,6 +629,12 @@ func (m *IndexManager) processFileWithDiff(ctx context.Context, filePath string,
 // Update performs incremental index update
 func (m *IndexManager) Update(ctx context.Context, rootPath string, opts UpdateOptions) (*UpdateResult, error) {
 	result := &UpdateResult{}
+
+	// Set overlap configuration (thread-safe)
+	m.setOverlapConfig(OverlapConfig{
+		OverlapLines:         opts.OverlapLines,
+		IncludeParentContext: opts.IncludeParentContext,
+	})
 
 	// Get all indexed file paths from storage (lightweight — no chunk content or embeddings)
 	indexedFiles, err := m.storage.ListIndexedFiles(ctx)

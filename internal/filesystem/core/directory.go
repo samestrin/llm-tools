@@ -224,6 +224,7 @@ type GetDirectoryTreeOptions struct {
 
 // GetDirectoryTreeResult represents the result of a directory tree operation
 type GetDirectoryTreeResult struct {
+	BasePath   string    `json:"base_path"`
 	Tree       *TreeNode `json:"tree"`
 	TotalDirs  int       `json:"total_dirs"`
 	TotalFiles int       `json:"total_files"`
@@ -259,12 +260,26 @@ func GetDirectoryTree(opts GetDirectoryTreeOptions) (*GetDirectoryTreeResult, er
 		return nil, err
 	}
 
+	// Strip base path prefix from all nodes to reduce output size
+	basePath := normalizedPath + "/"
+	stripBasePath(root, basePath)
+	root.Path = "."
+
 	return &GetDirectoryTreeResult{
+		BasePath:   normalizedPath,
 		Tree:       root,
 		TotalDirs:  totalDirs,
 		TotalFiles: totalFiles,
 		TotalSize:  totalSize,
 	}, nil
+}
+
+// stripBasePath removes the base path prefix from all nodes in the tree
+func stripBasePath(node *TreeNode, basePath string) {
+	node.Path = strings.TrimPrefix(node.Path, basePath)
+	for _, child := range node.Children {
+		stripBasePath(child, basePath)
+	}
 }
 
 func buildTree(path string, depth, maxDepth int, showHidden, includeFiles bool, pattern string, totalDirs, totalFiles *int, totalSize *int64) (*TreeNode, error) {

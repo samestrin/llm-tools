@@ -90,12 +90,10 @@ func runCollectionDelete(ctx context.Context, opts collectionDeleteOpts) error {
 		return fmt.Errorf("failed to create embedder: %w", err)
 	}
 
-	embeddingDim := 0
-	testEmbed, err := embedder.Embed(ctx, "test")
+	embeddingDim, err := probeEmbeddingDim(ctx, embedder)
 	if err != nil {
-		return fmt.Errorf("failed to probe embedder for dimensions: %w", err)
+		return err
 	}
-	embeddingDim = len(testEmbed)
 
 	// Open storage
 	storage, err := createStorage(indexPath, embeddingDim)
