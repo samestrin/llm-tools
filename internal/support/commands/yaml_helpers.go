@@ -37,17 +37,37 @@ project:
   framework: ""
   package_manager: ""
   source_directory: src/
+  # For monorepo, replace above with per-component entries:
+  # backend:
+  #   type: python
+  #   framework: fastapi
+  #   package_manager: pip
+  #   source_directory: backend/app/
+  # frontend:
+  #   type: node
+  #   framework: sveltekit
+  #   package_manager: npm
+  #   source_directory: frontend/src/
 
 testing:
   runner: ""
   directory: ""
   cmd: ""
   coverage_cmd: ""
+  # For monorepo, add per-component testing:
+  # backend:
+  #   cmd: cd backend && pytest
+  #   coverage_cmd: cd backend && pytest --cov
 
 commands:
   lint: ""
   types: ""
   build: ""
+  # For monorepo, add per-component commands:
+  # backend:
+  #   lint: cd backend && ruff check .
+  # frontend:
+  #   lint: cd frontend && npm run lint
 
 tools:
   html2text: html2text
