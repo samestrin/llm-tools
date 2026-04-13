@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
@@ -14,7 +16,13 @@ var (
 	detectJSON    bool
 	detectPath    string
 	detectMinimal bool
+	detectDirs    string
 )
+
+// MultiDetectResult holds per-directory detection results.
+type MultiDetectResult struct {
+	Components map[string]DetectResult `json:"components"`
+}
 
 // DetectResult represents the project detection result
 type DetectResult struct {
@@ -45,6 +53,7 @@ Output fields:
 	}
 
 	cmd.Flags().StringVar(&detectPath, "path", ".", "Project path to analyze")
+	cmd.Flags().StringVar(&detectDirs, "dirs", "", "Comma-separated subdirectories to detect per-component (e.g., backend,frontend)")
 	cmd.Flags().BoolVar(&detectJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&detectMinimal, "min", false, "Output in minimal/token-optimized format")
 
@@ -61,6 +70,44 @@ func runDetect(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("path does not exist: %s", path)
 	}
 
+	formatter := output.New(detectJSON, detectMinimal, cmd.OutOrStdout())
+
+	// Multi-directory mode
+	if detectDirs != "" {
+		dirs := splitDirs(detectDirs)
+		result := MultiDetectResult{
+			Components: make(map[string]DetectResult),
+		}
+		for _, dir := range dirs {
+			dirPath := filepath.Join(path, dir)
+			if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: directory %q does not exist, skipping\n", dir)
+				continue
+			}
+			result.Components[dir] = detectInDir(dirPath)
+		}
+		return formatter.Print(result, printMultiDetectText)
+	}
+
+	// Single directory mode (original behavior)
+	detectResult := detectInDir(path)
+	return formatter.Print(detectResult, printDetectText)
+}
+
+// splitDirs splits a comma-separated string into trimmed directory names.
+func splitDirs(s string) []string {
+	var dirs []string
+	for _, d := range strings.Split(s, ",") {
+		d = strings.TrimSpace(d)
+		if d != "" {
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs
+}
+
+// detectInDir runs project detection on a single directory.
+func detectInDir(path string) DetectResult {
 	result := map[string]interface{}{
 		"stack":            "unknown",
 		"language":         "unknown",
@@ -167,8 +214,7 @@ func runDetect(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Build structured result
-	detectResult := DetectResult{
+	return DetectResult{
 		Stack:          result["stack"].(string),
 		Language:       result["language"].(string),
 		PackageManager: result["package_manager"].(string),
@@ -176,9 +222,6 @@ func runDetect(cmd *cobra.Command, args []string) error {
 		HasTests:       result["has_tests"].(bool),
 		PytestAvail:    result["pytest_available"].(bool),
 	}
-
-	formatter := output.New(detectJSON, detectMinimal, cmd.OutOrStdout())
-	return formatter.Print(detectResult, printDetectText)
 }
 
 func printDetectText(w io.Writer, data interface{}) {
@@ -189,6 +232,28 @@ func printDetectText(w io.Writer, data interface{}) {
 	fmt.Fprintf(w, "FRAMEWORK: %s\n", r.Framework)
 	fmt.Fprintf(w, "HAS_TESTS: %v\n", r.HasTests)
 	fmt.Fprintf(w, "PYTEST_AVAILABLE: %v\n", r.PytestAvail)
+}
+
+func printMultiDetectText(w io.Writer, data interface{}) {
+	r := data.(MultiDetectResult)
+
+	// Sort component names for deterministic output
+	names := make([]string, 0, len(r.Components))
+	for name := range r.Components {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		c := r.Components[name]
+		fmt.Fprintf(w, "--- %s ---\n", name)
+		fmt.Fprintf(w, "STACK: %s\n", c.Stack)
+		fmt.Fprintf(w, "LANGUAGE: %s\n", c.Language)
+		fmt.Fprintf(w, "PACKAGE_MANAGER: %s\n", c.PackageManager)
+		fmt.Fprintf(w, "FRAMEWORK: %s\n", c.Framework)
+		fmt.Fprintf(w, "HAS_TESTS: %v\n", c.HasTests)
+		fmt.Fprintf(w, "PYTEST_AVAILABLE: %v\n", c.PytestAvail)
+	}
 }
 
 func fileExists(path string) bool {
