@@ -162,6 +162,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildAnalyzeDepsArgs(args), nil
 	case "detect":
 		return buildDetectArgs(args), nil
+	case "project_components":
+		return buildProjectComponentsArgs(args), nil
 	case "count":
 		return buildCountArgs(args), nil
 	case "summarize_dir":
@@ -482,12 +484,29 @@ func buildDetectArgs(args map[string]interface{}) []string {
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
+	if dirs, ok := args["dirs"].(string); ok && dirs != "" {
+		cmdArgs = append(cmdArgs, "--dirs", dirs)
+	}
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")
 	}
 	// NOTE: --min is intentionally NOT used here. This command documents specific
 	// output fields (STACK, LANGUAGE, PACKAGE_MANAGER, etc.) that must always be
 	// present in JSON output for reliable parsing. Using --min would omit empty fields.
+	return cmdArgs
+}
+
+func buildProjectComponentsArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"project-components"}
+	if file, ok := args["file"].(string); ok {
+		cmdArgs = append(cmdArgs, "--file", file)
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBool(args, "min") {
+		cmdArgs = append(cmdArgs, "--min")
+	}
 	return cmdArgs
 }
 

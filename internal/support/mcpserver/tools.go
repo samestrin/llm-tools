@@ -334,6 +334,10 @@ func GetToolDefinitions() []ToolDefinition {
 						"type": "string",
 						"description": "Project path to analyze"
 					},
+					"dirs": {
+						"type": "string",
+						"description": "Comma-separated subdirectories for per-component detection (e.g., 'backend,frontend'). Returns components map."
+					},
 					"json": {
 						"type": "boolean",
 						"description": "Output as JSON"
@@ -2183,6 +2187,30 @@ func GetToolDefinitions() []ToolDefinition {
 					}
 				},
 				"required": ["path"]
+			}`),
+		},
+
+		// 59. Project components (monorepo support)
+		{
+			Name:        ToolPrefix + "project_components",
+			Description: "Read project config and return normalized component list with resolved testing/commands. Handles both single-project (flat) and monorepo (nested) config shapes. For flat configs, returns single 'default' component. For nested, returns N components with per-component testing/command resolution.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"file": {
+						"type": "string",
+						"description": "Path to config.yaml file (default: .planning/.config/config.yaml)"
+					},
+					"json": {
+						"type": "boolean",
+						"description": "Output as JSON"
+					},
+					"min": {
+						"type": "boolean",
+						"description": "Minimal output"
+					}
+				},
+				"required": ["file"]
 			}`),
 		},
 	}
