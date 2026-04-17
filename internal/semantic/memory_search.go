@@ -82,9 +82,8 @@ func HybridSearchMemory(
 	var results []MemorySearchResult
 	if opts.UseWeighted {
 		alpha := opts.FusionAlpha
-		if alpha == 0 {
-			alpha = 0.7
-		}
+		// Note: alpha=0 is valid (100% lexical) but uncommon.
+		// Callers must explicitly set UseWeighted=true to use weighted fusion.
 		results, err = FuseWeightedMemory(denseResults, lexicalResults, alpha)
 		if err != nil {
 			return nil, err
@@ -93,18 +92,17 @@ func HybridSearchMemory(
 		results = FuseRRFMemory(denseResults, lexicalResults, fusionK)
 	}
 
-	// Apply topK limit
-	if topK > 0 && len(results) > topK {
-		results = results[:topK]
-	}
-
-	// Apply temporal decay if configured
+	// Apply temporal decay BEFORE topK so decay can influence final ranking
 	if opts.Decay != nil && opts.Decay.Enabled {
 		ApplyTemporalDecay(results, *opts.Decay, time.Now())
-		// Re-sort after decay since it may change relative ordering
 		sort.Slice(results, func(i, j int) bool {
 			return results[i].Score > results[j].Score
 		})
+	}
+
+	// Apply topK limit after decay
+	if topK > 0 && len(results) > topK {
+		results = results[:topK]
 	}
 
 	return results, nil

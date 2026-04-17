@@ -325,10 +325,14 @@ func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
 		// Hybrid search: dense + lexical with RRF fusion
 		var decay *semantic.TemporalDecayConfig
 		if opts.decay {
-			decay = &semantic.TemporalDecayConfig{
+			decayCfg := semantic.TemporalDecayConfig{
 				HalfLifeDays: opts.decayHalfLife,
 				Enabled:      true,
 			}
+			if err := semantic.ValidateTemporalDecayConfig(decayCfg); err != nil {
+				return fmt.Errorf("invalid decay config: %w", err)
+			}
+			decay = &decayCfg
 		}
 		results, err = semantic.HybridSearchMemory(ctx, storage, embedder, opts.query, semantic.HybridMemorySearchOptions{
 			MemorySearchOptions: searchOpts,
@@ -353,6 +357,9 @@ func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
 			decayCfg := semantic.TemporalDecayConfig{
 				HalfLifeDays: opts.decayHalfLife,
 				Enabled:      true,
+			}
+			if validateErr := semantic.ValidateTemporalDecayConfig(decayCfg); validateErr != nil {
+				return fmt.Errorf("invalid decay config: %w", validateErr)
 			}
 			semantic.ApplyTemporalDecay(results, decayCfg, time.Now())
 			sort.Slice(results, func(i, j int) bool {

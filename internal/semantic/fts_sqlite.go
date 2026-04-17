@@ -115,7 +115,7 @@ func (s *SQLiteStorage) backfillFTS5() error {
 		// Use INSERT...SELECT for efficient batch backfill
 		_, err := s.db.Exec(`
 			INSERT INTO chunks_fts(rowid, name, content)
-			SELECT rowid, name, COALESCE(content, '')
+			SELECT rowid, COALESCE(name, ''), COALESCE(content, '')
 			FROM chunks
 		`)
 		if err != nil {
@@ -304,14 +304,9 @@ func isFTS5SyntaxError(err error) bool {
 		contains(errStr, "malformed MATCH expression")
 }
 
-// contains checks if s contains substr (simple implementation to avoid strings import).
+// contains checks if s contains substr.
 func contains(s, substr string) bool {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, substr)
 }
 
 // EscapeFTS5Query escapes special FTS5 characters in a query string.
