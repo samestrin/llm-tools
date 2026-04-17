@@ -1202,19 +1202,21 @@ func TestBuildMemoryListArgs_AllParams(t *testing.T) {
 
 func TestBuildMemorySearchArgs_AllParams(t *testing.T) {
 	args := map[string]interface{}{
-		"query":      "search query",
-		"top_k":      float64(10),
-		"threshold":  0.5,
-		"tags":       "tag1",
-		"status":     "promoted",
-		"storage":    "qdrant",
-		"collection": "mem-collection",
+		"query":           "search query",
+		"top_k":           float64(10),
+		"threshold":       0.5,
+		"tags":            "tag1",
+		"status":          "promoted",
+		"storage":         "qdrant",
+		"collection":      "mem-collection",
+		"decay":           true,
+		"decay_half_life": float64(30),
 	}
 
 	result := buildMemorySearchArgs(args)
 
 	expected := []string{
-		"--top", "--threshold", "--tags", "--status", "--storage", "--collection",
+		"--top", "--threshold", "--tags", "--status", "--storage", "--collection", "--decay", "--decay-half-life",
 	}
 
 	for _, flag := range expected {
