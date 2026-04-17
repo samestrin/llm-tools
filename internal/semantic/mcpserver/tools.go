@@ -91,310 +91,263 @@ func GetToolDefinitions() []ToolDefinition {
 		// 1. Semantic search
 		{
 			Name:        ToolPrefix + "search",
-			Description: "Search code using natural language queries. Returns semantically similar code chunks ranked by relevance.",
+			Description: "Search code using natural language queries.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"query": {
-						"type": "string",
-						"description": "Natural language search query (e.g., 'authentication middleware' or 'database connection handling')"
-					},
-					"top_k": {
-						"type": "integer",
-						"description": "Maximum number of results to return (default: 10)"
-					},
-					"threshold": {
-						"type": "number",
-						"minimum": 0.0,
-						"maximum": 1.0,
-						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
-					},
-					"type": {
-						"type": "string",
-						"enum": ["function", "method", "struct", "interface", "file"],
-						"description": "Filter results by chunk type"
-					},
-					"path": {
-						"type": "string",
-						"description": "Filter results by path prefix"
-					},
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON (default: true for MCP)"
-					},
-					"min": {
-						"type": "boolean",
-						"description": "Minimal output - only file, name, line, score"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"profile": {
-						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					},
-					"hybrid": {
-						"type": "boolean",
-						"description": "Enable hybrid search (dense + lexical with RRF fusion)"
-					},
-					"fusion_k": {
-						"type": "integer",
-						"description": "RRF fusion k parameter (higher = smoother ranking, default: 60)"
-					},
-					"fusion_alpha": {
-						"type": "number",
-						"description": "Fusion weight: 1.0 = dense only, 0.0 = lexical only (default: 0.7)"
-					},
-					"recency_boost": {
-						"type": "boolean",
-						"description": "Enable recency boost (recently modified files ranked higher)"
-					},
-					"recency_factor": {
-						"type": "number",
-						"description": "Recency boost factor, max boost = 1+factor (default: 0.5)"
-					},
-					"recency_decay": {
-						"type": "integer",
-						"description": "Recency half-life in days (default: 7)"
-					},
-					"profiles": {
-						"type": "array",
-						"items": {"type": "string"},
-						"description": "Profiles to search across (e.g., ['code', 'docs']). Searches each profile's collection in parallel and merges results."
-					},
-					"rerank": {
-						"type": "boolean",
-						"description": "Enable reranking (auto-enabled when LLM_SEMANTIC_RERANKER_API_URL is set)"
-					},
-					"rerank_candidates": {
-						"type": "integer",
-						"description": "Number of candidates to fetch for reranking (default: max(top_k*5, 50))"
-					},
-					"rerank_threshold": {
-						"type": "number",
-						"minimum": 0.0,
-						"maximum": 1.0,
-						"description": "Minimum reranker score 0.0-1.0 (default: 0.0)"
-					},
-					"no_rerank": {
-						"type": "boolean",
-						"description": "Disable reranking even when reranker is configured"
-					},
-					"prefilter": {
-						"type": "boolean",
-						"description": "Enable lexical prefiltering (narrow candidates with FTS5 before vector search)"
-					},
-					"prefilter_top": {
-						"type": "integer",
-						"description": "Number of lexical candidates for prefiltering (default: top_k*10 or 100)"
-					}
-				},
-				"required": ["query"]
-			}`),
+						"type": "object",
+						"properties": {
+							"query": {
+								"type": "string",
+								"description": "Natural language query"
+							},
+							"top_k": {
+								"type": "integer",
+								"description": "Max results (default: 10)"
+							},
+							"threshold": {
+								"type": "number",
+								"minimum": 0.0,
+								"maximum": 1.0,
+								"description": "Min score 0.0-1.0"
+							},
+							"type": {
+								"type": "string",
+								"enum": ["function", "method", "struct", "interface", "file"]
+							},
+							"path": {
+								"type": "string"
+							},
+							"profile": {
+								"type": "string",
+								"description": "Profile: code, docs, memory, or sprints"
+							},
+							"config": {
+								"type": "string",
+								"description": "Config file path"
+							},
+							"hybrid": {
+								"type": "boolean",
+								"description": "Enable hybrid search"
+							},
+							"fusion_k": {
+								"type": "integer",
+								"description": "RRF fusion k (default: 60)"
+							},
+							"fusion_alpha": {
+								"type": "number",
+								"description": "Dense/lexical weight (default: 0.7)"
+							},
+							"recency_boost": {
+								"type": "boolean",
+								"description": "Boost recently modified files"
+							},
+							"recency_factor": {
+								"type": "number",
+								"description": "Boost factor (default: 0.5)"
+							},
+							"recency_decay": {
+								"type": "integer",
+								"description": "Half-life in days (default: 7)"
+							},
+							"profiles": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "Profiles to search (e.g., ['code', 'docs'])"
+							},
+							"rerank": {
+								"type": "boolean",
+								"description": "Enable reranking"
+							},
+							"rerank_candidates": {
+								"type": "integer",
+								"description": "Rerank candidates (default: top_k*5)"
+							},
+							"rerank_threshold": {
+								"type": "number",
+								"minimum": 0.0,
+								"maximum": 1.0,
+								"description": "Min reranker score"
+							},
+							"no_rerank": {
+								"type": "boolean",
+								"description": "Disable reranking"
+							},
+							"prefilter": {
+								"type": "boolean",
+								"description": "Enable lexical prefiltering"
+							},
+							"prefilter_top": {
+								"type": "integer",
+								"description": "Prefilter candidates (default: top_k*10)"
+							}
+						},
+						"required": ["query"]
+					}`),
 		},
 
 		// 1b. Multisearch - batch semantic search with deduplication and boosting
 		{
 			Name:        ToolPrefix + "multisearch",
-			Description: "Execute multiple semantic queries with intelligent deduplication and multi-match boosting. Results matching multiple queries receive boosted scores. Supports multiple output formats.",
+			Description: "Execute multiple semantic queries with deduplication and multi-match boosting.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"queries": {
-						"type": "array",
-						"items": {"type": "string"},
-						"description": "1-10 search queries to execute in parallel (e.g., ['authentication', 'JWT tokens'])"
-					},
-					"top_k": {
-						"type": "integer",
-						"description": "Maximum total results to return after deduplication (default: 15)"
-					},
-					"threshold": {
-						"type": "number",
-						"minimum": 0.0,
-						"maximum": 1.0,
-						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
-					},
-					"profiles": {
-						"type": "array",
-						"items": {"type": "string"},
-						"description": "Profiles to search across (e.g., ['code', 'docs'])"
-					},
-					"no_boost": {
-						"type": "boolean",
-						"description": "Disable multi-match score boosting (default: false)"
-					},
-					"no_dedupe": {
-						"type": "boolean",
-						"description": "Disable result deduplication (default: false)"
-					},
-					"output": {
-						"type": "string",
-						"enum": ["blended", "by_query", "by_collection"],
-						"description": "Output format: blended (flat list sorted by score), by_query (grouped by query), by_collection (grouped by profile)"
-					},
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON (default: true for MCP)"
-					},
-					"min": {
-						"type": "boolean",
-						"description": "Minimal output - only essential fields"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"profile": {
-						"type": "string",
-						"description": "Single profile to search (alternative to 'profiles' array; 'profiles' takes precedence if both specified)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings"
-					}
-				},
-				"required": ["queries"]
-			}`),
+						"type": "object",
+						"properties": {
+							"queries": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "1-10 search queries"
+							},
+							"top_k": {
+								"type": "integer",
+								"description": "Max results after dedup (default: 15)"
+							},
+							"threshold": {
+								"type": "number",
+								"minimum": 0.0,
+								"maximum": 1.0,
+								"description": "Min score 0.0-1.0"
+							},
+							"profiles": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "Profiles to search (e.g., ['code', 'docs'])"
+							},
+							"no_boost": {
+								"type": "boolean",
+								"description": "Disable multi-match boosting"
+							},
+							"no_dedupe": {
+								"type": "boolean",
+								"description": "Disable deduplication"
+							},
+							"output": {
+								"type": "string",
+								"enum": ["blended", "by_query", "by_collection"],
+								"description": "blended, by_query, or by_collection"
+							},
+							"profile": {
+								"type": "string",
+								"description": "Single profile (alternative to profiles[])"
+							},
+							"config": {
+								"type": "string",
+								"description": "Config file path"
+							}
+						},
+						"required": ["queries"]
+					}`),
 		},
 
 		// 1c. Search code - convenience wrapper with code profile pre-set
 		{
 			Name:        ToolPrefix + "search_code",
-			Description: "Search code repository using natural language. Convenience wrapper for search with 'code' profile pre-set. Uses default config (.planning/.config/config.yaml) with semantic.code_collection and semantic.code_storage defined.",
+			Description: "Search code with 'code' profile pre-set.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"query": {
-						"type": "string",
-						"description": "Natural language search query (e.g., 'authentication middleware' or 'database connection handling')"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					},
-					"top_k": {
-						"type": "integer",
-						"description": "Maximum number of results to return (default: 10)"
-					},
-					"threshold": {
-						"type": "number",
-						"minimum": 0.0,
-						"maximum": 1.0,
-						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
-					},
-					"type": {
-						"type": "string",
-						"enum": ["function", "method", "struct", "interface", "file"],
-						"description": "Filter results by chunk type"
-					},
-					"path": {
-						"type": "string",
-						"description": "Filter results by path prefix"
-					},
-					"hybrid": {
-						"type": "boolean",
-						"description": "Enable hybrid search (dense + lexical with RRF fusion)"
-					},
-					"recency_boost": {
-						"type": "boolean",
-						"description": "Enable recency boost (recently modified files ranked higher)"
-					}
-				},
-				"required": ["query"]
-			}`),
+						"type": "object",
+						"properties": {
+							"query": {
+								"type": "string",
+								"description": "Natural language query"
+							},
+							"top_k": {
+								"type": "integer",
+								"description": "Max results (default: 10)"
+							},
+							"threshold": {
+								"type": "number",
+								"minimum": 0.0,
+								"maximum": 1.0,
+								"description": "Min score 0.0-1.0"
+							},
+							"type": {
+								"type": "string",
+								"enum": ["function", "method", "struct", "interface", "file"]
+							},
+							"path": {
+								"type": "string"
+							},
+							"hybrid": {
+								"type": "boolean",
+								"description": "Enable hybrid search"
+							},
+							"recency_boost": {
+								"type": "boolean",
+								"description": "Boost recently modified files"
+							}
+						},
+						"required": ["query"]
+					}`),
 		},
 
 		// 1d. Search docs - convenience wrapper with docs profile pre-set
 		{
 			Name:        ToolPrefix + "search_docs",
-			Description: "Search documentation using natural language. Convenience wrapper for search with 'docs' profile pre-set. Uses default config (.planning/.config/config.yaml) with semantic.docs_collection and semantic.docs_storage defined.",
+			Description: "Search docs with 'docs' profile pre-set.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"query": {
-						"type": "string",
-						"description": "Natural language search query (e.g., 'API authentication' or 'configuration options')"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					},
-					"top_k": {
-						"type": "integer",
-						"description": "Maximum number of results to return (default: 10)"
-					},
-					"threshold": {
-						"type": "number",
-						"minimum": 0.0,
-						"maximum": 1.0,
-						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
-					},
-					"path": {
-						"type": "string",
-						"description": "Filter results by path prefix"
-					},
-					"hybrid": {
-						"type": "boolean",
-						"description": "Enable hybrid search (dense + lexical with RRF fusion)"
-					}
-				},
-				"required": ["query"]
-			}`),
+						"type": "object",
+						"properties": {
+							"query": {
+								"type": "string",
+								"description": "Natural language query"
+							},
+							"top_k": {
+								"type": "integer",
+								"description": "Max results (default: 10)"
+							},
+							"threshold": {
+								"type": "number",
+								"minimum": 0.0,
+								"maximum": 1.0,
+								"description": "Min score 0.0-1.0"
+							},
+							"path": {
+								"type": "string"
+							},
+							"hybrid": {
+								"type": "boolean",
+								"description": "Enable hybrid search"
+							}
+						},
+						"required": ["query"]
+					}`),
 		},
 
 		// 1e. Search memory - convenience wrapper with memory profile pre-set
 		{
 			Name:        ToolPrefix + "search_memory",
-			Description: "Search stored memories using natural language. Convenience wrapper for memory search with 'memory' profile pre-set. Uses default config (.planning/.config/config.yaml) with semantic.memory_collection and semantic.memory_storage defined.",
+			Description: "Search memories with 'memory' profile pre-set.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"query": {
-						"type": "string",
-						"description": "Natural language search query (e.g., 'authentication decisions' or 'API design choices')"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					},
-					"top_k": {
-						"type": "integer",
-						"description": "Maximum number of results to return (default: 10)"
-					},
-					"threshold": {
-						"type": "number",
-						"minimum": 0.0,
-						"maximum": 1.0,
-						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
-					},
-					"tags": {
-						"type": "string",
-						"description": "Filter by tags (comma-separated)"
-					},
-					"status": {
-						"type": "string",
-						"enum": ["pending", "promoted"],
-						"description": "Filter by status"
-					}
-				},
-				"required": ["query"]
-			}`),
+						"type": "object",
+						"properties": {
+							"query": {
+								"type": "string",
+								"description": "Natural language query"
+							},
+							"top_k": {
+								"type": "integer",
+								"description": "Max results (default: 10)"
+							},
+							"threshold": {
+								"type": "number",
+								"minimum": 0.0,
+								"maximum": 1.0,
+								"description": "Min score 0.0-1.0"
+							},
+							"tags": {
+								"type": "string"
+							},
+							"status": {
+								"type": "string",
+								"enum": ["pending", "promoted"]
+							}
+						},
+						"required": ["query"]
+					}`),
 		},
 
 		// 2. Index status
@@ -402,105 +355,83 @@ func GetToolDefinitions() []ToolDefinition {
 			Name:        ToolPrefix + "index_status",
 			Description: "Show semantic index status including file count, chunk count, and last update time.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"profile": {
-						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					}
-				}
-			}`),
+						"type": "object",
+						"properties": {
+							"profile": {
+								"type": "string",
+								"description": "Profile: code, docs, memory, or sprints"
+							},
+							"config": {
+								"type": "string",
+								"description": "Config file path"
+							}
+						}
+					}`),
 		},
 
 		// 3. Index build
 		{
 			Name:        ToolPrefix + "index",
-			Description: "Build or rebuild the semantic code index for a directory. Parses code files and generates embeddings.",
+			Description: "Build or rebuild the semantic index for a directory.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"path": {
-						"type": "string",
-						"description": "Directory path to index (default: current directory). Supports glob patterns like 'docs*' or 'path/*/docs' to match multiple directories"
-					},
-					"include": {
-						"type": "array",
-						"items": {"type": "string"},
-						"description": "Glob patterns to include (e.g., ['*.go', '*.py'])"
-					},
-					"exclude": {
-						"type": "array",
-						"items": {"type": "string"},
-						"description": "Patterns to exclude - directories and files (e.g., ['vendor', '*_test.go'])"
-					},
-					"exclude_tests": {
-						"type": "boolean",
-						"description": "Exclude common test files and directories (*_test.go, *.spec.ts, __tests__/, etc.)"
-					},
-					"force": {
-						"type": "boolean",
-						"description": "Force re-index all files even if unchanged"
-					},
-					"batch_size": {
-						"type": "integer",
-						"description": "Number of vectors per upsert batch (0 = unlimited, default: 0)"
-					},
-					"parallel": {
-						"type": "integer",
-						"description": "Number of parallel batch uploads (0 = sequential, requires batch_size > 0)"
-					},
-					"embed_batch_size": {
-						"type": "integer",
-						"description": "Number of chunks to embed per API call across files (0 = per-file batching, default: 0)"
-					},
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"profile": {
-						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					},
-					"recalibrate": {
-						"type": "boolean",
-						"description": "Force recalibration of score thresholds even if calibration exists"
-					},
-					"skip_calibration": {
-						"type": "boolean",
-						"description": "Skip the calibration step during indexing"
-					}
-				}
-			}`),
+						"type": "object",
+						"properties": {
+							"path": {
+								"type": "string",
+								"description": "Directory to index (supports globs)"
+							},
+							"include": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "Include patterns (e.g., ['*.go'])"
+							},
+							"exclude": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "Exclude patterns"
+							},
+							"exclude_tests": {
+								"type": "boolean",
+								"description": "Exclude test files"
+							},
+							"force": {
+								"type": "boolean",
+								"description": "Force re-index all"
+							},
+							"batch_size": {
+								"type": "integer",
+								"description": "Vectors per batch (default: 0)"
+							},
+							"parallel": {
+								"type": "integer",
+								"description": "Parallel uploads"
+							},
+							"embed_batch_size": {
+								"type": "integer",
+								"description": "Chunks per embed call (default: 0)"
+							},
+							"profile": {
+								"type": "string",
+								"description": "Profile: code, docs, memory, or sprints"
+							},
+							"config": {
+								"type": "string",
+								"description": "Config file path"
+							},
+							"recalibrate": {
+								"type": "boolean",
+								"description": "Force recalibration"
+							},
+							"skip_calibration": {
+								"type": "boolean",
+								"description": "Skip calibration"
+							}
+						}
+					}`),
 		},
 
 		// 4. Index update (incremental)
@@ -508,170 +439,114 @@ func GetToolDefinitions() []ToolDefinition {
 			Name:        ToolPrefix + "index_update",
 			Description: "Incrementally update the semantic index with changed files since last indexing.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"path": {
-						"type": "string",
-						"description": "Directory path to update (default: current directory). Supports glob patterns like 'docs*' or 'path/*/docs' to match multiple directories"
-					},
-					"include": {
-						"type": "array",
-						"items": {"type": "string"},
-						"description": "Glob patterns to include"
-					},
-					"exclude": {
-						"type": "array",
-						"items": {"type": "string"},
-						"description": "Directories to exclude"
-					},
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"profile": {
-						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					}
-				}
-			}`),
+						"type": "object",
+						"properties": {
+							"path": {
+								"type": "string",
+								"description": "Directory to update (supports globs)"
+							},
+							"include": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								}
+							},
+							"exclude": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								}
+							},
+							"profile": {
+								"type": "string",
+								"description": "Profile: code, docs, memory, or sprints"
+							},
+							"config": {
+								"type": "string",
+								"description": "Config file path"
+							}
+						}
+					}`),
 		},
 
 		// 5. Memory store
 		{
 			Name:        ToolPrefix + "memory_store",
-			Description: "Store a learned decision or clarification in semantic memory for future retrieval.",
+			Description: "Store a decision or clarification in semantic memory.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"question": {
-						"type": "string",
-						"description": "The question or decision being recorded"
-					},
-					"answer": {
-						"type": "string",
-						"description": "The answer or decision made"
-					},
-					"tags": {
-						"type": "string",
-						"description": "Comma-separated context tags (e.g., 'auth,security')"
-					},
-					"source": {
-						"type": "string",
-						"description": "Origin source (default: 'manual')"
-					},
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON"
-					},
-					"min": {
-						"type": "boolean",
-						"description": "Minimal output format"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"profile": {
-						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					},
-					"file_path": {
-						"type": "string",
-						"description": "Optional file path to write memory as markdown with YAML frontmatter. Parent directories created automatically."
-					},
-					"sprints": {
-						"type": "string",
-						"description": "Comma-separated sprint references (e.g., 'sprint-42,sprint-43')"
-					},
-					"files": {
-						"type": "string",
-						"description": "Comma-separated file references (e.g., 'src/auth.ts,src/db.go')"
-					}
-				},
-				"required": ["question", "answer"]
-			}`),
+						"type": "object",
+						"properties": {
+							"question": {
+								"type": "string"
+							},
+							"answer": {
+								"type": "string"
+							},
+							"tags": {
+								"type": "string"
+							},
+							"source": {
+								"type": "string"
+							},
+							"file_path": {
+								"type": "string",
+								"description": "Write as markdown file"
+							},
+							"sprints": {
+								"type": "string",
+								"description": "Sprint refs (comma-separated)"
+							},
+							"files": {
+								"type": "string",
+								"description": "File refs (comma-separated)"
+							}
+						},
+						"required": ["question", "answer"]
+					}`),
 		},
 
 		// 6. Memory search
 		{
 			Name:        ToolPrefix + "memory_search",
-			Description: "Search stored memories using natural language. Returns semantically similar entries.",
+			Description: "Search stored memories using natural language.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"query": {
-						"type": "string",
-						"description": "Natural language search query"
-					},
-					"top_k": {
-						"type": "integer",
-						"description": "Maximum number of results to return (default: 10)"
-					},
-					"threshold": {
-						"type": "number",
-						"minimum": 0.0,
-						"maximum": 1.0,
-						"description": "Minimum similarity score 0.0-1.0 (default: 0.0)"
-					},
-					"tags": {
-						"type": "string",
-						"description": "Filter by tags (comma-separated)"
-					},
-					"status": {
-						"type": "string",
-						"enum": ["pending", "promoted"],
-						"description": "Filter by status"
-					},
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON"
-					},
-					"min": {
-						"type": "boolean",
-						"description": "Minimal output format"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"profile": {
-						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					}
-				},
-				"required": ["query"]
-			}`),
+						"type": "object",
+						"properties": {
+							"query": {
+								"type": "string"
+							},
+							"top_k": {
+								"type": "integer",
+								"description": "Max results (default: 10)"
+							},
+							"threshold": {
+								"type": "number",
+								"minimum": 0.0,
+								"maximum": 1.0,
+								"description": "Min score 0.0-1.0"
+							},
+							"tags": {
+								"type": "string"
+							},
+							"status": {
+								"type": "string",
+								"enum": ["pending", "promoted"]
+							},
+							"decay": {
+								"type": "boolean",
+								"description": "Apply temporal decay (recent memories score higher)"
+							},
+							"decay_half_life": {
+								"type": "number",
+								"description": "Decay half-life in days (default: 90)"
+							},
+							"hybrid": {
+								"type": "boolean",
+								"description": "Enable hybrid search (dense + lexical with RRF fusion)"
+							}
+						},
+						"required": ["query"]
+					}`),
 		},
 
 		// 7. Memory promote
@@ -679,52 +554,24 @@ func GetToolDefinitions() []ToolDefinition {
 			Name:        ToolPrefix + "memory_promote",
 			Description: "Promote a memory entry to CLAUDE.md for persistent project knowledge.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"id": {
-						"type": "string",
-						"description": "Memory entry ID to promote"
-					},
-					"target": {
-						"type": "string",
-						"description": "Target CLAUDE.md file path"
-					},
-					"section": {
-						"type": "string",
-						"description": "Section header to append under (default: 'Learned Clarifications')"
-					},
-					"force": {
-						"type": "boolean",
-						"description": "Re-promote even if already promoted"
-					},
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON"
-					},
-					"min": {
-						"type": "boolean",
-						"description": "Minimal output format"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"profile": {
-						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					}
-				},
-				"required": ["id", "target"]
-			}`),
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"target": {
+								"type": "string"
+							},
+							"section": {
+								"type": "string",
+								"description": "Section header"
+							},
+							"force": {
+								"type": "boolean"
+							}
+						},
+						"required": ["id", "target"]
+					}`),
 		},
 
 		// 8. Memory list
@@ -732,44 +579,18 @@ func GetToolDefinitions() []ToolDefinition {
 			Name:        ToolPrefix + "memory_list",
 			Description: "List stored memories with optional filtering by status.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"limit": {
-						"type": "integer",
-						"description": "Maximum number of entries to return (default: 50)"
-					},
-					"status": {
-						"type": "string",
-						"enum": ["pending", "promoted"],
-						"description": "Filter by status"
-					},
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON"
-					},
-					"min": {
-						"type": "boolean",
-						"description": "Minimal output format"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"profile": {
-						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					}
-				}
-			}`),
+						"type": "object",
+						"properties": {
+							"limit": {
+								"type": "integer",
+								"description": "Max entries (default: 50)"
+							},
+							"status": {
+								"type": "string",
+								"enum": ["pending", "promoted"]
+							}
+						}
+					}`),
 		},
 
 		// 9. Memory delete
@@ -777,159 +598,88 @@ func GetToolDefinitions() []ToolDefinition {
 			Name:        ToolPrefix + "memory_delete",
 			Description: "Delete a memory entry by ID.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"id": {
-						"type": "string",
-						"description": "Memory entry ID to delete"
-					},
-					"force": {
-						"type": "boolean",
-						"description": "Skip confirmation"
-					},
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON"
-					},
-					"min": {
-						"type": "boolean",
-						"description": "Minimal output format"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"profile": {
-						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					}
-				},
-				"required": ["id"]
-			}`),
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"force": {
+								"type": "boolean"
+							}
+						},
+						"required": ["id"]
+					}`),
 		},
 
 		// 10. Collection delete
 		{
 			Name:        ToolPrefix + "collection_delete",
-			Description: "Delete all chunks for a specific profile from the semantic index. This removes all embedded content for the given profile (e.g., 'code', 'docs', 'memory', 'sprints').",
+			Description: "Delete all chunks for a specific profile from the index.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"profile": {
-						"type": "string",
-						"enum": ["code", "docs", "memory", "sprints"],
-						"description": "Profile to delete (code, docs, memory, sprints)"
-					},
-					"force": {
-						"type": "boolean",
-						"description": "Skip confirmation"
-					},
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON"
-					},
-					"min": {
-						"type": "boolean",
-						"description": "Minimal output format"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					}
-				},
-				"required": ["profile"]
-			}`),
+						"type": "object",
+						"properties": {
+							"profile": {
+								"type": "string",
+								"enum": ["code", "docs", "memory", "sprints"],
+								"description": "Profile to delete"
+							},
+							"force": {
+								"type": "boolean"
+							},
+							"config": {
+								"type": "string",
+								"description": "Config file path"
+							}
+						},
+						"required": ["profile"]
+					}`),
 		},
 
 		// 11. Memory stats
 		{
 			Name:        ToolPrefix + "memory_stats",
-			Description: "Display retrieval statistics for stored memories. Shows retrieval counts, last accessed times, and retrieval patterns.",
+			Description: "Display retrieval statistics for stored memories.",
 			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"id": {
-						"type": "string",
-						"description": "Filter to a specific memory ID"
-					},
-					"min_retrievals": {
-						"type": "integer",
-						"description": "Show memories with at least N retrievals (default: 0)"
-					},
-					"status": {
-						"type": "string",
-						"enum": ["pending", "promoted"],
-						"description": "Filter by status (pending, promoted)"
-					},
-					"tags": {
-						"type": "string",
-						"description": "Filter by tag (e.g., 'auth' or 'sprint:5.0')"
-					},
-					"limit": {
-						"type": "integer",
-						"description": "Maximum number of results (0 = unlimited)"
-					},
-					"history": {
-						"type": "boolean",
-						"description": "Show retrieval history for a specific memory (requires --id)"
-					},
-					"prune": {
-						"type": "boolean",
-						"description": "Run prune operation to clean up old retrieval log entries"
-					},
-					"older_than": {
-						"type": "integer",
-						"description": "Prune logs older than N days (required with --prune)"
-					},
-					"yes": {
-						"type": "boolean",
-						"description": "Skip confirmation for prune operation"
-					},
-					"json": {
-						"type": "boolean",
-						"description": "Output as JSON"
-					},
-					"min": {
-						"type": "boolean",
-						"description": "Minimal output format"
-					},
-					"storage": {
-						"type": "string",
-						"enum": ["sqlite", "qdrant"],
-						"description": "Storage backend (default: sqlite)"
-					},
-					"collection": {
-						"type": "string",
-						"description": "Collection name for qdrant storage (default: llm_semantic)"
-					},
-					"profile": {
-						"type": "string",
-						"description": "Configuration profile name (e.g., 'code', 'docs', 'memory', 'sprints') - looks up {profile}_collection and {profile}_storage from config (default: .planning/.config/config.yaml)"
-					},
-					"config": {
-						"type": "string",
-						"description": "Path to config.yaml file containing profile settings (default: .planning/.config/config.yaml)"
-					}
-				}
-			}`),
+						"type": "object",
+						"properties": {
+							"id": {
+								"type": "string"
+							},
+							"min_retrievals": {
+								"type": "integer",
+								"description": "Min retrievals filter"
+							},
+							"status": {
+								"type": "string",
+								"enum": ["pending", "promoted"],
+								"description": "pending or promoted"
+							},
+							"tags": {
+								"type": "string",
+								"description": "Tag filter"
+							},
+							"limit": {
+								"type": "integer",
+								"description": "Max results"
+							},
+							"history": {
+								"type": "boolean",
+								"description": "Show retrieval history (needs --id)"
+							},
+							"prune": {
+								"type": "boolean",
+								"description": "Prune old log entries"
+							},
+							"older_than": {
+								"type": "integer",
+								"description": "Days threshold for pruning"
+							},
+							"yes": {
+								"type": "boolean",
+								"description": "Skip prune confirmation"
+							}
+						}
+					}`),
 		},
 	}
 }

@@ -24,25 +24,25 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"path": {"type": "string", "description": "File path to read"},
-					"line_start": {"type": "number", "description": "Starting line number"},
-					"line_count": {"type": "number", "description": "Number of lines to read"},
+					"path": {"type": "string"},
+					"line_start": {"type": "number"},
+					"line_count": {"type": "number"},
 					"start_offset": {"type": "number", "description": "Starting byte offset"},
-					"max_size": {"type": "number", "description": "Maximum JSON output size in characters (0 = default 70000, -1 = no limit)", "default": 70000}
+					"max_size": {"type": "number", "description": "Max JSON output chars (0=default 70000, -1=unlimited)", "default": 70000}
 				},
 				"required": ["path"]
 			}`),
 		},
 		{
 			Name:        ToolPrefix + "write_file",
-			Description: "Writes or modifies a file with the specified content",
+			Description: "Write or create a file with specified content",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"path": {"type": "string", "description": "File path to write"},
-					"content": {"type": "string", "description": "Content to write"},
-					"append": {"type": "boolean", "description": "Append to file instead of overwrite", "default": false},
-					"create_dirs": {"type": "boolean", "description": "Create parent directories if needed", "default": true}
+					"path": {"type": "string"},
+					"content": {"type": "string"},
+					"append": {"type": "boolean", "description": "Append instead of overwrite", "default": false},
+					"create_dirs": {"type": "boolean", "description": "Create parent dirs", "default": true}
 				},
 				"required": ["path", "content"]
 			}`),
@@ -59,12 +59,11 @@ func GetToolDefinitions() []ToolDefinition {
 						"items": {
 							"type": "object",
 							"properties": {
-								"path": {"type": "string", "description": "File path to write"},
-								"content": {"type": "string", "description": "Content to write"}
+								"path": {"type": "string"},
+								"content": {"type": "string"}
 							},
 							"required": ["path", "content"]
-						},
-						"description": "Files to write"
+						}
 					}
 				},
 				"required": ["files"]
@@ -77,9 +76,9 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"paths": {"type": "array", "items": {"type": "string"}, "description": "File paths to read"},
-					"max_total_size": {"type": "integer", "description": "Maximum combined JSON output size in characters (default: 70000, -1 = no limit). Uses smart estimation to account for JSON encoding overhead.", "default": 70000},
-					"chunk_size": {"type": "number", "description": "Chunk size in bytes", "default": 1048576}
+					"paths": {"type": "array", "items": {"type": "string"}},
+					"max_total_size": {"type": "integer", "description": "Max combined JSON output chars (default: 70000, -1=unlimited)", "default": 70000},
+					"chunk_size": {"type": "number", "default": 1048576}
 				},
 				"required": ["paths"]
 			}`),
@@ -90,7 +89,7 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"path": {"type": "string", "description": "File path"},
+					"path": {"type": "string"},
 					"start": {"type": "number", "description": "Start line"},
 					"end": {"type": "number", "description": "End line"},
 					"lines": {"type": "array", "items": {"type": "number"}, "description": "Specific line numbers"}
@@ -105,7 +104,7 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"path": {"type": "string", "description": "File path"},
+					"path": {"type": "string"},
 					"edits": {
 						"type": "array",
 						"items": {
@@ -115,8 +114,7 @@ func GetToolDefinitions() []ToolDefinition {
 								"new_string": {"type": "string"}
 							},
 							"required": ["old_string", "new_string"]
-						},
-						"description": "List of edits"
+						}
 					}
 				},
 				"required": ["path", "edits"]
@@ -128,12 +126,12 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"path": {"type": "string", "description": "Directory to search"},
-					"pattern": {"type": "string", "description": "Search pattern"},
-					"replacement": {"type": "string", "description": "Replacement text"},
-					"regex": {"type": "boolean", "description": "Use regex", "default": false},
-					"dry_run": {"type": "boolean", "description": "Preview only", "default": false},
-					"file_types": {"type": "array", "items": {"type": "string"}, "description": "File extensions"}
+					"path": {"type": "string"},
+					"pattern": {"type": "string"},
+					"replacement": {"type": "string"},
+					"regex": {"type": "boolean", "default": false},
+					"dry_run": {"type": "boolean", "default": false},
+					"file_types": {"type": "array", "items": {"type": "string"}, "description": "Filter by extensions"}
 				},
 				"required": ["path", "pattern", "replacement"]
 			}`),
@@ -145,13 +143,13 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"path": {"type": "string", "description": "Directory path"},
-					"show_hidden": {"type": "boolean", "description": "Show hidden files", "default": false},
-					"pattern": {"type": "string", "description": "Filename filter pattern"},
+					"path": {"type": "string"},
+					"show_hidden": {"type": "boolean", "default": false},
+					"pattern": {"type": "string", "description": "Filename filter"},
 					"sort_by": {"type": "string", "enum": ["name", "size", "modified", "type"], "default": "name"},
-					"reverse": {"type": "boolean", "description": "Reverse sort order", "default": false},
-					"page": {"type": "number", "description": "Page number"},
-					"page_size": {"type": "number", "description": "Items per page"}
+					"reverse": {"type": "boolean", "default": false},
+					"page": {"type": "number"},
+					"page_size": {"type": "number"}
 				},
 				"required": ["path"]
 			}`),
@@ -162,10 +160,10 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"path": {"type": "string", "description": "Root directory path"},
-					"max_depth": {"type": "number", "description": "Maximum depth", "default": 5},
-					"show_hidden": {"type": "boolean", "description": "Show hidden files", "default": false},
-					"include_files": {"type": "boolean", "description": "Include files", "default": false},
+					"path": {"type": "string"},
+					"max_depth": {"type": "number", "default": 5},
+					"show_hidden": {"type": "boolean", "default": false},
+					"include_files": {"type": "boolean", "default": false},
 					"pattern": {"type": "string", "description": "File pattern filter"}
 				},
 				"required": ["path"]
@@ -178,11 +176,11 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"path": {"type": "string", "description": "Directory to search in"},
-					"pattern": {"type": "string", "description": "Search pattern"},
-					"recursive": {"type": "boolean", "description": "Search recursively", "default": true},
-					"show_hidden": {"type": "boolean", "description": "Include hidden files", "default": false},
-					"max_results": {"type": "number", "description": "Maximum results", "default": 1000}
+					"path": {"type": "string"},
+					"pattern": {"type": "string"},
+					"recursive": {"type": "boolean", "default": true},
+					"show_hidden": {"type": "boolean", "default": false},
+					"max_results": {"type": "number", "default": 1000}
 				},
 				"required": ["path", "pattern"]
 			}`),
@@ -193,14 +191,14 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"path": {"type": "string", "description": "Directory to search in"},
-					"pattern": {"type": "string", "description": "Search pattern"},
-					"ignore_case": {"type": "boolean", "description": "Case insensitive", "default": false},
-					"regex": {"type": "boolean", "description": "Use regex", "default": false},
-					"context": {"type": "number", "description": "Context lines", "default": 0},
-					"file_types": {"type": "array", "items": {"type": "string"}, "description": "File extensions"},
-					"max_results": {"type": "number", "description": "Maximum results", "default": 1000},
-					"show_hidden": {"type": "boolean", "description": "Include hidden files", "default": false}
+					"path": {"type": "string"},
+					"pattern": {"type": "string"},
+					"ignore_case": {"type": "boolean", "default": false},
+					"regex": {"type": "boolean", "default": false},
+					"context": {"type": "number", "description": "Context lines around match", "default": 0},
+					"file_types": {"type": "array", "items": {"type": "string"}, "description": "Filter by extensions"},
+					"max_results": {"type": "number", "default": 1000},
+					"show_hidden": {"type": "boolean", "default": false}
 				},
 				"required": ["path", "pattern"]
 			}`),
@@ -212,8 +210,8 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"source": {"type": "string", "description": "Source path"},
-					"destination": {"type": "string", "description": "Destination path"}
+					"source": {"type": "string"},
+					"destination": {"type": "string"}
 				},
 				"required": ["source", "destination"]
 			}`),
@@ -224,8 +222,8 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"source": {"type": "string", "description": "Source path"},
-					"destination": {"type": "string", "description": "Destination path"}
+					"source": {"type": "string"},
+					"destination": {"type": "string"}
 				},
 				"required": ["source", "destination"]
 			}`),
@@ -236,8 +234,8 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"path": {"type": "string", "description": "Path to delete"},
-					"recursive": {"type": "boolean", "description": "Delete recursively", "default": false}
+					"path": {"type": "string"},
+					"recursive": {"type": "boolean", "default": false}
 				},
 				"required": ["path"]
 			}`),
@@ -258,8 +256,7 @@ func GetToolDefinitions() []ToolDefinition {
 								"destination": {"type": "string"}
 							},
 							"required": ["operation", "source"]
-						},
-						"description": "List of operations"
+						}
 					}
 				},
 				"required": ["operations"]
@@ -272,7 +269,7 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"paths": {"type": "array", "items": {"type": "string"}, "description": "Paths to compress"},
+					"paths": {"type": "array", "items": {"type": "string"}},
 					"output": {"type": "string", "description": "Output archive path"},
 					"format": {"type": "string", "enum": ["zip", "tar.gz"], "default": "zip"}
 				},
@@ -285,8 +282,8 @@ func GetToolDefinitions() []ToolDefinition {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"archive": {"type": "string", "description": "Archive file path"},
-					"destination": {"type": "string", "description": "Destination directory"}
+					"archive": {"type": "string"},
+					"destination": {"type": "string"}
 				},
 				"required": ["archive", "destination"]
 			}`),

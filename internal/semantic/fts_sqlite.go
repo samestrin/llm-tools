@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // FTS5 schema and trigger definitions for full-text search support.
@@ -114,7 +115,7 @@ func (s *SQLiteStorage) backfillFTS5() error {
 		// Use INSERT...SELECT for efficient batch backfill
 		_, err := s.db.Exec(`
 			INSERT INTO chunks_fts(rowid, name, content)
-			SELECT rowid, name, COALESCE(content, '')
+			SELECT rowid, COALESCE(name, ''), COALESCE(content, '')
 			FROM chunks
 		`)
 		if err != nil {
@@ -303,14 +304,9 @@ func isFTS5SyntaxError(err error) bool {
 		contains(errStr, "malformed MATCH expression")
 }
 
-// contains checks if s contains substr (simple implementation to avoid strings import).
+// contains checks if s contains substr.
 func contains(s, substr string) bool {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, substr)
 }
 
 // EscapeFTS5Query escapes special FTS5 characters in a query string.
@@ -345,6 +341,136 @@ func (s *SQLiteStorage) SafeLexicalSearch(ctx context.Context, query string, opt
 	return s.LexicalSearch(ctx, EscapeFTS5Query(query), opts)
 }
 
+// LexicalSearchMemory performs a full-text search on memory entries using FTS5.
+// Returns results ranked by BM25 relevance score (higher = more relevant).
+func (s *SQLiteStorage) LexicalSearchMemory(ctx context.Context, query string, opts MemoryLexicalSearchOptions) ([]MemorySearchResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	if query == "" {
+		return []MemorySearchResult{}, nil
+	}
+
+	topK := opts.TopK
+	if topK <= 0 {
+		topK = 10
+	}
+
+	// Build query joining memory_fts with memory table
+	sqlQuery := `
+		SELECT m.id, m.question, m.answer, m.tags, m.source, m.status,
+		       m.occurrences, m.file_path, m.sprints, m.files,
+		       m.created_at, m.updated_at, bm25(memory_fts) as score
+		FROM memory_fts f
+		JOIN memory m ON m.rowid = f.rowid
+		WHERE memory_fts MATCH ?
+	`
+	args := []interface{}{EscapeFTS5Query(query)}
+
+	if opts.Status != "" {
+		sqlQuery += ` AND m.status = ?`
+		args = append(args, string(opts.Status))
+	}
+
+	if opts.Source != "" {
+		sqlQuery += ` AND m.source = ?`
+		args = append(args, opts.Source)
+	}
+
+	sqlQuery += ` ORDER BY bm25(memory_fts) LIMIT ?`
+	args = append(args, topK)
+
+	rows, err := s.db.QueryContext(ctx, sqlQuery, args...)
+	if err != nil {
+		if isFTS5SyntaxError(err) {
+			return nil, fmt.Errorf("fts5 query syntax error: %w", err)
+		}
+		return nil, fmt.Errorf("failed to execute lexical memory search: %w", err)
+	}
+	defer rows.Close()
+
+	var results []MemorySearchResult
+	for rows.Next() {
+		var entry MemoryEntry
+		var tagsStr, sprintsStr, filesStr sql.NullString
+		var filePath, source sql.NullString
+		var bm25Score float64
+
+		if err := rows.Scan(
+			&entry.ID, &entry.Question, &entry.Answer,
+			&tagsStr, &source, &entry.Status,
+			&entry.Occurrences, &filePath, &sprintsStr, &filesStr,
+			&entry.CreatedAt, &entry.UpdatedAt, &bm25Score,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan memory result: %w", err)
+		}
+
+		if source.Valid {
+			entry.Source = source.String
+		}
+		if filePath.Valid {
+			entry.FilePath = filePath.String
+		}
+		if tagsStr.Valid && tagsStr.String != "" {
+			entry.Tags = splitCSV(tagsStr.String)
+		}
+		if sprintsStr.Valid && sprintsStr.String != "" {
+			entry.Sprints = splitCSV(sprintsStr.String)
+		}
+		if filesStr.Valid && filesStr.String != "" {
+			entry.Files = splitCSV(filesStr.String)
+		}
+
+		// Apply tag filter in-memory (FTS5 can't filter CSV columns)
+		if len(opts.Tags) > 0 && !matchesTags(entry.Tags, opts.Tags) {
+			continue
+		}
+
+		results = append(results, MemorySearchResult{
+			Entry: entry,
+			Score: float32(-bm25Score),
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating memory results: %w", err)
+	}
+
+	if results == nil {
+		results = []MemorySearchResult{}
+	}
+
+	return results, nil
+}
+
+// splitCSV splits a comma-separated string into trimmed parts.
+func splitCSV(s string) []string {
+	parts := make([]string, 0)
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return parts
+}
+
+// matchesTags returns true if any of the filter tags match any entry tags.
+func matchesTags(entryTags, filterTags []string) bool {
+	for _, ft := range filterTags {
+		for _, et := range entryTags {
+			if et == ft {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Ensure FTS5 is not being explicitly checked (for migration)
 func ftsTableExists(db *sql.DB) bool {
 	var count int
@@ -353,4 +479,122 @@ func ftsTableExists(db *sql.DB) bool {
 		WHERE type='table' AND name='chunks_fts'
 	`).Scan(&count)
 	return err == nil && count > 0
+}
+
+// ===== MEMORY FTS5 =====
+
+// initMemoryFTS5Schema creates the FTS5 virtual table and sync triggers for the memory table.
+func (s *SQLiteStorage) initMemoryFTS5Schema() error {
+	// Create FTS5 virtual table for memory entries
+	fts5Schema := `
+	CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+		question,
+		answer,
+		tokenize='porter unicode61'
+	);
+	`
+	if _, err := s.db.Exec(fts5Schema); err != nil {
+		return fmt.Errorf("failed to create memory FTS5 virtual table: %w", err)
+	}
+
+	// INSERT trigger
+	insertTrigger := `
+	CREATE TRIGGER IF NOT EXISTS memory_fts_insert
+	AFTER INSERT ON memory
+	BEGIN
+		INSERT INTO memory_fts(rowid, question, answer)
+		VALUES (NEW.rowid, COALESCE(NEW.question, ''), COALESCE(NEW.answer, ''));
+	END;
+	`
+	if _, err := s.db.Exec(insertTrigger); err != nil {
+		return fmt.Errorf("failed to create memory FTS5 INSERT trigger: %w", err)
+	}
+
+	// UPDATE trigger (delete old + insert new)
+	updateTrigger := `
+	CREATE TRIGGER IF NOT EXISTS memory_fts_update
+	AFTER UPDATE ON memory
+	BEGIN
+		DELETE FROM memory_fts WHERE rowid = OLD.rowid;
+		INSERT INTO memory_fts(rowid, question, answer)
+		VALUES (NEW.rowid, COALESCE(NEW.question, ''), COALESCE(NEW.answer, ''));
+	END;
+	`
+	if _, err := s.db.Exec(updateTrigger); err != nil {
+		return fmt.Errorf("failed to create memory FTS5 UPDATE trigger: %w", err)
+	}
+
+	// DELETE trigger
+	deleteTrigger := `
+	CREATE TRIGGER IF NOT EXISTS memory_fts_delete
+	AFTER DELETE ON memory
+	BEGIN
+		DELETE FROM memory_fts WHERE rowid = OLD.rowid;
+	END;
+	`
+	if _, err := s.db.Exec(deleteTrigger); err != nil {
+		return fmt.Errorf("failed to create memory FTS5 DELETE trigger: %w", err)
+	}
+
+	// Backfill existing memories if FTS is empty but memories exist
+	if err := s.backfillMemoryFTS5(); err != nil {
+		return fmt.Errorf("failed to backfill memory FTS5 index: %w", err)
+	}
+
+	return nil
+}
+
+// backfillMemoryFTS5 populates the memory FTS5 index from existing memory entries.
+func (s *SQLiteStorage) backfillMemoryFTS5() error {
+	var ftsCount, memoryCount int
+
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM memory_fts`).Scan(&ftsCount)
+	if err != nil {
+		return fmt.Errorf("failed to count memory FTS entries: %w", err)
+	}
+
+	err = s.db.QueryRow(`SELECT COUNT(*) FROM memory`).Scan(&memoryCount)
+	if err != nil {
+		return fmt.Errorf("failed to count memory entries: %w", err)
+	}
+
+	if memoryCount > 0 && ftsCount == 0 {
+		_, err := s.db.Exec(`
+			INSERT INTO memory_fts(rowid, question, answer)
+			SELECT rowid, COALESCE(question, ''), COALESCE(answer, '')
+			FROM memory
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to backfill memory FTS5: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// RebuildMemoryFTSIndex rebuilds the memory FTS5 index from scratch.
+func (s *SQLiteStorage) RebuildMemoryFTSIndex() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	if _, err := s.db.Exec(`DELETE FROM memory_fts`); err != nil {
+		return fmt.Errorf("failed to clear memory FTS index: %w", err)
+	}
+
+	if _, err := s.db.Exec(`
+		INSERT INTO memory_fts(rowid, question, answer)
+		SELECT rowid, COALESCE(question, ''), COALESCE(answer, '')
+		FROM memory
+	`); err != nil {
+		return fmt.Errorf("failed to rebuild memory FTS index: %w", err)
+	}
+
+	// Optimize
+	s.db.Exec(`INSERT INTO memory_fts(memory_fts) VALUES('optimize')`)
+
+	return nil
 }
