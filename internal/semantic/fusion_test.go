@@ -568,3 +568,138 @@ func TestFusion_DuplicateIDsInSameList(t *testing.T) {
 		t.Errorf("duplicate ID 'A' should be deduplicated, found %d occurrences", idCount["A"])
 	}
 }
+
+// ===== MEMORY FUSION TESTS =====
+
+func makeTestMemoryResults(ids ...string) []MemorySearchResult {
+	results := make([]MemorySearchResult, len(ids))
+	for i, id := range ids {
+		results[i] = MemorySearchResult{
+			Entry: MemoryEntry{
+				ID:       id,
+				Question: "Question about " + id,
+				Answer:   "Answer for " + id,
+			},
+			Score: float32(100 - i*10),
+		}
+	}
+	return results
+}
+
+func TestFuseRRFMemory_BasicCombination(t *testing.T) {
+	dense := makeTestMemoryResults("A", "B", "C")
+	lexical := makeTestMemoryResults("B", "D", "A")
+
+	results := FuseRRFMemory(dense, lexical, 60)
+
+	if len(results) == 0 {
+		t.Fatal("expected non-empty results")
+	}
+
+	// B appears in both lists at high ranks, should rank highest
+	// A also appears in both but at different positions
+	idSet := make(map[string]bool)
+	for _, r := range results {
+		idSet[r.Entry.ID] = true
+	}
+	for _, id := range []string{"A", "B", "C", "D"} {
+		if !idSet[id] {
+			t.Errorf("missing ID %s in results", id)
+		}
+	}
+
+	// Items in both lists should have higher scores than items in one
+	scoreMap := make(map[string]float32)
+	for _, r := range results {
+		scoreMap[r.Entry.ID] = r.Score
+	}
+	if scoreMap["C"] >= scoreMap["B"] {
+		t.Errorf("B (in both lists) should score higher than C (dense only): B=%v, C=%v", scoreMap["B"], scoreMap["C"])
+	}
+}
+
+func TestFuseRRFMemory_EmptyInputs(t *testing.T) {
+	dense := makeTestMemoryResults("A", "B")
+
+	t.Run("empty lexical", func(t *testing.T) {
+		results := FuseRRFMemory(dense, nil, 60)
+		if len(results) != 2 {
+			t.Errorf("expected 2 results from dense-only, got %d", len(results))
+		}
+	})
+
+	t.Run("empty dense", func(t *testing.T) {
+		results := FuseRRFMemory(nil, dense, 60)
+		if len(results) != 2 {
+			t.Errorf("expected 2 results from lexical-only, got %d", len(results))
+		}
+	})
+
+	t.Run("both empty", func(t *testing.T) {
+		results := FuseRRFMemory(nil, nil, 60)
+		if len(results) != 0 {
+			t.Errorf("expected 0 results, got %d", len(results))
+		}
+	})
+}
+
+func TestFuseRRFMemory_PreservesEntryData(t *testing.T) {
+	dense := []MemorySearchResult{{
+		Entry: MemoryEntry{
+			ID:       "test-1",
+			Question: "Important question",
+			Answer:   "Detailed answer",
+			Tags:     []string{"tag1", "tag2"},
+			Source:   "manual",
+		},
+		Score: 0.9,
+	}}
+
+	results := FuseRRFMemory(dense, nil, 60)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Entry.Question != "Important question" {
+		t.Errorf("Entry.Question not preserved: %s", results[0].Entry.Question)
+	}
+	if results[0].Entry.Answer != "Detailed answer" {
+		t.Errorf("Entry.Answer not preserved: %s", results[0].Entry.Answer)
+	}
+	if len(results[0].Entry.Tags) != 2 {
+		t.Errorf("Entry.Tags not preserved: %v", results[0].Entry.Tags)
+	}
+}
+
+func TestFuseRRFMemory_TopK(t *testing.T) {
+	dense := makeTestMemoryResults("A", "B", "C", "D", "E")
+	results := FuseRRFMemoryWithTopK(dense, nil, 60, 3)
+	if len(results) != 3 {
+		t.Errorf("expected 3 results with topK=3, got %d", len(results))
+	}
+}
+
+func TestFuseWeightedMemory_Alpha(t *testing.T) {
+	dense := makeTestMemoryResults("A", "B")
+	lexical := makeTestMemoryResults("B", "C")
+
+	t.Run("alpha 0.7", func(t *testing.T) {
+		results, err := FuseWeightedMemory(dense, lexical, 0.7)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(results) != 3 {
+			t.Errorf("expected 3 merged results, got %d", len(results))
+		}
+	})
+
+	t.Run("invalid alpha", func(t *testing.T) {
+		_, err := FuseWeightedMemory(dense, lexical, 1.5)
+		if err == nil {
+			t.Error("expected error for alpha > 1.0")
+		}
+		_, err = FuseWeightedMemory(dense, lexical, -0.1)
+		if err == nil {
+			t.Error("expected error for alpha < 0.0")
+		}
+	})
+}
