@@ -210,6 +210,14 @@ func ExecuteHandler(toolName string, args map[string]interface{}) (string, error
 		cmdArgs = append(cmdArgs, "--min")
 	}
 
+	// Forward current env vars as explicit flags to ensure subprocess gets fresh values
+	if apiURL := os.Getenv("LLM_SEMANTIC_API_URL"); apiURL != "" {
+		cmdArgs = append(cmdArgs, "--api-url", apiURL)
+	}
+	if model := os.Getenv("LLM_SEMANTIC_MODEL"); model != "" {
+		cmdArgs = append(cmdArgs, "--model", model)
+	}
+
 	// Pass config and profile to CLI so it can resolve storage/collection from config
 	if cfgPath, ok := args["config"].(string); ok && cfgPath != "" {
 		cmdArgs = append(cmdArgs, "--config", cfgPath)
@@ -676,6 +684,12 @@ func buildMemorySearchArgs(args map[string]interface{}) []string {
 	}
 	if collection, ok := args["collection"].(string); ok && collection != "" {
 		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
+	if getBool(args, "decay") {
+		cmdArgs = append(cmdArgs, "--decay")
+	}
+	if decayHalfLife, ok := getFloat(args, "decay_half_life"); ok && decayHalfLife > 0 {
+		cmdArgs = append(cmdArgs, "--decay-half-life", fmt.Sprintf("%.1f", decayHalfLife))
 	}
 
 	return cmdArgs

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/samestrin/llm-tools/internal/semantic"
 	"github.com/spf13/cobra"
@@ -209,12 +211,14 @@ func runMemoryStore(ctx context.Context, opts memoryStoreOpts) error {
 
 func memorySearchCmd() *cobra.Command {
 	var (
-		topK       int
-		threshold  float64
-		tags       string
-		status     string
-		jsonOutput bool
-		minOutput  bool
+		topK          int
+		threshold     float64
+		tags          string
+		status        string
+		jsonOutput    bool
+		minOutput     bool
+		decay         bool
+		decayHalfLife float64
 	)
 
 	cmd := &cobra.Command{
@@ -229,13 +233,15 @@ Example:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := strings.Join(args, " ")
 			return runMemorySearch(cmd.Context(), memorySearchOpts{
-				query:      query,
-				topK:       topK,
-				threshold:  float32(threshold),
-				tags:       tags,
-				status:     status,
-				jsonOutput: jsonOutput,
-				minOutput:  minOutput,
+				query:         query,
+				topK:          topK,
+				threshold:     float32(threshold),
+				tags:          tags,
+				status:        status,
+				jsonOutput:    jsonOutput,
+				minOutput:     minOutput,
+				decay:         decay,
+				decayHalfLife: decayHalfLife,
 			})
 		},
 	}
@@ -246,18 +252,22 @@ Example:
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status (pending, promoted)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Output minimal JSON format")
+	cmd.Flags().BoolVar(&decay, "decay", false, "Apply temporal decay (recent memories score higher)")
+	cmd.Flags().Float64Var(&decayHalfLife, "decay-half-life", 90.0, "Decay half-life in days (default: 90)")
 
 	return cmd
 }
 
 type memorySearchOpts struct {
-	query      string
-	topK       int
-	threshold  float32
-	tags       string
-	status     string
-	jsonOutput bool
-	minOutput  bool
+	query         string
+	topK          int
+	threshold     float32
+	tags          string
+	status        string
+	jsonOutput    bool
+	minOutput     bool
+	decay         bool
+	decayHalfLife float64
 }
 
 func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
@@ -313,6 +323,19 @@ func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
 	})
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
+	}
+
+	// Apply temporal decay if enabled
+	if opts.decay && len(results) > 0 {
+		decayCfg := semantic.TemporalDecayConfig{
+			HalfLifeDays: opts.decayHalfLife,
+			Enabled:      true,
+		}
+		semantic.ApplyTemporalDecay(results, decayCfg, time.Now())
+		// Re-sort by decayed score descending
+		sort.Slice(results, func(i, j int) bool {
+			return results[i].Score > results[j].Score
+		})
 	}
 
 	// Track retrieval stats (automatic for memory profile)
