@@ -539,6 +539,10 @@ func GetToolDefinitions() []ToolDefinition {
 							"decay_half_life": {
 								"type": "number",
 								"description": "Decay half-life in days (default: 90)"
+							},
+							"hybrid": {
+								"type": "boolean",
+								"description": "Enable hybrid search (dense + lexical with RRF fusion)"
 							}
 						},
 						"required": ["query"]

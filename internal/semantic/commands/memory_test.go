@@ -55,7 +55,7 @@ func TestMemorySearchCmd_Flags(t *testing.T) {
 	cmd := memorySearchCmd()
 
 	// Check expected flags
-	flags := []string{"top", "threshold", "tags", "status", "json", "min", "decay", "decay-half-life"}
+	flags := []string{"top", "threshold", "tags", "status", "json", "min", "decay", "decay-half-life", "hybrid"}
 	for _, f := range flags {
 		if cmd.Flags().Lookup(f) == nil {
 			t.Errorf("memorySearchCmd() missing --%s flag", f)
