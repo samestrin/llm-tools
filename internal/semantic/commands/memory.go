@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/samestrin/llm-tools/internal/semantic"
 	"github.com/spf13/cobra"
@@ -209,12 +211,15 @@ func runMemoryStore(ctx context.Context, opts memoryStoreOpts) error {
 
 func memorySearchCmd() *cobra.Command {
 	var (
-		topK       int
-		threshold  float64
-		tags       string
-		status     string
-		jsonOutput bool
-		minOutput  bool
+		topK          int
+		threshold     float64
+		tags          string
+		status        string
+		jsonOutput    bool
+		minOutput     bool
+		decay         bool
+		decayHalfLife float64
+		hybrid        bool
 	)
 
 	cmd := &cobra.Command{
@@ -229,13 +234,16 @@ Example:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := strings.Join(args, " ")
 			return runMemorySearch(cmd.Context(), memorySearchOpts{
-				query:      query,
-				topK:       topK,
-				threshold:  float32(threshold),
-				tags:       tags,
-				status:     status,
-				jsonOutput: jsonOutput,
-				minOutput:  minOutput,
+				query:         query,
+				topK:          topK,
+				threshold:     float32(threshold),
+				tags:          tags,
+				status:        status,
+				jsonOutput:    jsonOutput,
+				minOutput:     minOutput,
+				decay:         decay,
+				decayHalfLife: decayHalfLife,
+				hybrid:        hybrid,
 			})
 		},
 	}
@@ -246,18 +254,24 @@ Example:
 	cmd.Flags().StringVar(&status, "status", "", "Filter by status (pending, promoted)")
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Output minimal JSON format")
+	cmd.Flags().BoolVar(&decay, "decay", false, "Apply temporal decay (recent memories score higher)")
+	cmd.Flags().Float64Var(&decayHalfLife, "decay-half-life", 90.0, "Decay half-life in days (default: 90)")
+	cmd.Flags().BoolVar(&hybrid, "hybrid", false, "Enable hybrid search (dense + lexical BM25 with RRF fusion)")
 
 	return cmd
 }
 
 type memorySearchOpts struct {
-	query      string
-	topK       int
-	threshold  float32
-	tags       string
-	status     string
-	jsonOutput bool
-	minOutput  bool
+	query         string
+	topK          int
+	threshold     float32
+	tags          string
+	status        string
+	jsonOutput    bool
+	minOutput     bool
+	decay         bool
+	decayHalfLife float64
+	hybrid        bool
 }
 
 func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
@@ -289,12 +303,6 @@ func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
 	}
 	defer storage.Close()
 
-	// Generate query embedding
-	queryEmbedding, err := embedder.Embed(ctx, opts.query)
-	if err != nil {
-		return fmt.Errorf("failed to generate query embedding: %w", err)
-	}
-
 	// Parse tags filter
 	var tagsList []string
 	if opts.tags != "" {
@@ -304,15 +312,60 @@ func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
 		}
 	}
 
-	// Search memories
-	results, err := storage.SearchMemory(ctx, queryEmbedding, semantic.MemorySearchOptions{
+	searchOpts := semantic.MemorySearchOptions{
 		TopK:      opts.topK,
 		Threshold: opts.threshold,
 		Tags:      tagsList,
 		Status:    semantic.MemoryStatus(opts.status),
-	})
-	if err != nil {
-		return fmt.Errorf("search failed: %w", err)
+	}
+
+	var results []semantic.MemorySearchResult
+
+	if opts.hybrid {
+		// Hybrid search: dense + lexical with RRF fusion
+		var decay *semantic.TemporalDecayConfig
+		if opts.decay {
+			decayCfg := semantic.TemporalDecayConfig{
+				HalfLifeDays: opts.decayHalfLife,
+				Enabled:      true,
+			}
+			if err := semantic.ValidateTemporalDecayConfig(decayCfg); err != nil {
+				return fmt.Errorf("invalid decay config: %w", err)
+			}
+			decay = &decayCfg
+		}
+		results, err = semantic.HybridSearchMemory(ctx, storage, embedder, opts.query, semantic.HybridMemorySearchOptions{
+			MemorySearchOptions: searchOpts,
+			Decay:               decay,
+		})
+		if err != nil {
+			return fmt.Errorf("hybrid search failed: %w", err)
+		}
+	} else {
+		// Dense-only search
+		queryEmbedding, embedErr := embedder.Embed(ctx, opts.query)
+		if embedErr != nil {
+			return fmt.Errorf("failed to generate query embedding: %w", embedErr)
+		}
+		results, err = storage.SearchMemory(ctx, queryEmbedding, searchOpts)
+		if err != nil {
+			return fmt.Errorf("search failed: %w", err)
+		}
+
+		// Apply temporal decay if enabled (for non-hybrid mode)
+		if opts.decay && len(results) > 0 {
+			decayCfg := semantic.TemporalDecayConfig{
+				HalfLifeDays: opts.decayHalfLife,
+				Enabled:      true,
+			}
+			if validateErr := semantic.ValidateTemporalDecayConfig(decayCfg); validateErr != nil {
+				return fmt.Errorf("invalid decay config: %w", validateErr)
+			}
+			semantic.ApplyTemporalDecay(results, decayCfg, time.Now())
+			sort.Slice(results, func(i, j int) bool {
+				return results[i].Score > results[j].Score
+			})
+		}
 	}
 
 	// Track retrieval stats (automatic for memory profile)
