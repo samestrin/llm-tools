@@ -71,6 +71,22 @@ type LexicalSearchOptions struct {
 	Threshold  float64 // Minimum BM25 score (more negative = more relevant)
 }
 
+// MemoryLexicalSearcher is an optional interface for storage backends that support
+// full-text search of memory entries.
+type MemoryLexicalSearcher interface {
+	// LexicalSearchMemory performs full-text search on memory question and answer fields.
+	// Returns results ranked by BM25 relevance score.
+	LexicalSearchMemory(ctx context.Context, query string, opts MemoryLexicalSearchOptions) ([]MemorySearchResult, error)
+}
+
+// MemoryLexicalSearchOptions configures lexical memory search parameters.
+type MemoryLexicalSearchOptions struct {
+	TopK   int          // Maximum results to return (default: 10)
+	Tags   []string     // Filter by tags (any match)
+	Source string       // Filter by source
+	Status MemoryStatus // Filter by status
+}
+
 // Storage defines the interface for persisting and querying chunks with embeddings
 type Storage interface {
 	// Create stores a new chunk with its embedding
