@@ -155,6 +155,11 @@ func (s *SQLiteStorage) initSchema() error {
 		return err
 	}
 
+	// Initialize memory FTS5 for lexical memory search
+	if err := s.initMemoryFTS5Schema(); err != nil {
+		return err
+	}
+
 	// Initialize memory stats tracking tables
 	if err := s.initMemoryStatsSchema(); err != nil {
 		return err

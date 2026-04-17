@@ -847,3 +847,259 @@ func TestFTS5BM25Scoring(t *testing.T) {
 		}
 	}
 }
+
+// ===== MEMORY FTS5 TESTS =====
+
+func TestMemoryFTS5TableCreation(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Verify memory_fts table exists
+	var tableName string
+	err = storage.db.QueryRow(`
+		SELECT name FROM sqlite_master
+		WHERE type='table' AND name='memory_fts'
+	`).Scan(&tableName)
+	if err != nil {
+		t.Errorf("memory_fts table not found: %v", err)
+	}
+
+	// Verify triggers exist
+	triggers := []string{"memory_fts_insert", "memory_fts_update", "memory_fts_delete"}
+	for _, trig := range triggers {
+		var name string
+		err = storage.db.QueryRow(`
+			SELECT name FROM sqlite_master
+			WHERE type='trigger' AND name=?
+		`, trig).Scan(&name)
+		if err != nil {
+			t.Errorf("trigger %s not found: %v", trig, err)
+		}
+	}
+}
+
+func TestMemoryFTS5TriggerSync_Insert(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+
+	entry := NewMemoryEntry("How do we handle JWT rotation?", "Use short-lived tokens with refresh")
+	entry.Tags = []string{"auth", "security"}
+	embedding := []float32{0.1, 0.2, 0.3, 0.4}
+
+	if err := storage.StoreMemory(ctx, *entry, embedding); err != nil {
+		t.Fatalf("StoreMemory failed: %v", err)
+	}
+
+	// Verify FTS5 indexed the question
+	var count int
+	err = storage.db.QueryRow(`SELECT COUNT(*) FROM memory_fts WHERE memory_fts MATCH 'JWT'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("FTS5 query failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 FTS match for 'JWT', got %d", count)
+	}
+
+	// Verify FTS5 indexed the answer
+	err = storage.db.QueryRow(`SELECT COUNT(*) FROM memory_fts WHERE memory_fts MATCH 'refresh'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("FTS5 query failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 FTS match for 'refresh', got %d", count)
+	}
+}
+
+func TestMemoryFTS5TriggerSync_Update(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+
+	entry := NewMemoryEntry("How do we handle authentication?", "Use OAuth2")
+	embedding := []float32{0.1, 0.2, 0.3, 0.4}
+
+	if err := storage.StoreMemory(ctx, *entry, embedding); err != nil {
+		t.Fatalf("StoreMemory failed: %v", err)
+	}
+
+	// Update the answer by re-storing with same ID
+	entry.Answer = "Use SAML federation instead"
+	if err := storage.StoreMemory(ctx, *entry, embedding); err != nil {
+		t.Fatalf("StoreMemory (update) failed: %v", err)
+	}
+
+	// Old answer should not be found
+	var count int
+	err = storage.db.QueryRow(`SELECT COUNT(*) FROM memory_fts WHERE memory_fts MATCH 'OAuth2'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("FTS5 query failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 FTS matches for old answer 'OAuth2', got %d", count)
+	}
+
+	// New answer should be found
+	err = storage.db.QueryRow(`SELECT COUNT(*) FROM memory_fts WHERE memory_fts MATCH 'SAML'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("FTS5 query failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 FTS match for new answer 'SAML', got %d", count)
+	}
+}
+
+func TestMemoryFTS5TriggerSync_Delete(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+
+	entry := NewMemoryEntry("Database migration strategy", "Use flyway for schema versioning")
+	embedding := []float32{0.1, 0.2, 0.3, 0.4}
+
+	if err := storage.StoreMemory(ctx, *entry, embedding); err != nil {
+		t.Fatalf("StoreMemory failed: %v", err)
+	}
+
+	// Delete the memory
+	if err := storage.DeleteMemory(ctx, entry.ID); err != nil {
+		t.Fatalf("DeleteMemory failed: %v", err)
+	}
+
+	// Should not be found in FTS
+	var count int
+	err = storage.db.QueryRow(`SELECT COUNT(*) FROM memory_fts WHERE memory_fts MATCH 'flyway'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("FTS5 query failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 FTS matches after delete, got %d", count)
+	}
+}
+
+func TestMemoryFTS5TriggerSync_Upsert(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+
+	entry := NewMemoryEntry("API versioning approach", "Use URL path versioning /v1/")
+	embedding := []float32{0.1, 0.2, 0.3, 0.4}
+
+	// Store once
+	if err := storage.StoreMemory(ctx, *entry, embedding); err != nil {
+		t.Fatalf("StoreMemory failed: %v", err)
+	}
+
+	// Upsert with updated answer (same ID triggers ON CONFLICT)
+	entry.Answer = "Use header-based versioning with Accept header"
+	if err := storage.StoreMemory(ctx, *entry, embedding); err != nil {
+		t.Fatalf("StoreMemory (upsert) failed: %v", err)
+	}
+
+	// Should have exactly 1 entry in FTS (not 2)
+	var count int
+	err = storage.db.QueryRow(`SELECT COUNT(*) FROM memory_fts`).Scan(&count)
+	if err != nil {
+		t.Fatalf("FTS5 count failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 FTS entry after upsert, got %d", count)
+	}
+
+	// New content should be searchable
+	err = storage.db.QueryRow(`SELECT COUNT(*) FROM memory_fts WHERE memory_fts MATCH 'header'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("FTS5 query failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 FTS match for updated content 'header', got %d", count)
+	}
+}
+
+func TestMemoryFTS5SpecialCharacters(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+
+	// Store memory with special characters
+	entry := NewMemoryEntry(`What's the "best" approach for user.name validation?`, `Use regex: ^[a-zA-Z0-9_]+$`)
+	embedding := []float32{0.1, 0.2, 0.3, 0.4}
+
+	if err := storage.StoreMemory(ctx, *entry, embedding); err != nil {
+		t.Fatalf("StoreMemory with special chars failed: %v", err)
+	}
+
+	// Should be searchable by normal keywords
+	var count int
+	err = storage.db.QueryRow(`SELECT COUNT(*) FROM memory_fts WHERE memory_fts MATCH 'validation'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("FTS5 query failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 FTS match for 'validation', got %d", count)
+	}
+}
+
+func TestMemoryFTS5Backfill(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Insert memory rows directly, bypassing triggers (simulating pre-FTS5 database)
+	embedding, _ := encodeEmbedding([]float32{0.1, 0.2, 0.3, 0.4})
+	_, err = storage.db.Exec(`INSERT INTO memory (id, question, answer, embedding, created_at, updated_at)
+		VALUES ('mem-test-1', 'What is the deployment process?', 'Use blue-green deployment', ?, datetime('now'), datetime('now'))`, embedding)
+	if err != nil {
+		t.Fatalf("direct insert failed: %v", err)
+	}
+
+	// Clear FTS and re-backfill
+	_, err = storage.db.Exec(`DELETE FROM memory_fts`)
+	if err != nil {
+		t.Fatalf("clear FTS failed: %v", err)
+	}
+
+	// Verify FTS is empty
+	var count int
+	storage.db.QueryRow(`SELECT COUNT(*) FROM memory_fts`).Scan(&count)
+	if count != 0 {
+		t.Fatalf("FTS should be empty after clear, got %d", count)
+	}
+
+	// Run backfill
+	if err := storage.backfillMemoryFTS5(); err != nil {
+		t.Fatalf("backfillMemoryFTS5 failed: %v", err)
+	}
+
+	// Verify backfill populated FTS
+	storage.db.QueryRow(`SELECT COUNT(*) FROM memory_fts`).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 FTS entry after backfill, got %d", count)
+	}
+
+	// Verify content is searchable
+	storage.db.QueryRow(`SELECT COUNT(*) FROM memory_fts WHERE memory_fts MATCH 'deployment'`).Scan(&count)
+	if count != 1 {
+		t.Errorf("expected 1 FTS match for 'deployment' after backfill, got %d", count)
+	}
+}
