@@ -354,3 +354,121 @@ func ftsTableExists(db *sql.DB) bool {
 	`).Scan(&count)
 	return err == nil && count > 0
 }
+
+// ===== MEMORY FTS5 =====
+
+// initMemoryFTS5Schema creates the FTS5 virtual table and sync triggers for the memory table.
+func (s *SQLiteStorage) initMemoryFTS5Schema() error {
+	// Create FTS5 virtual table for memory entries
+	fts5Schema := `
+	CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+		question,
+		answer,
+		tokenize='porter unicode61'
+	);
+	`
+	if _, err := s.db.Exec(fts5Schema); err != nil {
+		return fmt.Errorf("failed to create memory FTS5 virtual table: %w", err)
+	}
+
+	// INSERT trigger
+	insertTrigger := `
+	CREATE TRIGGER IF NOT EXISTS memory_fts_insert
+	AFTER INSERT ON memory
+	BEGIN
+		INSERT INTO memory_fts(rowid, question, answer)
+		VALUES (NEW.rowid, COALESCE(NEW.question, ''), COALESCE(NEW.answer, ''));
+	END;
+	`
+	if _, err := s.db.Exec(insertTrigger); err != nil {
+		return fmt.Errorf("failed to create memory FTS5 INSERT trigger: %w", err)
+	}
+
+	// UPDATE trigger (delete old + insert new)
+	updateTrigger := `
+	CREATE TRIGGER IF NOT EXISTS memory_fts_update
+	AFTER UPDATE ON memory
+	BEGIN
+		DELETE FROM memory_fts WHERE rowid = OLD.rowid;
+		INSERT INTO memory_fts(rowid, question, answer)
+		VALUES (NEW.rowid, COALESCE(NEW.question, ''), COALESCE(NEW.answer, ''));
+	END;
+	`
+	if _, err := s.db.Exec(updateTrigger); err != nil {
+		return fmt.Errorf("failed to create memory FTS5 UPDATE trigger: %w", err)
+	}
+
+	// DELETE trigger
+	deleteTrigger := `
+	CREATE TRIGGER IF NOT EXISTS memory_fts_delete
+	AFTER DELETE ON memory
+	BEGIN
+		DELETE FROM memory_fts WHERE rowid = OLD.rowid;
+	END;
+	`
+	if _, err := s.db.Exec(deleteTrigger); err != nil {
+		return fmt.Errorf("failed to create memory FTS5 DELETE trigger: %w", err)
+	}
+
+	// Backfill existing memories if FTS is empty but memories exist
+	if err := s.backfillMemoryFTS5(); err != nil {
+		return fmt.Errorf("failed to backfill memory FTS5 index: %w", err)
+	}
+
+	return nil
+}
+
+// backfillMemoryFTS5 populates the memory FTS5 index from existing memory entries.
+func (s *SQLiteStorage) backfillMemoryFTS5() error {
+	var ftsCount, memoryCount int
+
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM memory_fts`).Scan(&ftsCount)
+	if err != nil {
+		return fmt.Errorf("failed to count memory FTS entries: %w", err)
+	}
+
+	err = s.db.QueryRow(`SELECT COUNT(*) FROM memory`).Scan(&memoryCount)
+	if err != nil {
+		return fmt.Errorf("failed to count memory entries: %w", err)
+	}
+
+	if memoryCount > 0 && ftsCount == 0 {
+		_, err := s.db.Exec(`
+			INSERT INTO memory_fts(rowid, question, answer)
+			SELECT rowid, COALESCE(question, ''), COALESCE(answer, '')
+			FROM memory
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to backfill memory FTS5: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// RebuildMemoryFTSIndex rebuilds the memory FTS5 index from scratch.
+func (s *SQLiteStorage) RebuildMemoryFTSIndex() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrStorageClosed
+	}
+
+	if _, err := s.db.Exec(`DELETE FROM memory_fts`); err != nil {
+		return fmt.Errorf("failed to clear memory FTS index: %w", err)
+	}
+
+	if _, err := s.db.Exec(`
+		INSERT INTO memory_fts(rowid, question, answer)
+		SELECT rowid, COALESCE(question, ''), COALESCE(answer, '')
+		FROM memory
+	`); err != nil {
+		return fmt.Errorf("failed to rebuild memory FTS index: %w", err)
+	}
+
+	// Optimize
+	s.db.Exec(`INSERT INTO memory_fts(memory_fts) VALUES('optimize')`)
+
+	return nil
+}
