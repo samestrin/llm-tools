@@ -142,3 +142,116 @@ func FuseWeighted(denseResults, lexicalResults []SearchResult, alpha float64) ([
 
 	return results, nil
 }
+
+// ===== MEMORY FUSION =====
+
+// FuseRRFMemory combines dense and lexical memory search results using Reciprocal Rank Fusion.
+func FuseRRFMemory(denseResults, lexicalResults []MemorySearchResult, k int) []MemorySearchResult {
+	if k <= 0 {
+		k = 60
+	}
+
+	if denseResults == nil {
+		denseResults = []MemorySearchResult{}
+	}
+	if lexicalResults == nil {
+		lexicalResults = []MemorySearchResult{}
+	}
+
+	scoreMap := make(map[string]float32)
+	entryMap := make(map[string]MemoryEntry)
+
+	for rank, result := range denseResults {
+		id := result.Entry.ID
+		rrfScore := float32(1.0 / float64(k+rank+1))
+		scoreMap[id] += rrfScore
+		if _, exists := entryMap[id]; !exists {
+			entryMap[id] = result.Entry
+		}
+	}
+
+	for rank, result := range lexicalResults {
+		id := result.Entry.ID
+		rrfScore := float32(1.0 / float64(k+rank+1))
+		scoreMap[id] += rrfScore
+		if _, exists := entryMap[id]; !exists {
+			entryMap[id] = result.Entry
+		}
+	}
+
+	results := make([]MemorySearchResult, 0, len(scoreMap))
+	for id, score := range scoreMap {
+		results = append(results, MemorySearchResult{
+			Entry: entryMap[id],
+			Score: score,
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return results[i].Entry.ID < results[j].Entry.ID
+	})
+
+	return results
+}
+
+// FuseRRFMemoryWithTopK is FuseRRFMemory with a result count limit.
+func FuseRRFMemoryWithTopK(denseResults, lexicalResults []MemorySearchResult, k int, topK int) []MemorySearchResult {
+	results := FuseRRFMemory(denseResults, lexicalResults, k)
+	if topK > 0 && len(results) > topK {
+		results = results[:topK]
+	}
+	return results
+}
+
+// FuseWeightedMemory combines dense and lexical memory results using weighted scoring.
+func FuseWeightedMemory(denseResults, lexicalResults []MemorySearchResult, alpha float64) ([]MemorySearchResult, error) {
+	if alpha < 0 || alpha > 1 {
+		return nil, fmt.Errorf("alpha must be between 0.0 and 1.0, got: %v", alpha)
+	}
+
+	if denseResults == nil {
+		denseResults = []MemorySearchResult{}
+	}
+	if lexicalResults == nil {
+		lexicalResults = []MemorySearchResult{}
+	}
+
+	scoreMap := make(map[string]float64)
+	entryMap := make(map[string]MemoryEntry)
+
+	for _, result := range denseResults {
+		id := result.Entry.ID
+		scoreMap[id] += alpha * float64(result.Score)
+		if _, exists := entryMap[id]; !exists {
+			entryMap[id] = result.Entry
+		}
+	}
+
+	for _, result := range lexicalResults {
+		id := result.Entry.ID
+		scoreMap[id] += (1.0 - alpha) * float64(result.Score)
+		if _, exists := entryMap[id]; !exists {
+			entryMap[id] = result.Entry
+		}
+	}
+
+	results := make([]MemorySearchResult, 0, len(scoreMap))
+	for id, score := range scoreMap {
+		results = append(results, MemorySearchResult{
+			Entry: entryMap[id],
+			Score: float32(score),
+		})
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return results[i].Entry.ID < results[j].Entry.ID
+	})
+
+	return results, nil
+}
