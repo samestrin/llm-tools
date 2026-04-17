@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // FTS5 schema and trigger definitions for full-text search support.
@@ -343,6 +344,136 @@ func EscapeFTS5Query(query string) string {
 // For advanced users who want FTS5 operators, use LexicalSearch directly.
 func (s *SQLiteStorage) SafeLexicalSearch(ctx context.Context, query string, opts LexicalSearchOptions) ([]SearchResult, error) {
 	return s.LexicalSearch(ctx, EscapeFTS5Query(query), opts)
+}
+
+// LexicalSearchMemory performs a full-text search on memory entries using FTS5.
+// Returns results ranked by BM25 relevance score (higher = more relevant).
+func (s *SQLiteStorage) LexicalSearchMemory(ctx context.Context, query string, opts MemoryLexicalSearchOptions) ([]MemorySearchResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	if query == "" {
+		return []MemorySearchResult{}, nil
+	}
+
+	topK := opts.TopK
+	if topK <= 0 {
+		topK = 10
+	}
+
+	// Build query joining memory_fts with memory table
+	sqlQuery := `
+		SELECT m.id, m.question, m.answer, m.tags, m.source, m.status,
+		       m.occurrences, m.file_path, m.sprints, m.files,
+		       m.created_at, m.updated_at, bm25(memory_fts) as score
+		FROM memory_fts f
+		JOIN memory m ON m.rowid = f.rowid
+		WHERE memory_fts MATCH ?
+	`
+	args := []interface{}{EscapeFTS5Query(query)}
+
+	if opts.Status != "" {
+		sqlQuery += ` AND m.status = ?`
+		args = append(args, string(opts.Status))
+	}
+
+	if opts.Source != "" {
+		sqlQuery += ` AND m.source = ?`
+		args = append(args, opts.Source)
+	}
+
+	sqlQuery += ` ORDER BY bm25(memory_fts) LIMIT ?`
+	args = append(args, topK)
+
+	rows, err := s.db.QueryContext(ctx, sqlQuery, args...)
+	if err != nil {
+		if isFTS5SyntaxError(err) {
+			return nil, fmt.Errorf("fts5 query syntax error: %w", err)
+		}
+		return nil, fmt.Errorf("failed to execute lexical memory search: %w", err)
+	}
+	defer rows.Close()
+
+	var results []MemorySearchResult
+	for rows.Next() {
+		var entry MemoryEntry
+		var tagsStr, sprintsStr, filesStr sql.NullString
+		var filePath, source sql.NullString
+		var bm25Score float64
+
+		if err := rows.Scan(
+			&entry.ID, &entry.Question, &entry.Answer,
+			&tagsStr, &source, &entry.Status,
+			&entry.Occurrences, &filePath, &sprintsStr, &filesStr,
+			&entry.CreatedAt, &entry.UpdatedAt, &bm25Score,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan memory result: %w", err)
+		}
+
+		if source.Valid {
+			entry.Source = source.String
+		}
+		if filePath.Valid {
+			entry.FilePath = filePath.String
+		}
+		if tagsStr.Valid && tagsStr.String != "" {
+			entry.Tags = splitCSV(tagsStr.String)
+		}
+		if sprintsStr.Valid && sprintsStr.String != "" {
+			entry.Sprints = splitCSV(sprintsStr.String)
+		}
+		if filesStr.Valid && filesStr.String != "" {
+			entry.Files = splitCSV(filesStr.String)
+		}
+
+		// Apply tag filter in-memory (FTS5 can't filter CSV columns)
+		if len(opts.Tags) > 0 && !matchesTags(entry.Tags, opts.Tags) {
+			continue
+		}
+
+		results = append(results, MemorySearchResult{
+			Entry: entry,
+			Score: float32(-bm25Score),
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating memory results: %w", err)
+	}
+
+	if results == nil {
+		results = []MemorySearchResult{}
+	}
+
+	return results, nil
+}
+
+// splitCSV splits a comma-separated string into trimmed parts.
+func splitCSV(s string) []string {
+	parts := make([]string, 0)
+	for _, p := range strings.Split(s, ",") {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return parts
+}
+
+// matchesTags returns true if any of the filter tags match any entry tags.
+func matchesTags(entryTags, filterTags []string) bool {
+	for _, ft := range filterTags {
+		for _, et := range entryTags {
+			if et == ft {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Ensure FTS5 is not being explicitly checked (for migration)

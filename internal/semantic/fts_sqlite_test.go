@@ -3,6 +3,7 @@ package semantic
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 )
 
@@ -1102,4 +1103,187 @@ func TestMemoryFTS5Backfill(t *testing.T) {
 	if count != 1 {
 		t.Errorf("expected 1 FTS match for 'deployment' after backfill, got %d", count)
 	}
+}
+
+// ===== LEXICAL MEMORY SEARCH TESTS =====
+
+func storeTestMemory(t *testing.T, storage *SQLiteStorage, question, answer string, tags []string) *MemoryEntry {
+	t.Helper()
+	entry := NewMemoryEntry(question, answer)
+	entry.Tags = tags
+	embedding := []float32{0.1, 0.2, 0.3, 0.4}
+	if err := storage.StoreMemory(context.Background(), *entry, embedding); err != nil {
+		t.Fatalf("StoreMemory failed: %v", err)
+	}
+	return entry
+}
+
+func TestLexicalSearchMemory_ExactMatch(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+
+	storeTestMemory(t, storage, "How do we handle JWT rotation?", "Use short-lived tokens", []string{"auth"})
+	storeTestMemory(t, storage, "What database should we use?", "PostgreSQL for OLTP", []string{"db"})
+	storeTestMemory(t, storage, "How do we deploy services?", "Use Kubernetes", []string{"infra"})
+
+	results, err := storage.LexicalSearchMemory(ctx, "JWT", MemoryLexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearchMemory failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result for 'JWT', got %d", len(results))
+	}
+	if results[0].Entry.Question != "How do we handle JWT rotation?" {
+		t.Errorf("wrong result: %s", results[0].Entry.Question)
+	}
+	if results[0].Score <= 0 {
+		t.Errorf("score should be positive, got %v", results[0].Score)
+	}
+}
+
+func TestLexicalSearchMemory_AnswerContent(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+
+	storeTestMemory(t, storage, "Database choice", "Use PostgreSQL with connection pooling via pgbouncer", nil)
+
+	results, err := storage.LexicalSearchMemory(ctx, "pgbouncer", MemoryLexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearchMemory failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result searching answer content, got %d", len(results))
+	}
+}
+
+func TestLexicalSearchMemory_BM25Ranking(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+
+	// Memory with "authentication" in both question and answer (more relevant)
+	storeTestMemory(t, storage, "What is the authentication strategy?", "Authentication uses OAuth2 with authentication tokens", nil)
+	// Memory with "authentication" only in answer
+	storeTestMemory(t, storage, "Security overview", "We use authentication middleware", nil)
+
+	results, err := storage.LexicalSearchMemory(ctx, "authentication", MemoryLexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearchMemory failed: %v", err)
+	}
+	if len(results) < 2 {
+		t.Fatalf("expected at least 2 results, got %d", len(results))
+	}
+	// First result should have higher score (more occurrences)
+	if results[0].Score < results[1].Score {
+		t.Errorf("first result score (%v) should be >= second (%v)", results[0].Score, results[1].Score)
+	}
+}
+
+func TestLexicalSearchMemory_StatusFilter(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+
+	entry1 := storeTestMemory(t, storage, "Pending memory about caching", "Use Redis", nil)
+	_ = entry1
+
+	entry2 := NewMemoryEntry("Promoted memory about caching", "Use Memcached")
+	entry2.Status = MemoryStatusPromoted
+	if err := storage.StoreMemory(ctx, *entry2, []float32{0.1, 0.2, 0.3, 0.4}); err != nil {
+		t.Fatalf("StoreMemory failed: %v", err)
+	}
+
+	results, err := storage.LexicalSearchMemory(ctx, "caching", MemoryLexicalSearchOptions{
+		TopK:   10,
+		Status: MemoryStatusPromoted,
+	})
+	if err != nil {
+		t.Fatalf("LexicalSearchMemory failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 promoted result, got %d", len(results))
+	}
+	if results[0].Entry.Status != MemoryStatusPromoted {
+		t.Errorf("expected promoted status, got %s", results[0].Entry.Status)
+	}
+}
+
+func TestLexicalSearchMemory_TopKLimit(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Store 5 memories all matching "testing"
+	for i := 0; i < 5; i++ {
+		storeTestMemory(t, storage, fmt.Sprintf("Testing approach %d", i), "Use testing framework", nil)
+	}
+
+	results, err := storage.LexicalSearchMemory(context.Background(), "testing", MemoryLexicalSearchOptions{TopK: 3})
+	if err != nil {
+		t.Fatalf("LexicalSearchMemory failed: %v", err)
+	}
+	if len(results) != 3 {
+		t.Errorf("expected 3 results with TopK=3, got %d", len(results))
+	}
+}
+
+func TestLexicalSearchMemory_NoResults(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	storeTestMemory(t, storage, "Database choice", "Use PostgreSQL", nil)
+
+	results, err := storage.LexicalSearchMemory(context.Background(), "xyzzynonexistent", MemoryLexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearchMemory failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results for non-existent term, got %d", len(results))
+	}
+}
+
+func TestLexicalSearchMemory_EmptyQuery(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	results, err := storage.LexicalSearchMemory(context.Background(), "", MemoryLexicalSearchOptions{TopK: 10})
+	if err != nil {
+		t.Fatalf("LexicalSearchMemory should not error on empty query: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results for empty query, got %d", len(results))
+	}
+}
+
+func TestSQLiteStorage_ImplementsMemoryLexicalSearcher(t *testing.T) {
+	storage, err := NewSQLiteStorage(":memory:", 4)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Compile-time interface check
+	var _ MemoryLexicalSearcher = storage
 }
