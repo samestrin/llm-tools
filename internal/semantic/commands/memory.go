@@ -219,6 +219,7 @@ func memorySearchCmd() *cobra.Command {
 		minOutput     bool
 		decay         bool
 		decayHalfLife float64
+		hybrid        bool
 	)
 
 	cmd := &cobra.Command{
@@ -242,6 +243,7 @@ Example:
 				minOutput:     minOutput,
 				decay:         decay,
 				decayHalfLife: decayHalfLife,
+				hybrid:        hybrid,
 			})
 		},
 	}
@@ -254,6 +256,7 @@ Example:
 	cmd.Flags().BoolVar(&minOutput, "min", false, "Output minimal JSON format")
 	cmd.Flags().BoolVar(&decay, "decay", false, "Apply temporal decay (recent memories score higher)")
 	cmd.Flags().Float64Var(&decayHalfLife, "decay-half-life", 90.0, "Decay half-life in days (default: 90)")
+	cmd.Flags().BoolVar(&hybrid, "hybrid", false, "Enable hybrid search (dense + lexical BM25 with RRF fusion)")
 
 	return cmd
 }
@@ -268,6 +271,7 @@ type memorySearchOpts struct {
 	minOutput     bool
 	decay         bool
 	decayHalfLife float64
+	hybrid        bool
 }
 
 func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
@@ -299,12 +303,6 @@ func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
 	}
 	defer storage.Close()
 
-	// Generate query embedding
-	queryEmbedding, err := embedder.Embed(ctx, opts.query)
-	if err != nil {
-		return fmt.Errorf("failed to generate query embedding: %w", err)
-	}
-
 	// Parse tags filter
 	var tagsList []string
 	if opts.tags != "" {
@@ -314,28 +312,53 @@ func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
 		}
 	}
 
-	// Search memories
-	results, err := storage.SearchMemory(ctx, queryEmbedding, semantic.MemorySearchOptions{
+	searchOpts := semantic.MemorySearchOptions{
 		TopK:      opts.topK,
 		Threshold: opts.threshold,
 		Tags:      tagsList,
 		Status:    semantic.MemoryStatus(opts.status),
-	})
-	if err != nil {
-		return fmt.Errorf("search failed: %w", err)
 	}
 
-	// Apply temporal decay if enabled
-	if opts.decay && len(results) > 0 {
-		decayCfg := semantic.TemporalDecayConfig{
-			HalfLifeDays: opts.decayHalfLife,
-			Enabled:      true,
+	var results []semantic.MemorySearchResult
+
+	if opts.hybrid {
+		// Hybrid search: dense + lexical with RRF fusion
+		var decay *semantic.TemporalDecayConfig
+		if opts.decay {
+			decay = &semantic.TemporalDecayConfig{
+				HalfLifeDays: opts.decayHalfLife,
+				Enabled:      true,
+			}
 		}
-		semantic.ApplyTemporalDecay(results, decayCfg, time.Now())
-		// Re-sort by decayed score descending
-		sort.Slice(results, func(i, j int) bool {
-			return results[i].Score > results[j].Score
+		results, err = semantic.HybridSearchMemory(ctx, storage, embedder, opts.query, semantic.HybridMemorySearchOptions{
+			MemorySearchOptions: searchOpts,
+			Decay:               decay,
 		})
+		if err != nil {
+			return fmt.Errorf("hybrid search failed: %w", err)
+		}
+	} else {
+		// Dense-only search
+		queryEmbedding, embedErr := embedder.Embed(ctx, opts.query)
+		if embedErr != nil {
+			return fmt.Errorf("failed to generate query embedding: %w", embedErr)
+		}
+		results, err = storage.SearchMemory(ctx, queryEmbedding, searchOpts)
+		if err != nil {
+			return fmt.Errorf("search failed: %w", err)
+		}
+
+		// Apply temporal decay if enabled (for non-hybrid mode)
+		if opts.decay && len(results) > 0 {
+			decayCfg := semantic.TemporalDecayConfig{
+				HalfLifeDays: opts.decayHalfLife,
+				Enabled:      true,
+			}
+			semantic.ApplyTemporalDecay(results, decayCfg, time.Now())
+			sort.Slice(results, func(i, j int) bool {
+				return results[i].Score > results[j].Score
+			})
+		}
 	}
 
 	// Track retrieval stats (automatic for memory profile)

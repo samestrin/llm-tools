@@ -691,6 +691,9 @@ func buildMemorySearchArgs(args map[string]interface{}) []string {
 	if decayHalfLife, ok := getFloat(args, "decay_half_life"); ok && decayHalfLife > 0 {
 		cmdArgs = append(cmdArgs, "--decay-half-life", fmt.Sprintf("%.1f", decayHalfLife))
 	}
+	if getBool(args, "hybrid") {
+		cmdArgs = append(cmdArgs, "--hybrid")
+	}
 
 	return cmdArgs
 }

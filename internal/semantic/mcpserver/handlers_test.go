@@ -1211,12 +1211,13 @@ func TestBuildMemorySearchArgs_AllParams(t *testing.T) {
 		"collection":      "mem-collection",
 		"decay":           true,
 		"decay_half_life": float64(30),
+		"hybrid":          true,
 	}
 
 	result := buildMemorySearchArgs(args)
 
 	expected := []string{
-		"--top", "--threshold", "--tags", "--status", "--storage", "--collection", "--decay", "--decay-half-life",
+		"--top", "--threshold", "--tags", "--status", "--storage", "--collection", "--decay", "--decay-half-life", "--hybrid",
 	}
 
 	for _, flag := range expected {
