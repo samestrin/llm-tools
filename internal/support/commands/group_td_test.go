@@ -1329,6 +1329,223 @@ Items from code review.
 	}
 }
 
+func TestGroupTDPipeFormatWithSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	pipeInput := `# TD_STREAM
+HIGH|src/auth/a.ts:1|Auth issue|Fix auth|security|30|execute-sprint
+MEDIUM|src/auth/b.ts:2|Auth issue 2|Fix auth 2|security|45|code-review
+`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES,SOURCE",
+		"--json",
+		"--assign-numbers",
+		"--output-file", outputFile,
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	if !bytes.Contains(data, []byte("| Est Minutes | Source |")) {
+		t.Errorf("expected 8-column header ending '| Est Minutes | Source |', got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("| execute-sprint |")) {
+		t.Errorf("expected execute-sprint source cell, got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("| code-review |")) {
+		t.Errorf("expected code-review source cell, got:\n%s", data)
+	}
+}
+
+func TestGroupTDPipeFormatWithoutSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	pipeInput := `HIGH|src/a.ts:1|Problem A|Fix A|security|15
+MEDIUM|src/b.ts:2|Problem B|Fix B|style|10
+`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES",
+		"--json",
+		"--assign-numbers",
+		"--output-file", outputFile,
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	if bytes.Contains(data, []byte("Source")) {
+		t.Errorf("did not expect Source column in output without SOURCE header, got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("| Est Minutes |\n")) {
+		t.Errorf("expected 7-column header ending '| Est Minutes |', got:\n%s", data)
+	}
+}
+
+func TestGroupTDPipeFormatMixedSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	// Second row has empty SOURCE field (trailing | before newline)
+	pipeInput := `HIGH|src/a.ts:1|Problem A|Fix A|security|15|execute-sprint
+MEDIUM|src/b.ts:2|Problem B|Fix B|style|10|
+`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES,SOURCE",
+		"--json",
+		"--assign-numbers",
+		"--output-file", outputFile,
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	if !bytes.Contains(data, []byte("| execute-sprint |")) {
+		t.Errorf("expected non-empty source cell for first row, got:\n%s", data)
+	}
+	// Empty SOURCE should render as "|  |" (space + empty + space)
+	if !bytes.Contains(data, []byte("| 10 |  |")) {
+		t.Errorf("expected empty Source cell preserving column alignment, got:\n%s", data)
+	}
+}
+
+func TestGroupTDPipeFormatSourceWithCheckbox(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	pipeInput := `HIGH|src/a.ts:1|Problem A|Fix A|security|15|execute-sprint
+`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES,SOURCE",
+		"--json",
+		"--assign-numbers",
+		"--checkbox",
+		"--output-file", outputFile,
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	expectedHeader := []byte("| Group | | Severity | File | Problem | Fix | Category | Est Minutes | Source |")
+	if !bytes.Contains(data, expectedHeader) {
+		t.Errorf("expected checkbox header with Source last, got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("| [ ] |")) {
+		t.Errorf("expected checkbox cell in data row, got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("| execute-sprint |")) {
+		t.Errorf("expected execute-sprint source cell in data row, got:\n%s", data)
+	}
+}
+
+func TestGroupTDPipeFormatAppendWithSource(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	// Seed file with legacy 7-column table (no Source column)
+	existing := `# Technical Debt Backlog
+
+Items from code review.
+
+### [2026-01-01] From Sprint: old_sprint
+
+| Group | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|----------|------|---------|-----|----------|-------------|
+| 1 | LOW | old.go:1 | old prob | old fix | misc | 5 |
+`
+	if err := os.WriteFile(outputFile, []byte(existing), 0644); err != nil {
+		t.Fatalf("failed to seed file: %v", err)
+	}
+
+	pipeInput := `HIGH|src/a.ts:1|New problem|New fix|security|15|execute-sprint
+`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES,SOURCE",
+		"--json",
+		"--assign-numbers",
+		"--output-file", outputFile,
+		"--sprint-label", "new_sprint",
+		"--date-label", "2026-04-22",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	// Legacy 7-column row must be preserved byte-for-byte
+	if !bytes.Contains(data, []byte("| 1 | LOW | old.go:1 | old prob | old fix | misc | 5 |")) {
+		t.Errorf("existing 7-column table not preserved, got:\n%s", data)
+	}
+	// New section must have 8-column header with Source last
+	if !bytes.Contains(data, []byte("| Est Minutes | Source |")) {
+		t.Errorf("new section missing Source column, got:\n%s", data)
+	}
+	// New row must have source value
+	if !bytes.Contains(data, []byte("| execute-sprint |")) {
+		t.Errorf("new row missing source value, got:\n%s", data)
+	}
+}
+
 // Helper function
 func findGroupByTheme(groups []TDGroup, theme string) *TDGroup {
 	for _, g := range groups {
