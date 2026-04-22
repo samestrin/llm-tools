@@ -714,15 +714,46 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		sectionHeader += "Items"
 	}
 
+	// Feature-flag: emit trailing Source column only if at least one item
+	// carries a non-empty SOURCE value. Preserves 7-column output for legacy
+	// callers that don't pass SOURCE through --headers.
+	hasSource := false
+	for _, g := range result.Groups {
+		for _, item := range g.Items {
+			if s, _ := item["SOURCE"].(string); strings.TrimSpace(s) != "" {
+				hasSource = true
+				break
+			}
+		}
+		if hasSource {
+			break
+		}
+	}
+	if !hasSource {
+		for _, item := range result.Ungrouped {
+			if s, _ := item["SOURCE"].(string); strings.TrimSpace(s) != "" {
+				hasSource = true
+				break
+			}
+		}
+	}
+
 	// Build markdown table
 	var buf strings.Builder
 	buf.WriteString("\n" + sectionHeader + "\n\n")
 
 	// Table header
-	if checkbox {
+	switch {
+	case checkbox && hasSource:
+		buf.WriteString("| Group | | Severity | File | Problem | Fix | Category | Est Minutes | Source |\n")
+		buf.WriteString("|-------|---|----------|------|---------|-----|----------|-------------|--------|\n")
+	case checkbox && !hasSource:
 		buf.WriteString("| Group | | Severity | File | Problem | Fix | Category | Est Minutes |\n")
 		buf.WriteString("|-------|---|----------|------|---------|-----|----------|-------------|\n")
-	} else {
+	case !checkbox && hasSource:
+		buf.WriteString("| Group | Severity | File | Problem | Fix | Category | Est Minutes | Source |\n")
+		buf.WriteString("|-------|----------|------|---------|-----|----------|-------------|--------|\n")
+	default:
 		buf.WriteString("| Group | Severity | File | Problem | Fix | Category | Est Minutes |\n")
 		buf.WriteString("|-------|----------|------|---------|-----|----------|-------------|\n")
 	}
@@ -737,6 +768,7 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		fix      string
 		category string
 		estMin   int
+		source   string
 	}
 
 	var rows []rowData
@@ -760,6 +792,7 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 			fix, _ := item["FIX"].(string)
 			category, _ := item["CATEGORY"].(string)
 			estMin := extractEstMinutesInt(item)
+			source, _ := item["SOURCE"].(string)
 			rows = append(rows, rowData{
 				group:    groupLabel,
 				sortKey:  sortKey,
@@ -769,6 +802,7 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 				fix:      fix,
 				category: category,
 				estMin:   estMin,
+				source:   source,
 			})
 		}
 	}
@@ -781,6 +815,7 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		fix, _ := item["FIX"].(string)
 		category, _ := item["CATEGORY"].(string)
 		estMin := extractEstMinutesInt(item)
+		source, _ := item["SOURCE"].(string)
 		rows = append(rows, rowData{
 			group:    ungroupedLabel,
 			sortKey:  9999,
@@ -790,6 +825,7 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 			fix:      fix,
 			category: category,
 			estMin:   estMin,
+			source:   source,
 		})
 	}
 
@@ -800,10 +836,17 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 
 	// Write rows
 	for _, r := range rows {
-		if checkbox {
+		switch {
+		case checkbox && hasSource:
+			buf.WriteString(fmt.Sprintf("| %s | [ ] | %s | %s | %s | %s | %s | %d | %s |\n",
+				r.group, r.severity, r.fileLine, r.problem, r.fix, r.category, r.estMin, r.source))
+		case checkbox && !hasSource:
 			buf.WriteString(fmt.Sprintf("| %s | [ ] | %s | %s | %s | %s | %s | %d |\n",
 				r.group, r.severity, r.fileLine, r.problem, r.fix, r.category, r.estMin))
-		} else {
+		case !checkbox && hasSource:
+			buf.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %d | %s |\n",
+				r.group, r.severity, r.fileLine, r.problem, r.fix, r.category, r.estMin, r.source))
+		default:
 			buf.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %d |\n",
 				r.group, r.severity, r.fileLine, r.problem, r.fix, r.category, r.estMin))
 		}
