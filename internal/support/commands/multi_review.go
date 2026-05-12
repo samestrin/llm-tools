@@ -70,8 +70,11 @@ a merged TD stream the /code-review command can consume.
 
 Output layout:
   <output-dir>/raw/<agent>/{review.md,td-stream.txt,status.json,response.json}
-  <output-dir>/td-stream-all.txt           (merged + reviewer-attributed)
-  <output-dir>/multi-review-summary.json   (per-reviewer status + counts)
+  <output-dir>/raw/td-stream-all.txt        (cross-reviewer merge, inside raw/)
+  <output-dir>/td-stream.txt                (same merged content at root, where
+                                             /reconcile-code-review auto-discovers
+                                             this directory as one unified source)
+  <output-dir>/multi-review-summary.json    (per-reviewer status + counts)
 
 Failure semantics:
   - Bundle/ship failure  → hard-stop (no point invoking reviewers without
