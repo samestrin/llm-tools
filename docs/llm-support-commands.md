@@ -59,6 +59,7 @@ Complete documentation for all 40+ llm-support commands.
   - [route-td](#route-td)
   - [format-td-table](#format-td-table)
   - [group-td](#group-td)
+  - [multi_review](#multi_review)
 
 ---
 
@@ -2102,6 +2103,102 @@ llm-support group-td --file items.json --min-group-size 5
 | `src/auth/handlers/login.ts` | `src` | `src-auth` | `src-auth-handlers` |
 | `lib/utils/string.ts` | `lib` | `lib-utils` | `lib-utils` |
 | `config.ts` | `misc` | `misc` | `misc` |
+
+**Optional trailing columns (feature-flagged):**
+
+| Column | Triggered by | Source |
+|--------|--------------|--------|
+| `Source` | non-empty `SOURCE` field | `code-review` (adversarial finding) or `execute-sprint` (captured during work) |
+| `Reviewers` | non-empty `REVIEWERS` field | comma-joined agent names from `multi_review` (e.g. `bruce,greta`) |
+| `Confidence` | non-empty `CONFIDENCE` field | dedupe-time score: `HIGH` (2+ reviewers), `MEDIUM` (single), `LOW` (single + untrusted) |
+
+These columns are emitted only when at least one input row carries a non-empty value, so existing 7- or 8-column callers see no change.
+
+---
+
+### multi_review
+
+Fan out a code review across multiple openclaw reviewer agents on a remote host, collect each reviewer's TD findings, and merge them with per-row attribution.
+
+```bash
+llm-support multi_review [flags]
+```
+
+**Required flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--reviewers` | Comma-separated reviewer agent names (e.g. `bruce,greta,kai,mira,dax,otto`) |
+| `--repo` | Local repo path to bundle and ship |
+| `--openclaw-host` | SSH target running `openclaw-gateway` (e.g. `user@nucleus.lan`) |
+| `--output-dir` | Where per-reviewer artifacts and merged stream land |
+
+**Optional flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--serial-reviewers` | (empty) | Subset that runs sequentially after the parallel lane (shared rate limits) |
+| `--base` | (empty) | Base ref for the diff range, included in the auto-built task message |
+| `--head` | `HEAD` | Head ref |
+| `--timeout-seconds` | `1200` | Total wall-clock budget for the entire fan-out |
+| `--per-reviewer-timeout-seconds` | `600` | Per-reviewer soft timeout |
+| `--gateway-container` | `openclaw-gateway` | Docker container running openclaw |
+| `--task-message` | (auto) | Override the auto-built task message |
+| `--skip-cleanup` | `false` | Do not remove the remote workdir after running |
+
+**Output layout under `--output-dir`:**
+
+```
+<output-dir>/
+  raw/
+    bruce/
+      review.md         # extracted prose
+      td-stream.txt     # pipe-delimited findings with |bruce appended
+      status.json       # model, duration, status, td line count
+      response.json     # raw openclaw envelope (for replay)
+    greta/... (same shape)
+    ...
+  td-stream-all.txt           # merged across reviewers with REVIEWER column
+  multi-review-summary.json   # per-reviewer status + counts + partial flag
+```
+
+**Failure semantics:**
+
+| Scenario | Behavior |
+|----------|----------|
+| Bundle/ship fails (SSH down, scp error, remote clone fails) | Hard-stop with error naming the host |
+| 1+ reviewer fails, 1+ succeeds | Continue with successful ones, `partial: true` in summary, exit 0 |
+| All reviewers fail | Exit 1 with summary path |
+
+**Examples:**
+
+```bash
+# Six-reviewer fan-out, all parallel
+llm-support multi_review \
+  --reviewers bruce,greta,kai,mira,dax,otto \
+  --repo ~/Documents/GitHub/myproject \
+  --openclaw-host user@nucleus.lan \
+  --output-dir .planning/sprints/active/2.0/code-review/multi-review \
+  --base v1.0.0 --head HEAD
+
+# With a serial lane for shared-quota providers
+llm-support multi_review \
+  --reviewers bruce,greta,kai,mira,dax \
+  --serial-reviewers mira,dax \
+  --repo . --openclaw-host user@host.lan \
+  --output-dir /tmp/mr-out
+
+# Custom task message
+llm-support multi_review \
+  --reviewers bruce \
+  --repo . --openclaw-host user@host.lan \
+  --output-dir /tmp/mr-out \
+  --task-message "Review only auth/*.go files for security issues."
+```
+
+**Wiring into `/code-review`:**
+
+`multi_review` is designed to be invoked by the `/code-review` command's Phase 5 (adversarial review) when `review.mode: multi` is set in `.planning/.config/config.yaml`. See the [code-review prompt](https://github.com/samestrin/claude-prompts/blob/main/.claude/commands/code-review.md) for the integration.
 
 ---
 
