@@ -239,9 +239,12 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("merge streams: %w", err)
 		}
 		totalFindings = n
-		// Also write the merged stream up one level for convenience.
+		// Also write the merged stream up one level as td-stream.txt so
+		// /reconcile-code-review's auto-discovery (any code-review/<source>/
+		// dir with a td-stream.txt is a source) treats multi-agent as one
+		// unified source rather than peeking into raw/<agent>/.
 		srcMerged := filepath.Join(rawDir, "td-stream-all.txt")
-		dstMerged := filepath.Join(mrOutputDir, "td-stream-all.txt")
+		dstMerged := filepath.Join(mrOutputDir, "td-stream.txt")
 		if data, err := os.ReadFile(srcMerged); err == nil {
 			_ = os.WriteFile(dstMerged, data, 0o644)
 		}

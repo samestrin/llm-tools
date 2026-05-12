@@ -2158,7 +2158,10 @@ llm-support multi_review [flags]
       response.json     # raw openclaw envelope (for replay)
     greta/... (same shape)
     ...
-  td-stream-all.txt           # merged across reviewers with REVIEWER column
+  raw/td-stream-all.txt       # merged across reviewers with REVIEWER column
+  td-stream.txt               # same merged content, surfaced at root so
+                              # /reconcile-code-review auto-discovers this
+                              # directory as one unified source
   multi-review-summary.json   # per-reviewer status + counts + partial flag
 ```
 

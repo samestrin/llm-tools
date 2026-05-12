@@ -108,9 +108,9 @@ func TestMultiReview_HappyPath(t *testing.T) {
 			t.Errorf("missing %s: %v", td, err)
 		}
 	}
-	merged := filepath.Join(outDir, "td-stream-all.txt")
+	merged := filepath.Join(outDir, "td-stream.txt")
 	if _, err := os.Stat(merged); err != nil {
-		t.Errorf("missing merged: %v", err)
+		t.Errorf("missing merged td-stream.txt at output root: %v", err)
 	}
 	summary := filepath.Join(outDir, "multi-review-summary.json")
 	if _, err := os.Stat(summary); err != nil {
