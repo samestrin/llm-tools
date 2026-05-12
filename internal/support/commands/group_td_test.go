@@ -1555,3 +1555,150 @@ func findGroupByTheme(groups []TDGroup, theme string) *TDGroup {
 	}
 	return nil
 }
+
+// ---- REVIEWERS + CONFIDENCE column tests ----
+//
+// These columns are emitted only when at least one input row carries a
+// non-empty value, mirroring the SOURCE column feature-flag pattern.
+
+func TestGroupTDPipeFormatWithReviewers(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	pipeInput := `HIGH|src/a.ts:1|Auth issue|Fix auth|security|30|code-review|bruce,greta|HIGH
+MEDIUM|src/b.ts:2|Auth issue 2|Fix auth 2|security|45|code-review|kai|MEDIUM
+`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES,SOURCE,REVIEWERS,CONFIDENCE",
+		"--json",
+		"--assign-numbers",
+		"--output-file", outputFile,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("| Reviewers |")) {
+		t.Errorf("expected Reviewers column header, got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("| Confidence |")) {
+		t.Errorf("expected Confidence column header, got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("| bruce, greta |")) {
+		t.Errorf("expected reviewer attribution cell with space-after-comma, got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("| HIGH |")) {
+		t.Errorf("expected confidence cell, got:\n%s", data)
+	}
+}
+
+func TestGroupTDPipeFormatWithoutReviewers(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	pipeInput := `HIGH|src/a.ts:1|Problem A|Fix A|security|15|code-review
+`
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES,SOURCE",
+		"--json",
+		"--assign-numbers",
+		"--output-file", outputFile,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("Reviewers")) {
+		t.Errorf("did not expect Reviewers column without REVIEWERS header, got:\n%s", data)
+	}
+	if bytes.Contains(data, []byte("Confidence")) {
+		t.Errorf("did not expect Confidence column without CONFIDENCE header, got:\n%s", data)
+	}
+}
+
+func TestGroupTDPipeFormatReviewersWithCheckbox(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	pipeInput := `HIGH|src/a.ts:1|P|F|security|15|code-review|bruce,greta,kai|HIGH
+`
+	cmd := newGroupTDCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES,SOURCE,REVIEWERS,CONFIDENCE",
+		"--json",
+		"--assign-numbers",
+		"--checkbox",
+		"--output-file", outputFile,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Header should include checkbox column + reviewers + confidence
+	if !bytes.Contains(data, []byte("| Reviewers | Confidence |")) {
+		t.Errorf("expected Reviewers + Confidence trailing columns, got:\n%s", data)
+	}
+	if !bytes.Contains(data, []byte("| bruce, greta, kai |")) {
+		t.Errorf("expected attribution cell, got:\n%s", data)
+	}
+}
+
+func TestGroupTDPipeFormatPartialReviewers(t *testing.T) {
+	// Some rows have REVIEWERS, others don't. The column should appear and
+	// rows without attribution should show empty cells.
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	pipeInput := `HIGH|src/a.ts:1|P1|F1|security|15|code-review|bruce|HIGH
+MEDIUM|src/b.ts:2|P2|F2|style|10|code-review||
+`
+	cmd := newGroupTDCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES,SOURCE,REVIEWERS,CONFIDENCE",
+		"--json",
+		"--assign-numbers",
+		"--output-file", outputFile,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("| bruce |")) {
+		t.Errorf("expected bruce cell for first row, got:\n%s", data)
+	}
+	// Row 2 should have empty Reviewers + Confidence cells
+	if !bytes.Contains(data, []byte("|  |  |\n")) {
+		t.Errorf("expected empty reviewers + confidence cells, got:\n%s", data)
+	}
+}
