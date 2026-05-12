@@ -1189,7 +1189,12 @@ func formatValue(value interface{}) string {
 	}
 }
 
-// parseNumber attempts to parse a string as int or float
+// parseNumber attempts to parse a string as int or float.
+//
+// Coercion is only applied when the parsed numeric value round-trips back to
+// the exact input string. This prevents silent truncation of version-like
+// strings (e.g. "4.30" -> float 4.3 -> emitted as "4.3") and similar values
+// where the input carries information that the numeric representation cannot.
 func parseNumber(s string) (interface{}, error) {
 	// Try int first
 	var i int
@@ -1197,10 +1202,16 @@ func parseNumber(s string) (interface{}, error) {
 		return i, nil
 	}
 
-	// Try float
+	// Try float, but only coerce if the float round-trips to the input string
+	// through YAML marshaling. Values like "1.0", "4.30", "01.5" parse as
+	// floats but lose their original representation when serialized, so we
+	// keep them as strings.
 	var f float64
 	if _, err := fmt.Sscanf(s, "%f", &f); err == nil {
-		return f, nil
+		marshaled, mErr := yaml.Marshal(f)
+		if mErr == nil && strings.TrimSpace(string(marshaled)) == s {
+			return f, nil
+		}
 	}
 
 	return nil, fmt.Errorf("not a number")
