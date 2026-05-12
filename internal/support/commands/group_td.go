@@ -714,61 +714,122 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		sectionHeader += "Items"
 	}
 
-	// Feature-flag: emit trailing Source column only if at least one item
-	// carries a non-empty SOURCE value. Preserves 7-column output for legacy
-	// callers that don't pass SOURCE through --headers.
-	hasSource := false
-	for _, g := range result.Groups {
-		for _, item := range g.Items {
-			if s, _ := item["SOURCE"].(string); strings.TrimSpace(s) != "" {
-				hasSource = true
-				break
+	// Feature-flag: emit trailing optional columns (SOURCE, REVIEWERS,
+	// CONFIDENCE) only when at least one input row carries a non-empty
+	// value. Preserves the original 7-column output for legacy callers and
+	// the 8-column-with-Source output for the unified-TD-capture pipeline.
+	hasField := func(key string) bool {
+		for _, g := range result.Groups {
+			for _, item := range g.Items {
+				if s, _ := item[key].(string); strings.TrimSpace(s) != "" {
+					return true
+				}
 			}
 		}
-		if hasSource {
-			break
-		}
-	}
-	if !hasSource {
 		for _, item := range result.Ungrouped {
-			if s, _ := item["SOURCE"].(string); strings.TrimSpace(s) != "" {
-				hasSource = true
-				break
+			if s, _ := item[key].(string); strings.TrimSpace(s) != "" {
+				return true
 			}
 		}
+		return false
 	}
+	hasSource := hasField("SOURCE")
+	hasReviewers := hasField("REVIEWERS")
+	hasConfidence := hasField("CONFIDENCE")
 
 	// Build markdown table
 	var buf strings.Builder
 	buf.WriteString("\n" + sectionHeader + "\n\n")
 
-	// Table header
-	switch {
-	case checkbox && hasSource:
-		buf.WriteString("| Group | | Severity | File | Problem | Fix | Category | Est Minutes | Source |\n")
-		buf.WriteString("|-------|---|----------|------|---------|-----|----------|-------------|--------|\n")
-	case checkbox && !hasSource:
-		buf.WriteString("| Group | | Severity | File | Problem | Fix | Category | Est Minutes |\n")
-		buf.WriteString("|-------|---|----------|------|---------|-----|----------|-------------|\n")
-	case !checkbox && hasSource:
-		buf.WriteString("| Group | Severity | File | Problem | Fix | Category | Est Minutes | Source |\n")
-		buf.WriteString("|-------|----------|------|---------|-----|----------|-------------|--------|\n")
-	default:
-		buf.WriteString("| Group | Severity | File | Problem | Fix | Category | Est Minutes |\n")
-		buf.WriteString("|-------|----------|------|---------|-----|----------|-------------|\n")
+	// Header is assembled dynamically so adding feature-flagged trailing
+	// columns doesn't combinatorially explode the switch (3 flags = 8 cases).
+	//
+	// Cell rendering: data rows preserve the legacy `| %s |` spacing — empty
+	// data cells render as `|  |` (two spaces around empty) so resolve-td and
+	// other downstream column-position parsers see the same shape they've
+	// always seen. The header row's empty checkbox cell renders as `| |`
+	// (single space) to match the prior hardcoded header.
+	writeHeaderRow := func(b *strings.Builder, cells []string) {
+		b.WriteString("|")
+		for _, c := range cells {
+			if c == "" {
+				b.WriteString(" |")
+			} else {
+				b.WriteString(" " + c + " |")
+			}
+		}
+		b.WriteString("\n")
 	}
+	writeDataRow := func(b *strings.Builder, cells []string) {
+		// Always `| <cell> |` — matches fmt.Sprintf("%s") behavior for empty.
+		b.WriteString("|")
+		for _, c := range cells {
+			b.WriteString(" " + c + " |")
+		}
+		b.WriteString("\n")
+	}
+	headers := []string{"Group"}
+	dashes := []string{"-------"}
+	if checkbox {
+		headers = append(headers, "")
+		dashes = append(dashes, "---")
+	}
+	headers = append(headers, "Severity", "File", "Problem", "Fix", "Category", "Est Minutes")
+	dashes = append(dashes, "----------", "------", "---------", "-----", "----------", "-------------")
+	if hasSource {
+		headers = append(headers, "Source")
+		dashes = append(dashes, "--------")
+	}
+	if hasReviewers {
+		headers = append(headers, "Reviewers")
+		dashes = append(dashes, "---------")
+	}
+	if hasConfidence {
+		headers = append(headers, "Confidence")
+		dashes = append(dashes, "----------")
+	}
+	writeHeaderRow(&buf, headers)
+	buf.WriteString("|" + strings.Join(dashes, "|") + "|\n")
 
 	// Collect all rows: groups first, then ungrouped
 	type rowData struct {
-		group    string
-		sortKey  int // 0=solo, 1..N=groups, 9999=ungrouped
-		severity string
-		fileLine string
-		problem  string
-		fix      string
-		category string
-		estMin   int
-		source   string
+		group      string
+		sortKey    int // 0=solo, 1..N=groups, 9999=ungrouped
+		severity   string
+		fileLine   string
+		problem    string
+		fix        string
+		category   string
+		estMin     int
+		source     string
+		reviewers  string
+		confidence string
+	}
+
+	mkRow := func(groupLabel string, sortKey int, item map[string]interface{}) rowData {
+		severity, _ := item["SEVERITY"].(string)
+		problem, _ := item["PROBLEM"].(string)
+		fix, _ := item["FIX"].(string)
+		category, _ := item["CATEGORY"].(string)
+		source, _ := item["SOURCE"].(string)
+		reviewers, _ := item["REVIEWERS"].(string)
+		confidence, _ := item["CONFIDENCE"].(string)
+		// REVIEWERS is stored comma-joined (e.g. "bruce,greta"); render
+		// with a space after each comma for readability in the table cell.
+		reviewers = strings.ReplaceAll(reviewers, ",", ", ")
+		return rowData{
+			group:      groupLabel,
+			sortKey:    sortKey,
+			severity:   severity,
+			fileLine:   extractFileLine(item),
+			problem:    problem,
+			fix:        fix,
+			category:   category,
+			estMin:     extractEstMinutesInt(item),
+			source:     source,
+			reviewers:  reviewers,
+			confidence: confidence,
+		}
 	}
 
 	var rows []rowData
@@ -784,49 +845,14 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		} else if num, ok := g.Number.(int); ok {
 			sortKey = num
 		}
-
 		for _, item := range g.Items {
-			severity, _ := item["SEVERITY"].(string)
-			fileLine := extractFileLine(item)
-			problem, _ := item["PROBLEM"].(string)
-			fix, _ := item["FIX"].(string)
-			category, _ := item["CATEGORY"].(string)
-			estMin := extractEstMinutesInt(item)
-			source, _ := item["SOURCE"].(string)
-			rows = append(rows, rowData{
-				group:    groupLabel,
-				sortKey:  sortKey,
-				severity: severity,
-				fileLine: fileLine,
-				problem:  problem,
-				fix:      fix,
-				category: category,
-				estMin:   estMin,
-				source:   source,
-			})
+			rows = append(rows, mkRow(groupLabel, sortKey, item))
 		}
 	}
 
 	// Ungrouped items
 	for _, item := range result.Ungrouped {
-		severity, _ := item["SEVERITY"].(string)
-		fileLine := extractFileLine(item)
-		problem, _ := item["PROBLEM"].(string)
-		fix, _ := item["FIX"].(string)
-		category, _ := item["CATEGORY"].(string)
-		estMin := extractEstMinutesInt(item)
-		source, _ := item["SOURCE"].(string)
-		rows = append(rows, rowData{
-			group:    ungroupedLabel,
-			sortKey:  9999,
-			severity: severity,
-			fileLine: fileLine,
-			problem:  problem,
-			fix:      fix,
-			category: category,
-			estMin:   estMin,
-			source:   source,
-		})
+		rows = append(rows, mkRow(ungroupedLabel, 9999, item))
 	}
 
 	// Sort by sortKey (solo=0, groups=1..N, ungrouped=9999)
@@ -834,22 +860,23 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		return rows[i].sortKey < rows[j].sortKey
 	})
 
-	// Write rows
+	// Write rows — cells assembled to match the dynamic header.
 	for _, r := range rows {
-		switch {
-		case checkbox && hasSource:
-			buf.WriteString(fmt.Sprintf("| %s | [ ] | %s | %s | %s | %s | %s | %d | %s |\n",
-				r.group, r.severity, r.fileLine, r.problem, r.fix, r.category, r.estMin, r.source))
-		case checkbox && !hasSource:
-			buf.WriteString(fmt.Sprintf("| %s | [ ] | %s | %s | %s | %s | %s | %d |\n",
-				r.group, r.severity, r.fileLine, r.problem, r.fix, r.category, r.estMin))
-		case !checkbox && hasSource:
-			buf.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %d | %s |\n",
-				r.group, r.severity, r.fileLine, r.problem, r.fix, r.category, r.estMin, r.source))
-		default:
-			buf.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %d |\n",
-				r.group, r.severity, r.fileLine, r.problem, r.fix, r.category, r.estMin))
+		cells := []string{r.group}
+		if checkbox {
+			cells = append(cells, "[ ]")
 		}
+		cells = append(cells, r.severity, r.fileLine, r.problem, r.fix, r.category, fmt.Sprintf("%d", r.estMin))
+		if hasSource {
+			cells = append(cells, r.source)
+		}
+		if hasReviewers {
+			cells = append(cells, r.reviewers)
+		}
+		if hasConfidence {
+			cells = append(cells, r.confidence)
+		}
+		writeDataRow(&buf, cells)
 	}
 
 	// Verify row count against buffer before writing
