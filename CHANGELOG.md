@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### llm-support
+
+- **`multi_review` subcommand** — fan out a code review across multiple openclaw reviewer agents.
+  - Bundles a local git repo, ships it to a remote host running `openclaw-gateway` via scp, invokes one or more named reviewer agents in parallel (or in an opt-in serial lane for shared-quota providers), and collects each reviewer's TD findings.
+  - Output layout under `--output-dir`:
+    - `raw/<agent>/{review.md, td-stream.txt, status.json, response.json}` — per-reviewer artifacts.
+    - `td-stream-all.txt` — merged pipe-delimited findings with reviewer attribution appended as a column.
+    - `multi-review-summary.json` — per-reviewer status (ok/failed/skipped), counts, durations, partial flag.
+  - Two-lane execution via `--reviewers` (parallel) and `--serial-reviewers` (sequential after parallel) for cases where some reviewers share a rate-limited provider.
+  - Failure semantics: bundle/ship failure hard-stops; per-reviewer failure is recorded and other reviewers continue; all-reviewers-fail exits non-zero.
+  - Designed to be invoked by `/code-review` Phase 5 when `review.mode: multi` is set in `.planning/.config/config.yaml`.
+
+#### group_td
+
+- **`REVIEWERS` and `CONFIDENCE` columns** — feature-flagged trailing columns rendered only when at least one input row carries a non-empty value, following the existing `SOURCE` column pattern.
+  - `REVIEWERS` stores comma-joined agent names from `multi_review` (e.g. `bruce,greta`). Rendered with a space after each comma in the table cell.
+  - `CONFIDENCE` is the dedupe-time computed score (`HIGH` = 2+ reviewers, `MEDIUM` = single reviewer or severity disagreement, `LOW` = single reviewer flagged as untrusted).
+  - Backwards-compatible — callers that don't pass these via `--headers` see no change in output.
+  - Internal: markdown header + row writers refactored to assemble cells dynamically.
+
+### Fixed
+
+#### llm-support
+
+- **`yaml.parseNumber` preserves version-like strings** — values whose float representation would lose information (e.g. `"4.30"` → `4.3` → `"4.3"`) now stay strings. Only coerces to float when the value round-trips through YAML marshal back to the exact input.
+
 ## [1.8.2] - 2026-01-27
 
 ### Fixed

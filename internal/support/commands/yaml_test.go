@@ -3225,3 +3225,91 @@ items:
 		t.Errorf("expected output to contain 'second', got: %s", output)
 	}
 }
+
+// TestParseNumber_PreservesNonRoundtripStrings verifies that version-like
+// strings whose float representation loses information stay strings.
+// Regression: "4.30" was being coerced to float 4.3 and emitted as "4.3".
+//
+// Values that DO round-trip through YAML serialization (e.g. "1.0" -> 1.0 ->
+// "1.0") are allowed to coerce because the on-disk output still matches the
+// input. Only inputs that would suffer information loss must stay strings.
+func TestParseNumber_PreservesNonRoundtripStrings(t *testing.T) {
+	cases := []string{
+		"4.30", // float 4.3, would emit as "4.3"
+		"1.10", // float 1.1, would emit as "1.1"
+		"01.5", // float 1.5, leading zero lost
+		"2.00", // float 2.0, would emit as "2.0"
+		"0.10", // float 0.1, would emit as "0.1"
+	}
+	for _, s := range cases {
+		if v, err := parseNumber(s); err == nil {
+			t.Errorf("parseNumber(%q) should not coerce (got %v of type %T)", s, v, v)
+		}
+	}
+}
+
+// TestParseNumber_StillCoercesNumerics verifies the fix doesn't over-correct:
+// values that round-trip cleanly should still be typed as numbers.
+func TestParseNumber_StillCoercesNumerics(t *testing.T) {
+	intCases := []string{"0", "1", "42", "-7", "1000"}
+	for _, s := range intCases {
+		v, err := parseNumber(s)
+		if err != nil {
+			t.Errorf("parseNumber(%q) should coerce to int, got error: %v", s, err)
+			continue
+		}
+		if _, ok := v.(int); !ok {
+			t.Errorf("parseNumber(%q) returned %T, want int", s, v)
+		}
+	}
+
+	floatCases := []string{"3.14", "0.5", "-2.5"}
+	for _, s := range floatCases {
+		v, err := parseNumber(s)
+		if err != nil {
+			t.Errorf("parseNumber(%q) should coerce to float, got error: %v", s, err)
+			continue
+		}
+		if _, ok := v.(float64); !ok {
+			t.Errorf("parseNumber(%q) returned %T, want float64", s, v)
+		}
+	}
+}
+
+// TestYamlMultiset_PreservesVersionStrings is an end-to-end regression test
+// for the registry version truncation bug. Writing "version": "4.30" must
+// produce a YAML file that round-trips back to "4.30", not "4.3".
+func TestYamlMultiset_PreservesVersionStrings(t *testing.T) {
+	dir := createTempDir(t)
+	configPath := filepath.Join(dir, "registry.yaml")
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"multiset", "--file", configPath, "--create", "--quiet",
+		"packages.foo.version", "4.30",
+		"packages.foo.name", "foo",
+		"packages.bar.version", "1.0",
+		"packages.baz.version", "1.10.2",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("multiset failed: %v", err)
+	}
+
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read registry: %v", err)
+	}
+	got := string(content)
+
+	for _, want := range []string{"4.30", "1.0", "1.10.2"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("registry should preserve version %q, got:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "version: 4.3\n") {
+		t.Errorf("registry truncated 4.30 to 4.3:\n%s", got)
+	}
+}
