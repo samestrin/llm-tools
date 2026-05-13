@@ -81,6 +81,12 @@ All servers are native Go binaries with no runtime dependencies.
 | `llm_support_validate` | Validate JSON, YAML, TOML, CSV files |
 | `llm_support_report` | Generate formatted status reports |
 
+**Not exposed via MCP (CLI-only):**
+
+| Command | Why CLI-only |
+|---------|--------------|
+| `llm-support multi_review` | Long-running (minutes), streams live progress to stdout, produces on-disk artifacts. MCP's single-payload response model would hide progress and offer no benefit. Invoke from a shell or slash-command `Bash` block. |
+
 ### llm-clarification-mcp (12 tools)
 
 **Analysis Tools (require API):**
