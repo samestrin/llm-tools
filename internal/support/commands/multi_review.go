@@ -14,12 +14,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// invokeReviewerFn and shipBundleFn are package-level function variables that
-// tests swap to inject deterministic behavior. Production points them at the
-// real multireview package functions.
+// invokeReviewerFn, shipBundleFn, and preComputeDiffFn are package-level
+// function variables that tests swap to inject deterministic behavior.
+// Production points them at the real multireview package functions.
 var (
 	invokeReviewerFn = multireview.InvokeReviewer
 	shipBundleFn     = multireview.ShipBundle
+	preComputeDiffFn = multireview.PreComputeDiff
 )
 
 // Flag variables for the multi_review command.
@@ -92,7 +93,7 @@ Failure semantics:
 	cmd.Flags().StringVar(&mrOpenclawHost, "openclaw-host", "", "SSH target running openclaw-gateway (required)")
 	cmd.Flags().StringVar(&mrOutputDir, "output-dir", "", "Where per-reviewer artifacts and merged stream land (required)")
 	cmd.Flags().IntVar(&mrTimeoutSeconds, "timeout-seconds", 1200, "Total wall-clock budget for the entire fan-out")
-	cmd.Flags().IntVar(&mrPerReviewerTO, "per-reviewer-timeout-seconds", 600, "Per-reviewer soft timeout")
+	cmd.Flags().IntVar(&mrPerReviewerTO, "per-reviewer-timeout-seconds", 1200, "Per-reviewer soft timeout (default 1200s — observed 600s default timing out for real sprints)")
 	cmd.Flags().StringVar(&mrGatewayContainer, "gateway-container", "openclaw-gateway", "Docker container running openclaw")
 	cmd.Flags().StringVar(&mrTaskMessage, "task-message", "", "Override the task message sent to each reviewer; default is auto-built from --base/--head/--repo")
 	cmd.Flags().BoolVar(&mrSkipCleanup, "skip-cleanup", false, "Do not remove the remote workdir after running")
@@ -116,6 +117,9 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 	}
 	if mrOutputDir == "" {
 		return fmt.Errorf("--output-dir required")
+	}
+	if mrBaseRef == "" {
+		return fmt.Errorf("--base required (working-tree mode is not supported — pass --base=<ref> so we can pre-compute the diff for reviewers)")
 	}
 
 	allReviewers := splitAndTrim(mrReviewers)
@@ -160,10 +164,26 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 		}
 	}()
 
-	// 2. Build the task message (auto if not overridden).
+	// 2. Pre-compute the diff on the remote so reviewers only need to
+	//    `cat <diffPath>`. Removes the hallucination surface where weaker
+	//    reviewers were inventing "clone missing" failures rather than
+	//    running `git diff` themselves.
+	diffRes, err := preComputeDiffFn(totalCtx, multireview.PreComputeDiffParams{
+		Host:           mrOpenclawHost,
+		RemoteRepoPath: shipRes.RemoteRepoPath,
+		RemoteWorkdir:  remoteWorkdir,
+		BaseRef:        mrBaseRef,
+		HeadRef:        mrHeadRef,
+		Timeout:        time.Duration(mrTimeoutSeconds) * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("pre-compute diff on %s: %w", mrOpenclawHost, err)
+	}
+
+	// 3. Build the task message (auto if not overridden).
 	taskMessage := mrTaskMessage
 	if taskMessage == "" {
-		taskMessage = buildDefaultTaskMessage(shipRes.RemoteRepoPath, repoName, mrBaseRef, mrHeadRef)
+		taskMessage = buildDefaultTaskMessage(shipRes.RemoteRepoPath, repoName, mrBaseRef, mrHeadRef, diffRes)
 	}
 
 	// 3. Invoke reviewers. Parallel lane first, then serial.
@@ -288,19 +308,34 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func buildDefaultTaskMessage(remoteRepo, repoName, base, head string) string {
+func buildDefaultTaskMessage(remoteRepo, repoName, base, head string, diff multireview.PreComputeDiffResult) string {
 	if head == "" {
 		head = "HEAD"
 	}
 	var b strings.Builder
 	b.WriteString("Code review.\n\n")
-	b.WriteString(fmt.Sprintf("Repository: a fresh clone of %s is on this host at %s/\n\n", repoName, remoteRepo))
-	if base != "" {
-		b.WriteString(fmt.Sprintf("Range to review: %s..%s\n\n", base, head))
-		b.WriteString("To see the diff:\n")
-		b.WriteString(fmt.Sprintf("  cd %s && git diff %s..%s\n\n", remoteRepo, base, head))
-	} else {
-		b.WriteString(fmt.Sprintf("Working tree at %s — review the current state.\n\n", remoteRepo))
+	b.WriteString(fmt.Sprintf("A pre-computed unified diff is at:\n  %s\n", diff.DiffPath))
+	b.WriteString(fmt.Sprintf("Size: %d bytes (%d lines). Range: %s..%s. Repo clone: %s/\n\n",
+		diff.SizeBytes, diff.LineCount, base, head, remoteRepo))
+	b.WriteString(`INSTRUCTIONS — follow exactly:
+1. Run ` + "`cat " + diff.DiffPath + "`" + ` ONCE. That is the diff you must review.
+2. If the cat output looks empty or wrong, run ` + "`ls -la " + diff.DiffPath + "`" + ` and
+   ` + "`wc -l " + diff.DiffPath + "`" + ` and INCLUDE the literal output in your reply.
+3. Do NOT report "repository missing", "clone failed", or "refs not found"
+   unless step 2 actually shows the file is absent. Hallucinating an
+   infrastructure failure when the file exists is worse than no review.
+4. You may also ` + "`cd " + remoteRepo + "`" + ` and inspect individual files referenced
+   in the diff for context. The clone IS there.
+
+`)
+	// Large-diff hint: tell reviewers with tight context to start with --stat.
+	if diff.SizeBytes > 1_000_000 {
+		mb := float64(diff.SizeBytes) / 1_000_000
+		b.WriteString(fmt.Sprintf(`NOTE: Diff is large (%.1f MB). If your context budget is tight, get the
+file-level summary first with `+"`git -C %s diff --stat %s..%s`"+`,
+then focus on files with the most changes.
+
+`, mb, remoteRepo, base, head))
 	}
 	b.WriteString(`Produce your normal review report (verdict + severity-graded findings + what was done well + out-of-scope).
 Reply with the review body only — no preamble.
