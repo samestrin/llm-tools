@@ -14,13 +14,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// invokeReviewerFn, shipBundleFn, and preComputeDiffFn are package-level
-// function variables that tests swap to inject deterministic behavior.
-// Production points them at the real multireview package functions.
+// invokeReviewerFn, shipBundleFn, preComputeDiffFn, sshRunFn, and
+// containerExecFn are package-level function variables that tests swap to
+// inject deterministic behavior. Production points them at the real
+// multireview package functions.
+//
+// sshRunFn and containerExecFn cover the two cleanup channels (host staging
+// dir via raw ssh, container workdir via docker exec) so tests can assert
+// both fire on success and neither fires under --skip-cleanup.
 var (
 	invokeReviewerFn = multireview.InvokeReviewer
 	shipBundleFn     = multireview.ShipBundle
 	preComputeDiffFn = multireview.PreComputeDiff
+	sshRunFn         = multireview.SSHRun
+	containerExecFn  = multireview.ContainerExec
 )
 
 // Flag variables for the multi_review command.
@@ -150,42 +157,66 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 	defer cancelTotal()
 
 	// 1. Ship the bundle. Hard-stop on failure.
+	//
+	// remoteWorkdir is a path INSIDE the openclaw-gateway container — that's
+	// where the clone and the pre-computed diff need to live, because the
+	// container's /tmp is overlay-only (no bind mount from host /tmp).
+	// hostStagingDir is on the SSH target host; it exists only briefly as the
+	// scp landing pad before `docker cp` moves the bundle into the container.
 	repoName := filepath.Base(strings.TrimRight(mrRepo, "/"))
 	remoteWorkdir := fmt.Sprintf("/tmp/multi-review-%d", start.Unix())
+	hostStagingDir := fmt.Sprintf("/tmp/multi-review-staging-%d", start.Unix())
 	shipRes, err := shipBundleFn(totalCtx, multireview.ShipBundleParams{
-		LocalRepo:     mrRepo,
-		Host:          mrOpenclawHost,
-		RemoteWorkdir: remoteWorkdir,
-		RepoName:      repoName,
-		Timeout:       time.Duration(mrTimeoutSeconds) * time.Second,
+		LocalRepo:        mrRepo,
+		Host:             mrOpenclawHost,
+		GatewayContainer: mrGatewayContainer,
+		RemoteWorkdir:    remoteWorkdir,
+		HostStagingDir:   hostStagingDir,
+		RepoName:         repoName,
+		Timeout:          time.Duration(mrTimeoutSeconds) * time.Second,
 	})
 	if err != nil {
 		return fmt.Errorf("ship bundle to %s: %w", mrOpenclawHost, err)
 	}
+	// Container workdir cleanup (runs first, LIFO).
 	defer func() {
 		if !mrSkipCleanup {
-			// Best-effort teardown of the remote workdir.
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			_, _ = multireview.SSHRun(cleanupCtx, multireview.SSHParams{
+			_, _ = containerExecFn(cleanupCtx, multireview.ContainerExecParams{
+				Host:             mrOpenclawHost,
+				GatewayContainer: mrGatewayContainer,
+				Command:          "rm -rf " + shellQuote(remoteWorkdir),
+				Timeout:          30 * time.Second,
+			})
+		}
+	}()
+	// Host staging dir cleanup (runs after container cleanup).
+	defer func() {
+		if !mrSkipCleanup {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_, _ = sshRunFn(cleanupCtx, multireview.SSHParams{
 				Host:    mrOpenclawHost,
-				Command: "rm -rf " + shellQuote(remoteWorkdir),
+				Command: "rm -rf " + shellQuote(hostStagingDir),
 				Timeout: 30 * time.Second,
 			})
 		}
 	}()
 
-	// 2. Pre-compute the diff on the remote so reviewers only need to
-	//    `cat <diffPath>`. Removes the hallucination surface where weaker
+	// 2. Pre-compute the diff inside the container so reviewers only need
+	//    to `cat <diffPath>`. Removes the hallucination surface where weaker
 	//    reviewers were inventing "clone missing" failures rather than
-	//    running `git diff` themselves.
+	//    running `git diff` themselves AND the container-can't-see-host bug
+	//    that made the diff invisible in PR #30.
 	diffRes, err := preComputeDiffFn(totalCtx, multireview.PreComputeDiffParams{
-		Host:           mrOpenclawHost,
-		RemoteRepoPath: shipRes.RemoteRepoPath,
-		RemoteWorkdir:  remoteWorkdir,
-		BaseRef:        mrBaseRef,
-		HeadRef:        mrHeadRef,
-		Timeout:        time.Duration(mrTimeoutSeconds) * time.Second,
+		Host:             mrOpenclawHost,
+		GatewayContainer: mrGatewayContainer,
+		RemoteRepoPath:   shipRes.RemoteRepoPath,
+		RemoteWorkdir:    remoteWorkdir,
+		BaseRef:          mrBaseRef,
+		HeadRef:          mrHeadRef,
+		Timeout:          time.Duration(mrTimeoutSeconds) * time.Second,
 	})
 	if err != nil {
 		return fmt.Errorf("pre-compute diff on %s: %w", mrOpenclawHost, err)

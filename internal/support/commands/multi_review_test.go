@@ -490,6 +490,232 @@ func TestMultiReview_LargeDiffWarning(t *testing.T) {
 	}
 }
 
+// ---- container-routing tests ----
+
+// withCaptureSSHRun swaps the sshRunFn used for cleanup so tests can assert
+// on which paths the run tried to rm -rf at teardown.
+func withCaptureSSHRun(t *testing.T, captured *[]string) {
+	t.Helper()
+	orig := sshRunFn
+	sshRunFn = func(ctx context.Context, p multireview.SSHParams) (multireview.SSHResult, error) {
+		*captured = append(*captured, p.Command)
+		return multireview.SSHResult{}, nil
+	}
+	t.Cleanup(func() { sshRunFn = orig })
+}
+
+// withCaptureContainerExec swaps containerExecFn for capturing cleanup
+// commands routed inside the container.
+func withCaptureContainerExec(t *testing.T, captured *[]string) {
+	t.Helper()
+	orig := containerExecFn
+	containerExecFn = func(ctx context.Context, p multireview.ContainerExecParams) (multireview.SSHResult, error) {
+		*captured = append(*captured, p.Command)
+		return multireview.SSHResult{}, nil
+	}
+	t.Cleanup(func() { containerExecFn = orig })
+}
+
+func TestMultiReview_GatewayContainerFlagsThreaded(t *testing.T) {
+	// --gateway-container value must reach BOTH ShipBundleParams and
+	// PreComputeDiffParams. We capture each via the mock function pointers.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	var capturedShip, capturedDiff string
+	origShip := shipBundleFn
+	shipBundleFn = func(ctx context.Context, p multireview.ShipBundleParams) (multireview.ShipBundleResult, error) {
+		capturedShip = p.GatewayContainer
+		return multireview.ShipBundleResult{
+			RemoteRepoPath:        "/tmp/work/" + p.RepoName,
+			HostStagingBundlePath: "/tmp/stage/bundle.git",
+			BundleSize:            1,
+		}, nil
+	}
+	t.Cleanup(func() { shipBundleFn = origShip })
+
+	origDiff := preComputeDiffFn
+	preComputeDiffFn = func(ctx context.Context, p multireview.PreComputeDiffParams) (multireview.PreComputeDiffResult, error) {
+		capturedDiff = p.GatewayContainer
+		return multireview.PreComputeDiffResult{DiffPath: p.RemoteWorkdir + "/diff.txt"}, nil
+	}
+	t.Cleanup(func() { preComputeDiffFn = origDiff })
+
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--gateway-container", "my-custom-container",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if capturedShip != "my-custom-container" {
+		t.Errorf("ShipBundle got GatewayContainer=%q, want my-custom-container", capturedShip)
+	}
+	if capturedDiff != "my-custom-container" {
+		t.Errorf("PreComputeDiff got GatewayContainer=%q, want my-custom-container", capturedDiff)
+	}
+}
+
+func TestMultiReview_HostStagingDirThreadsToShipBundle(t *testing.T) {
+	// HostStagingDir must be set by runMultiReview and include the run
+	// timestamp so concurrent runs don't collide.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	var capturedStaging, capturedWorkdir string
+	origShip := shipBundleFn
+	shipBundleFn = func(ctx context.Context, p multireview.ShipBundleParams) (multireview.ShipBundleResult, error) {
+		capturedStaging = p.HostStagingDir
+		capturedWorkdir = p.RemoteWorkdir
+		return multireview.ShipBundleResult{
+			RemoteRepoPath:        p.RemoteWorkdir + "/" + p.RepoName,
+			HostStagingBundlePath: p.HostStagingDir + "/bundle.git",
+			BundleSize:            1,
+		}, nil
+	}
+	t.Cleanup(func() { shipBundleFn = origShip })
+
+	withMockPreComputeDiff(t)
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if capturedStaging == "" {
+		t.Fatal("HostStagingDir was empty")
+	}
+	if !strings.HasPrefix(capturedStaging, "/tmp/multi-review-staging-") {
+		t.Errorf("HostStagingDir should start with /tmp/multi-review-staging-, got: %s", capturedStaging)
+	}
+	// Staging and workdir must be different paths to keep cleanup distinct.
+	if capturedStaging == capturedWorkdir {
+		t.Errorf("HostStagingDir and RemoteWorkdir must differ; both were %q", capturedStaging)
+	}
+}
+
+func TestMultiReview_BothCleanupsFire(t *testing.T) {
+	// On successful run, cleanup must remove BOTH:
+	//   1. The container workdir (via docker exec rm -rf)
+	//   2. The host staging dir (via raw ssh rm -rf)
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+	})
+
+	var sshCommands, containerCommands []string
+	withCaptureSSHRun(t, &sshCommands)
+	withCaptureContainerExec(t, &containerCommands)
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	// Container cleanup: at least one container-exec call should be `rm -rf`
+	// targeting a /tmp/multi-review-<ts> path (not the staging prefix).
+	foundContainerRm := false
+	for _, c := range containerCommands {
+		if strings.Contains(c, "rm -rf") && strings.Contains(c, "/tmp/multi-review-") && !strings.Contains(c, "staging") {
+			foundContainerRm = true
+			break
+		}
+	}
+	if !foundContainerRm {
+		t.Errorf("expected container exec rm -rf for the workdir; got: %v", containerCommands)
+	}
+
+	// Host cleanup: at least one raw ssh call should be `rm -rf` targeting
+	// the staging dir.
+	foundHostRm := false
+	for _, c := range sshCommands {
+		if strings.Contains(c, "rm -rf") && strings.Contains(c, "/tmp/multi-review-staging-") {
+			foundHostRm = true
+			break
+		}
+	}
+	if !foundHostRm {
+		t.Errorf("expected raw ssh rm -rf for the host staging dir; got: %v", sshCommands)
+	}
+}
+
+func TestMultiReview_SkipCleanupSkipsBoth(t *testing.T) {
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+	})
+
+	var sshCommands, containerCommands []string
+	withCaptureSSHRun(t, &sshCommands)
+	withCaptureContainerExec(t, &containerCommands)
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--skip-cleanup",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	// Neither cleanup channel should have any `rm -rf` invocation.
+	for _, c := range containerCommands {
+		if strings.Contains(c, "rm -rf") {
+			t.Errorf("--skip-cleanup should suppress container rm -rf, got: %s", c)
+		}
+	}
+	for _, c := range sshCommands {
+		if strings.Contains(c, "rm -rf") {
+			t.Errorf("--skip-cleanup should suppress host rm -rf, got: %s", c)
+		}
+	}
+}
+
 func TestMultiReview_SmallDiffNoWarning(t *testing.T) {
 	// SizeBytes < 1_000_000 should NOT append the --stat hint.
 	repo := initFixtureRepoMR(t)
