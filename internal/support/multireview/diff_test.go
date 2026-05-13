@@ -2,7 +2,9 @@ package multireview
 
 import (
 	"context"
+	"encoding/base64"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -227,6 +229,27 @@ func TestPreComputeDiff_Timeout(t *testing.T) {
 	}
 }
 
+// decodeInnerCommand extracts the base64 token from the outer ssh wrapper
+// and returns the decoded inner shell command. The wrapper shape is:
+//
+//	ssh ... -- docker exec '<container>' sh -c "$(echo '<b64>' | base64 -d)"
+//
+// We pull the first single-quoted base64-looking token after `echo `.
+func decodeInnerCommand(t *testing.T, outer string) string {
+	t.Helper()
+	// Find "echo 'XXXX'" where XXXX is base64.
+	re := regexp.MustCompile(`echo '([A-Za-z0-9+/=]+)'`)
+	m := re.FindStringSubmatch(outer)
+	if m == nil {
+		t.Fatalf("could not find base64 token in: %s", outer)
+	}
+	dec, err := base64.StdEncoding.DecodeString(m[1])
+	if err != nil {
+		t.Fatalf("base64 decode of %q: %v", m[1], err)
+	}
+	return string(dec)
+}
+
 func TestPreComputeDiff_HeadRefDefaultsToHEAD(t *testing.T) {
 	// When HeadRef is empty, it should default to "HEAD" rather than passing
 	// an empty string to git.
@@ -234,9 +257,9 @@ func TestPreComputeDiff_HeadRefDefaultsToHEAD(t *testing.T) {
 	t.Cleanup(func() { execCommandContext = origExec })
 	var capturedCmd string
 	execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		// Capture the remote command we sent (last arg) so we can assert HEAD.
+		// Capture the outer ssh command so we can decode the inner payload.
 		if len(args) > 0 {
-			capturedCmd = args[len(args)-1]
+			capturedCmd = strings.Join(append([]string{name}, args...), " ")
 		}
 		return exec.CommandContext(ctx, "/bin/sh", "-c",
 			`echo "100 /tmp/w/diff.txt"; echo "5 /tmp/w/diff.txt"`)
@@ -253,9 +276,89 @@ func TestPreComputeDiff_HeadRefDefaultsToHEAD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PreComputeDiff: %v", err)
 	}
-	// The refs are shell-quoted, so look for the HEAD token in context:
-	// `'v0'..'HEAD'` should appear in the command.
-	if !strings.Contains(capturedCmd, "'HEAD'") {
-		t.Errorf("expected remote command to default HeadRef to HEAD (look for 'HEAD' in quoted form), got: %s", capturedCmd)
+	inner := decodeInnerCommand(t, capturedCmd)
+	// The shell-quoted form is `'v0'..'HEAD'`.
+	if !strings.Contains(inner, "'HEAD'") {
+		t.Errorf("expected decoded inner command to contain 'HEAD' (single-quoted), got: %s", inner)
+	}
+}
+
+func TestPreComputeDiff_RoutedThroughContainer(t *testing.T) {
+	// The diff pipeline must run via `docker exec`, not raw ssh, so the file
+	// lands inside the container's overlay /tmp where reviewers can see it.
+	origExec := execCommandContext
+	t.Cleanup(func() { execCommandContext = origExec })
+	var capturedCmd string
+	execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if len(args) > 0 {
+			capturedCmd = strings.Join(append([]string{name}, args...), " ")
+		}
+		return exec.CommandContext(ctx, "/bin/sh", "-c",
+			`echo "100 /tmp/w/diff.txt"; echo "5 /tmp/w/diff.txt"`)
+	}
+
+	_, err := PreComputeDiff(context.Background(), PreComputeDiffParams{
+		Host:             "user@example.lan",
+		GatewayContainer: "openclaw-gateway",
+		RemoteRepoPath:   "/tmp/w/repo",
+		RemoteWorkdir:    "/tmp/w",
+		BaseRef:          "v0",
+		HeadRef:          "HEAD",
+		Timeout:          10 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("PreComputeDiff: %v", err)
+	}
+	// Outer must mention docker exec + base64 -d + the container name.
+	if !strings.Contains(capturedCmd, "docker exec") {
+		t.Errorf("outer command should route through docker exec, got: %s", capturedCmd)
+	}
+	if !strings.Contains(capturedCmd, "'openclaw-gateway'") {
+		t.Errorf("outer command should mention container 'openclaw-gateway', got: %s", capturedCmd)
+	}
+	if !strings.Contains(capturedCmd, "base64 -d") {
+		t.Errorf("outer command should base64-decode inner payload, got: %s", capturedCmd)
+	}
+
+	// Inner (decoded) must still be the original git diff > diff.txt && wc pipeline.
+	inner := decodeInnerCommand(t, capturedCmd)
+	if !strings.Contains(inner, "git -C '/tmp/w/repo' diff") {
+		t.Errorf("decoded inner should run git diff with quoted repo path, got: %s", inner)
+	}
+	if !strings.Contains(inner, "> '/tmp/w/diff.txt'") {
+		t.Errorf("decoded inner should redirect to quoted diff.txt, got: %s", inner)
+	}
+	if !strings.Contains(inner, "wc -c") || !strings.Contains(inner, "wc -l") {
+		t.Errorf("decoded inner should include wc -c and wc -l, got: %s", inner)
+	}
+}
+
+func TestPreComputeDiff_DefaultsContainerName(t *testing.T) {
+	// Empty GatewayContainer defaults to openclaw-gateway via ContainerExec.
+	origExec := execCommandContext
+	t.Cleanup(func() { execCommandContext = origExec })
+	var capturedCmd string
+	execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if len(args) > 0 {
+			capturedCmd = strings.Join(append([]string{name}, args...), " ")
+		}
+		return exec.CommandContext(ctx, "/bin/sh", "-c",
+			`echo "0 /tmp/w/diff.txt"; echo "0 /tmp/w/diff.txt"`)
+	}
+
+	_, err := PreComputeDiff(context.Background(), PreComputeDiffParams{
+		Host:           "user@example.lan",
+		RemoteRepoPath: "/tmp/w/r",
+		RemoteWorkdir:  "/tmp/w",
+		BaseRef:        "v0",
+		HeadRef:        "HEAD",
+		Timeout:        10 * time.Second,
+		// GatewayContainer intentionally empty
+	})
+	if err != nil {
+		t.Fatalf("PreComputeDiff: %v", err)
+	}
+	if !strings.Contains(capturedCmd, "'openclaw-gateway'") {
+		t.Errorf("expected default container name in outer command, got: %s", capturedCmd)
 	}
 }
