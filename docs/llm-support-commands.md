@@ -2132,19 +2132,31 @@ llm-support multi_review [flags]
 | `--repo` | Local repo path to bundle and ship |
 | `--openclaw-host` | SSH target running `openclaw-gateway` (e.g. `user@nucleus.lan`) |
 | `--output-dir` | Where per-reviewer artifacts and merged stream land |
+| `--base` | Base ref for the diff range. **REQUIRED** — we pre-compute `git diff <base>..<head>` on the remote so reviewers only need to `cat` the resulting file. Working-tree mode is intentionally unsupported. |
 
 **Optional flags:**
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--serial-reviewers` | (empty) | Subset that runs sequentially after the parallel lane (shared rate limits) |
-| `--base` | (empty) | Base ref for the diff range, included in the auto-built task message |
 | `--head` | `HEAD` | Head ref |
 | `--timeout-seconds` | `1200` | Total wall-clock budget for the entire fan-out |
-| `--per-reviewer-timeout-seconds` | `600` | Per-reviewer soft timeout |
+| `--per-reviewer-timeout-seconds` | `1200` | Per-reviewer soft timeout. Bumped from 600s after production observation that real sprints with reasoning-model reviewers can legitimately need 10-20 minutes. |
 | `--gateway-container` | `openclaw-gateway` | Docker container running openclaw |
-| `--task-message` | (auto) | Override the auto-built task message |
+| `--task-message` | (auto) | Override the auto-built task message. Bypasses the pre-compute helper instructions — you take responsibility for telling reviewers where the diff is. |
 | `--skip-cleanup` | `false` | Do not remove the remote workdir after running |
+
+**Pre-compute step:**
+
+After the bundle clone succeeds on the remote, `multi_review` runs:
+
+```
+git -C <remoteRepo> diff <base>..<head> > <remoteWorkdir>/diff.txt
+wc -c <remoteWorkdir>/diff.txt
+wc -l <remoteWorkdir>/diff.txt
+```
+
+The diff file lands at `<remoteWorkdir>/diff.txt` — a sibling of the cloned repo, inside the same temp directory that gets garbage-collected when the run finishes. The task message tells each reviewer to `cat <diffPath>` and review the contents. Reviewers don't need to `cd` into the repo or run git themselves. If the diff is >1MB, the task message appends a `git diff --stat` hint so reviewers can do a file-level pass first.
 
 **Output layout under `--output-dir`:**
 
