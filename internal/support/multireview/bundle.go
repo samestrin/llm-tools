@@ -33,15 +33,25 @@ func CreateBundle(repoPath, outBundle string) error {
 	return nil
 }
 
-// ShipBundleParams configures end-to-end bundle shipping.
+// ShipBundleParams configures end-to-end bundle shipping. The bundle is
+// scp'd to a host-side staging directory and then docker-cp'd into the
+// gateway container, where the clone is created. Reviewers run inside the
+// container and read from the container-local clone path.
 type ShipBundleParams struct {
 	// LocalRepo is the path to the source git repository on this machine.
 	LocalRepo string
 	// Host is the SSH target where the bundle should land.
 	Host string
-	// RemoteWorkdir is the directory on the remote that will hold the bundle
-	// and the clone. Created if absent. Should be unique per run.
+	// GatewayContainer is the docker container name that hosts the reviewers
+	// and where the clone must live. Defaults to "openclaw-gateway" when empty.
+	GatewayContainer string
+	// RemoteWorkdir is the directory INSIDE the container that will hold the
+	// bundle and the clone. Created if absent. Should be unique per run.
 	RemoteWorkdir string
+	// HostStagingDir is a directory on the SSH target host used as a scp
+	// landing pad. The bundle is scp'd here, then docker cp'd into the
+	// container. Required and must be distinct from RemoteWorkdir.
+	HostStagingDir string
 	// RepoName is the directory name to clone the bundle into, inside
 	// RemoteWorkdir. Reviewers will read from this path.
 	RepoName string
@@ -54,22 +64,32 @@ type ShipBundleResult struct {
 	// LocalBundlePath is the path to the local .git bundle file (kept for
 	// inspection until the caller cleans it up).
 	LocalBundlePath string
-	// RemoteBundlePath is the path of the bundle on the remote.
-	RemoteBundlePath string
-	// RemoteRepoPath is the path of the clone directory on the remote — this
-	// is what reviewers should read.
+	// HostStagingBundlePath is the path of the bundle on the SSH target host
+	// (scp landing pad). The host staging dir is independently cleaned up.
+	HostStagingBundlePath string
+	// RemoteRepoPath is the path of the clone directory INSIDE the container.
+	// This is what reviewers should read.
 	RemoteRepoPath string
 	// BundleSize is the byte size of the bundle.
 	BundleSize int64
 }
 
-// ShipBundle bundles a local repo, ships it to a remote host, and clones it
-// into the remote workdir under RepoName. Returns the remote clone path so
-// reviewers can read from it.
+// ShipBundle bundles a local repo, ships it to the SSH target host's staging
+// dir, then docker-cp's it into the gateway container and clones it inside
+// the container. Returns the container clone path — the value reviewers
+// (which run inside the container) must use.
 //
-// Failure semantics: any failure (bundle, scp, mkdir, clone) returns an
-// error wrapping enough context to diagnose. Partial state is not cleaned
-// up automatically — caller decides via teardown.
+// Sequence:
+//  1. local git bundle
+//  2. ssh -- docker exec mkdir <container workdir>
+//  3. ssh -- mkdir <host staging dir>
+//  4. scp local bundle -> host staging dir
+//  5. ssh -- docker cp <host staging>/bundle.git <container>:<workdir>/bundle.git
+//  6. ssh -- docker exec git clone (inside the container workdir)
+//
+// Failure semantics: any failure returns an error wrapping enough context to
+// diagnose. Partial state is not cleaned up automatically — caller decides
+// via teardown.
 func ShipBundle(ctx context.Context, p ShipBundleParams) (ShipBundleResult, error) {
 	if p.LocalRepo == "" {
 		return ShipBundleResult{}, fmt.Errorf("ship: local repo required")
@@ -80,8 +100,14 @@ func ShipBundle(ctx context.Context, p ShipBundleParams) (ShipBundleResult, erro
 	if p.RemoteWorkdir == "" {
 		return ShipBundleResult{}, fmt.Errorf("ship: remote workdir required")
 	}
+	if p.HostStagingDir == "" {
+		return ShipBundleResult{}, fmt.Errorf("ship: host staging dir required")
+	}
 	if p.RepoName == "" {
 		return ShipBundleResult{}, fmt.Errorf("ship: repo name required")
+	}
+	if p.GatewayContainer == "" {
+		p.GatewayContainer = "openclaw-gateway"
 	}
 	if p.Timeout <= 0 {
 		p.Timeout = 5 * time.Minute
@@ -101,51 +127,88 @@ func ShipBundle(ctx context.Context, p ShipBundleParams) (ShipBundleResult, erro
 		return ShipBundleResult{}, fmt.Errorf("ship: stat bundle: %w", err)
 	}
 
-	// 2. Make remote workdir.
-	mkdirRes, err := SSHRun(ctx, SSHParams{
+	// 2. Make the container workdir. Fails fast if the container is missing
+	//    or the user has no write perm under /tmp.
+	cMkRes, err := ContainerExec(ctx, ContainerExecParams{
+		Host:             p.Host,
+		GatewayContainer: p.GatewayContainer,
+		Command:          fmt.Sprintf("mkdir -p %s", shellQuote(p.RemoteWorkdir)),
+		Timeout:          p.Timeout,
+	})
+	if err != nil {
+		return ShipBundleResult{}, fmt.Errorf("ship: container mkdir: %w", err)
+	}
+	if cMkRes.ExitCode != 0 {
+		return ShipBundleResult{}, fmt.Errorf("ship: container mkdir exit %d, stderr: %s", cMkRes.ExitCode, cMkRes.Stderr)
+	}
+
+	// 3. Make the host staging dir (scp landing pad).
+	hMkRes, err := SSHRun(ctx, SSHParams{
 		Host:    p.Host,
-		Command: fmt.Sprintf("mkdir -p %s", shellQuote(p.RemoteWorkdir)),
+		Command: fmt.Sprintf("mkdir -p %s", shellQuote(p.HostStagingDir)),
 		Timeout: p.Timeout,
 	})
 	if err != nil {
-		return ShipBundleResult{}, fmt.Errorf("ship: ssh mkdir: %w", err)
+		return ShipBundleResult{}, fmt.Errorf("ship: host mkdir: %w", err)
 	}
-	if mkdirRes.ExitCode != 0 {
-		return ShipBundleResult{}, fmt.Errorf("ship: mkdir exit %d, stderr: %s", mkdirRes.ExitCode, mkdirRes.Stderr)
+	if hMkRes.ExitCode != 0 {
+		return ShipBundleResult{}, fmt.Errorf("ship: host mkdir exit %d, stderr: %s", hMkRes.ExitCode, hMkRes.Stderr)
 	}
 
-	// 3. SCP bundle to remote.
-	remoteBundle := filepath.Join(p.RemoteWorkdir, "bundle.git")
+	// 4. scp the bundle to host staging.
+	hostStagingBundle := filepath.Join(p.HostStagingDir, "bundle.git")
 	if _, err := SCPSend(ctx, SCPParams{
 		Host:       p.Host,
 		LocalPath:  localBundle,
-		RemotePath: remoteBundle,
+		RemotePath: hostStagingBundle,
 		Timeout:    p.Timeout,
 	}); err != nil {
 		return ShipBundleResult{}, fmt.Errorf("ship: %w", err)
 	}
 
-	// 4. Clone the bundle on the remote into RepoName.
-	remoteRepo := filepath.Join(p.RemoteWorkdir, p.RepoName)
-	cloneCmd := fmt.Sprintf("cd %s && git clone -q bundle.git %s",
-		shellQuote(p.RemoteWorkdir), shellQuote(p.RepoName))
-	cloneRes, err := SSHRun(ctx, SSHParams{
+	// 5. docker cp the bundle from host staging into the container workdir.
+	//    docker cp is a host-side command (not a container exec), so this is
+	//    a raw ssh call. We let the outer shell quote the spec; the path
+	//    contains only the bundle.git filename and our controlled workdir.
+	containerBundle := filepath.Join(p.RemoteWorkdir, "bundle.git")
+	cpCmd := fmt.Sprintf("docker cp %s %s:%s",
+		shellQuote(hostStagingBundle),
+		shellQuote(p.GatewayContainer),
+		shellQuote(containerBundle))
+	cpRes, err := SSHRun(ctx, SSHParams{
 		Host:    p.Host,
-		Command: cloneCmd,
+		Command: cpCmd,
 		Timeout: p.Timeout,
 	})
 	if err != nil {
-		return ShipBundleResult{}, fmt.Errorf("ship: ssh clone: %w", err)
+		return ShipBundleResult{}, fmt.Errorf("ship: docker cp: %w", err)
+	}
+	if cpRes.ExitCode != 0 {
+		return ShipBundleResult{}, fmt.Errorf("ship: docker cp exit %d, stderr: %s", cpRes.ExitCode, cpRes.Stderr)
+	}
+
+	// 6. Clone the bundle inside the container into RepoName.
+	containerRepo := filepath.Join(p.RemoteWorkdir, p.RepoName)
+	cloneCmd := fmt.Sprintf("cd %s && git clone -q bundle.git %s",
+		shellQuote(p.RemoteWorkdir), shellQuote(p.RepoName))
+	cloneRes, err := ContainerExec(ctx, ContainerExecParams{
+		Host:             p.Host,
+		GatewayContainer: p.GatewayContainer,
+		Command:          cloneCmd,
+		Timeout:          p.Timeout,
+	})
+	if err != nil {
+		return ShipBundleResult{}, fmt.Errorf("ship: container clone: %w", err)
 	}
 	if cloneRes.ExitCode != 0 {
-		return ShipBundleResult{}, fmt.Errorf("ship: clone exit %d, stderr: %s", cloneRes.ExitCode, cloneRes.Stderr)
+		return ShipBundleResult{}, fmt.Errorf("ship: container clone exit %d, stderr: %s", cloneRes.ExitCode, cloneRes.Stderr)
 	}
 
 	return ShipBundleResult{
-		LocalBundlePath:  localBundle,
-		RemoteBundlePath: remoteBundle,
-		RemoteRepoPath:   remoteRepo,
-		BundleSize:       info.Size(),
+		LocalBundlePath:       localBundle,
+		HostStagingBundlePath: hostStagingBundle,
+		RemoteRepoPath:        containerRepo,
+		BundleSize:            info.Size(),
 	}, nil
 }
 
