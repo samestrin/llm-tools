@@ -71,18 +71,24 @@ func newMultiReviewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "multi_review",
 		Short: "Fan out a code review to multiple openclaw reviewer agents",
-		Long: `Bundle a local repo, ship it to an openclaw-hosting machine, pre-compute
-the diff once, and invoke several reviewer agents in parallel (or in a
-serial lane for those that share rate-limited providers). Collects
-per-reviewer findings and writes a merged TD stream the /code-review
-command can consume.
+		Long: `Bundle a local repo, ship it INTO the openclaw-gateway container on
+the remote host, pre-compute the diff once inside the container, and
+invoke several reviewer agents in parallel (or in a serial lane for
+those that share rate-limited providers). Collects per-reviewer findings
+and writes a merged TD stream the /code-review command can consume.
 
-Pre-compute step: --base is REQUIRED. After the bundle is shipped, we run
-'git diff <base>..<head>' on the remote and write the result to
-<workdir>/diff.txt. Reviewers are told to 'cat' that file rather than
-running git themselves — observed in production, weaker reviewers
-hallucinate "clone missing" failures rather than persist through a multi-step
-git invocation. Pre-computing eliminates that surface.
+Container routing: filesystem ops route through 'docker exec' because
+the gateway container has no /tmp bind mount from the host. The bundle
+lands briefly on the host as a staging scp pad, then 'docker cp' moves
+it into the container where the clone and pre-computed diff live —
+where reviewers (also inside the container) can actually read them.
+
+Pre-compute step: --base is REQUIRED. After the bundle is shipped, we
+run 'git diff <base>..<head>' inside the container and write the
+result to <container-workdir>/diff.txt. Reviewers are told to 'cat'
+that file rather than running git themselves — observed in production,
+weaker reviewers hallucinate "clone missing" failures rather than
+persisting through a multi-step git invocation.
 
 Output layout:
   <output-dir>/raw/<agent>/{review.md,td-stream.txt,status.json,response.json}
@@ -166,19 +172,11 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 	repoName := filepath.Base(strings.TrimRight(mrRepo, "/"))
 	remoteWorkdir := fmt.Sprintf("/tmp/multi-review-%d", start.Unix())
 	hostStagingDir := fmt.Sprintf("/tmp/multi-review-staging-%d", start.Unix())
-	shipRes, err := shipBundleFn(totalCtx, multireview.ShipBundleParams{
-		LocalRepo:        mrRepo,
-		Host:             mrOpenclawHost,
-		GatewayContainer: mrGatewayContainer,
-		RemoteWorkdir:    remoteWorkdir,
-		HostStagingDir:   hostStagingDir,
-		RepoName:         repoName,
-		Timeout:          time.Duration(mrTimeoutSeconds) * time.Second,
-	})
-	if err != nil {
-		return fmt.Errorf("ship bundle to %s: %w", mrOpenclawHost, err)
-	}
-	// Container workdir cleanup (runs first, LIFO).
+
+	// Register cleanup BEFORE ShipBundle so partial-state failures
+	// (container mkdir succeeds, then scp fails) don't leak. rm -rf on a
+	// non-existent path is a harmless no-op; cleanup results are
+	// best-effort and intentionally ignored.
 	defer func() {
 		if !mrSkipCleanup {
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -191,7 +189,6 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 			})
 		}
 	}()
-	// Host staging dir cleanup (runs after container cleanup).
 	defer func() {
 		if !mrSkipCleanup {
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -203,6 +200,19 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 			})
 		}
 	}()
+
+	shipRes, err := shipBundleFn(totalCtx, multireview.ShipBundleParams{
+		LocalRepo:        mrRepo,
+		Host:             mrOpenclawHost,
+		GatewayContainer: mrGatewayContainer,
+		RemoteWorkdir:    remoteWorkdir,
+		HostStagingDir:   hostStagingDir,
+		RepoName:         repoName,
+		Timeout:          time.Duration(mrTimeoutSeconds) * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("ship bundle to %s: %w", mrOpenclawHost, err)
+	}
 
 	// 2. Pre-compute the diff inside the container so reviewers only need
 	//    to `cat <diffPath>`. Removes the hallucination surface where weaker

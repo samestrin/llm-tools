@@ -674,6 +674,63 @@ func TestMultiReview_BothCleanupsFire(t *testing.T) {
 	}
 }
 
+func TestMultiReview_CleanupFiresOnShipBundleFailure(t *testing.T) {
+	// If ShipBundle creates the container workdir then fails (e.g. clone
+	// errors after mkdir succeeds), we'd leak overlay /tmp space inside the
+	// container. The defers must be registered BEFORE ShipBundle is called
+	// so cleanup runs even on partial-state failure. rm -rf on a path that
+	// was never created is a harmless no-op.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	origShip := shipBundleFn
+	shipBundleFn = func(ctx context.Context, p multireview.ShipBundleParams) (multireview.ShipBundleResult, error) {
+		return multireview.ShipBundleResult{}, fmt.Errorf("ship: container clone exit 128, stderr: fatal: clone destination exists")
+	}
+	t.Cleanup(func() { shipBundleFn = origShip })
+
+	var sshCommands, containerCommands []string
+	withCaptureSSHRun(t, &sshCommands)
+	withCaptureContainerExec(t, &containerCommands)
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error from ship failure")
+	}
+
+	// Even on hard-stop, both cleanup channels must have fired.
+	foundContainerRm := false
+	for _, c := range containerCommands {
+		if strings.Contains(c, "rm -rf") && strings.Contains(c, "/tmp/multi-review-") && !strings.Contains(c, "staging") {
+			foundContainerRm = true
+			break
+		}
+	}
+	if !foundContainerRm {
+		t.Errorf("container rm -rf should fire even on ship failure; got: %v", containerCommands)
+	}
+	foundHostRm := false
+	for _, c := range sshCommands {
+		if strings.Contains(c, "rm -rf") && strings.Contains(c, "/tmp/multi-review-staging-") {
+			foundHostRm = true
+			break
+		}
+	}
+	if !foundHostRm {
+		t.Errorf("host staging rm -rf should fire even on ship failure; got: %v", sshCommands)
+	}
+}
+
 func TestMultiReview_SkipCleanupSkipsBoth(t *testing.T) {
 	repo := initFixtureRepoMR(t)
 	outDir := filepath.Join(t.TempDir(), "out")

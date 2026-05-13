@@ -321,34 +321,19 @@ func TestShipBundle_DockerCpFails(t *testing.T) {
 }
 
 func TestShipBundle_ContainerCloneFails(t *testing.T) {
+	// Two docker exec calls happen in ShipBundle: the first is the workdir
+	// mkdir, the second is the clone. Fail the second.
 	repoPath, _, _ := initFixtureRepo(t)
 
 	origExec := execCommandContext
 	t.Cleanup(func() { execCommandContext = origExec })
 
-	execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		joined := strings.Join(args, " ")
-		// Inner command is base64-encoded so we can't match "git clone"
-		// in the outer ssh args. Instead, fail the LAST docker-exec call
-		// (which is the clone — first docker exec was mkdir).
-		if strings.Contains(joined, "docker exec") {
-			// Count is unreliable in a swap that doesn't track state across
-			// closures, so fail any call whose b64-decoded substring would
-			// be a clone. We approximate by failing if this is the call
-			// AFTER docker cp — i.e. detect by encoded marker via env.
-			// Simpler: fail the second docker-exec call.
-		}
-		return exec.CommandContext(ctx, "/bin/sh", "-c", "exit 0")
-	}
-
-	// Re-mock with state tracking.
 	dockerExecCount := 0
 	execCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		joined := strings.Join(args, " ")
 		if strings.Contains(joined, "docker exec") {
 			dockerExecCount++
 			if dockerExecCount == 2 {
-				// Second docker exec call = the clone.
 				return exec.CommandContext(ctx, "/bin/sh", "-c", `echo "fatal: clone destination exists" >&2; exit 128`)
 			}
 		}
