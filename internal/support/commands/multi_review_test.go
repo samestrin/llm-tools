@@ -68,6 +68,23 @@ func withMockShipBundle(t *testing.T) {
 	t.Cleanup(func() { shipBundleFn = orig })
 }
 
+// withMockPreComputeDiff swaps preComputeDiffFn so tests get a deterministic
+// diff result without invoking ssh. Default mock returns a 1234-byte / 50-line
+// diff at <RemoteWorkdir>/diff.txt.
+func withMockPreComputeDiff(t *testing.T) {
+	t.Helper()
+	orig := preComputeDiffFn
+	preComputeDiffFn = func(ctx context.Context, p multireview.PreComputeDiffParams) (multireview.PreComputeDiffResult, error) {
+		return multireview.PreComputeDiffResult{
+			DiffPath:  p.RemoteWorkdir + "/diff.txt",
+			SizeBytes: 1234,
+			LineCount: 50,
+			Empty:     false,
+		}, nil
+	}
+	t.Cleanup(func() { preComputeDiffFn = orig })
+}
+
 func mockResultFor(agent string, tdLine string) multireview.InvokeReviewerResult {
 	return multireview.InvokeReviewerResult{
 		AgentName:   agent,
@@ -84,6 +101,7 @@ func TestMultiReview_HappyPath(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "out")
 
 	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
 	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
 		return mockResultFor(p.AgentName, "MEDIUM|src/a.go:1|test problem|test fix|robustness"), nil
 	})
@@ -94,6 +112,7 @@ func TestMultiReview_HappyPath(t *testing.T) {
 		"--repo", repo,
 		"--openclaw-host", "user@example.lan",
 		"--output-dir", outDir,
+		"--base", "v1",
 		"--timeout-seconds", "30",
 	})
 	var stdout bytes.Buffer
@@ -169,6 +188,7 @@ func TestMultiReview_TwoLane(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "out")
 
 	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
 	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
 		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
 	})
@@ -180,6 +200,7 @@ func TestMultiReview_TwoLane(t *testing.T) {
 		"--repo", repo,
 		"--openclaw-host", "user@example.lan",
 		"--output-dir", outDir,
+		"--base", "v1",
 		"--timeout-seconds", "30",
 	})
 	cmd.SetOut(new(bytes.Buffer))
@@ -199,6 +220,7 @@ func TestMultiReview_PartialFailure(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "out")
 
 	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
 	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
 		if p.AgentName == "greta" {
 			return multireview.InvokeReviewerResult{AgentName: p.AgentName}, fmt.Errorf("simulated failure")
@@ -212,6 +234,7 @@ func TestMultiReview_PartialFailure(t *testing.T) {
 		"--repo", repo,
 		"--openclaw-host", "user@example.lan",
 		"--output-dir", outDir,
+		"--base", "v1",
 		"--timeout-seconds", "30",
 	})
 	cmd.SetOut(new(bytes.Buffer))
@@ -254,6 +277,7 @@ func TestMultiReview_AllFail(t *testing.T) {
 	outDir := filepath.Join(t.TempDir(), "out")
 
 	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
 	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
 		return multireview.InvokeReviewerResult{AgentName: p.AgentName}, fmt.Errorf("simulated failure")
 	})
@@ -264,6 +288,7 @@ func TestMultiReview_AllFail(t *testing.T) {
 		"--repo", repo,
 		"--openclaw-host", "user@example.lan",
 		"--output-dir", outDir,
+		"--base", "v1",
 		"--timeout-seconds", "30",
 	})
 	cmd.SetOut(new(bytes.Buffer))
@@ -294,11 +319,205 @@ func TestMultiReview_ShipFailureHardStops(t *testing.T) {
 		"--repo", repo,
 		"--openclaw-host", "user@example.lan",
 		"--output-dir", outDir,
+		"--base", "v1",
 		"--timeout-seconds", "30",
 	})
 	cmd.SetOut(new(bytes.Buffer))
 	cmd.SetErr(new(bytes.Buffer))
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected hard-stop on ship failure")
+	}
+}
+
+// ---- diff-precompute tests ----
+
+func TestMultiReview_DiffFailureHardStops(t *testing.T) {
+	// preComputeDiffFn errors → run aborts before any reviewer is invoked.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	withMockShipBundle(t)
+	origDiff := preComputeDiffFn
+	preComputeDiffFn = func(ctx context.Context, p multireview.PreComputeDiffParams) (multireview.PreComputeDiffResult, error) {
+		return multireview.PreComputeDiffResult{}, fmt.Errorf("diff: git exit 128, stderr: fatal: bad revision 'badref'")
+	}
+	t.Cleanup(func() { preComputeDiffFn = origDiff })
+
+	// invokeReviewerFn should never be called — fail loud if it is.
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		t.Errorf("invokeReviewerFn called after diff failure — should have hard-stopped first")
+		return multireview.InvokeReviewerResult{AgentName: p.AgentName}, nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce,greta",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected hard-stop when diff fails")
+	}
+	// Summary should NOT be written when we hard-stop before invoking.
+	if _, err := os.Stat(filepath.Join(outDir, "multi-review-summary.json")); err == nil {
+		t.Error("summary should not exist after pre-diff hard-stop")
+	}
+}
+
+func TestMultiReview_EmptyBaseRefRejected(t *testing.T) {
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	// We don't need any of the mocks — validation should reject before then.
+	// Ensure invokeReviewerFn and shipBundleFn are never called by failing loud.
+	origShip := shipBundleFn
+	shipBundleFn = func(ctx context.Context, p multireview.ShipBundleParams) (multireview.ShipBundleResult, error) {
+		t.Errorf("shipBundleFn called — should have validated --base before this")
+		return multireview.ShipBundleResult{}, nil
+	}
+	t.Cleanup(func() { shipBundleFn = origShip })
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		// no --base passed
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected validation error when --base is missing")
+	}
+}
+
+func TestMultiReview_DiffPathInTaskMessage(t *testing.T) {
+	// Verify the task message passed to reviewers includes `cat <diffPath>`
+	// and the anti-hallucination clause.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
+
+	var capturedTaskMessage string
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		capturedTaskMessage = p.TaskMessage
+		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	// The diff path should appear in the task message. The mock builds it as
+	// <RemoteWorkdir>/diff.txt; RemoteWorkdir is `/tmp/multi-review-<unix>`
+	// in production, so we just check for the suffix.
+	if !strings.Contains(capturedTaskMessage, "/diff.txt") {
+		t.Errorf("task message missing diff path suffix `/diff.txt`. Got:\n%s", capturedTaskMessage)
+	}
+	if !strings.Contains(capturedTaskMessage, "/tmp/multi-review-") {
+		t.Errorf("task message missing workdir prefix `/tmp/multi-review-`. Got:\n%s", capturedTaskMessage)
+	}
+	// The cat instruction should be present
+	if !strings.Contains(capturedTaskMessage, "cat ") {
+		t.Errorf("task message missing `cat` instruction. Got:\n%s", capturedTaskMessage)
+	}
+	// The anti-hallucination clause should be present
+	if !strings.Contains(capturedTaskMessage, "Hallucinating") && !strings.Contains(capturedTaskMessage, "Do NOT report") {
+		t.Errorf("task message missing anti-hallucination clause. Got:\n%s", capturedTaskMessage)
+	}
+	// Old `git diff <base>..<head>` instruction should NOT be present (reviewers shouldn't run git themselves anymore)
+	if strings.Contains(capturedTaskMessage, "git diff v1..") {
+		t.Errorf("task message should not include git diff instruction. Got:\n%s", capturedTaskMessage)
+	}
+}
+
+func TestMultiReview_LargeDiffWarning(t *testing.T) {
+	// SizeBytes > 1_000_000 should append the --stat hint.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	withMockShipBundle(t)
+	origDiff := preComputeDiffFn
+	preComputeDiffFn = func(ctx context.Context, p multireview.PreComputeDiffParams) (multireview.PreComputeDiffResult, error) {
+		return multireview.PreComputeDiffResult{
+			DiffPath:  p.RemoteWorkdir + "/diff.txt",
+			SizeBytes: 2_500_000, // 2.5 MB
+			LineCount: 60000,
+			Empty:     false,
+		}, nil
+	}
+	t.Cleanup(func() { preComputeDiffFn = origDiff })
+
+	var capturedTaskMessage string
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		capturedTaskMessage = p.TaskMessage
+		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !strings.Contains(capturedTaskMessage, "--stat") {
+		t.Errorf("task message should include --stat hint for large diff. Got:\n%s", capturedTaskMessage)
+	}
+}
+
+func TestMultiReview_SmallDiffNoWarning(t *testing.T) {
+	// SizeBytes < 1_000_000 should NOT append the --stat hint.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	withMockShipBundle(t)
+	withMockPreComputeDiff(t) // default mock: 1234 bytes
+
+	var capturedTaskMessage string
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		capturedTaskMessage = p.TaskMessage
+		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if strings.Contains(capturedTaskMessage, "--stat") {
+		t.Errorf("task message should not include --stat hint for small diff. Got:\n%s", capturedTaskMessage)
 	}
 }
