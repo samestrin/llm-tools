@@ -59,10 +59,10 @@ func withMockShipBundle(t *testing.T) {
 	orig := shipBundleFn
 	shipBundleFn = func(ctx context.Context, p multireview.ShipBundleParams) (multireview.ShipBundleResult, error) {
 		return multireview.ShipBundleResult{
-			LocalBundlePath:  "/tmp/mock-bundle.git",
-			RemoteBundlePath: "/tmp/mock-remote/bundle.git",
-			RemoteRepoPath:   "/tmp/mock-remote/" + p.RepoName,
-			BundleSize:       1024,
+			LocalBundlePath:       "/tmp/mock-bundle.git",
+			HostStagingBundlePath: "/tmp/mock-host-staging/bundle.git",
+			RemoteRepoPath:        "/tmp/mock-container-work/" + p.RepoName,
+			BundleSize:            1024,
 		}, nil
 	}
 	t.Cleanup(func() { shipBundleFn = orig })
