@@ -2146,17 +2146,20 @@ llm-support multi_review [flags]
 | `--task-message` | (auto) | Override the auto-built task message. Bypasses the pre-compute helper instructions — you take responsibility for telling reviewers where the diff is. |
 | `--skip-cleanup` | `false` | Do not remove the remote workdir after running |
 
-**Pre-compute step:**
+**Container-routed filesystem ops:**
 
-After the bundle clone succeeds on the remote, `multi_review` runs:
+Reviewers run **inside the `openclaw-gateway` docker container**, whose `/tmp` is an overlay filesystem with no bind mount from the host. So `multi_review` routes every filesystem step through the container:
 
-```
-git -C <remoteRepo> diff <base>..<head> > <remoteWorkdir>/diff.txt
-wc -c <remoteWorkdir>/diff.txt
-wc -l <remoteWorkdir>/diff.txt
-```
+1. `ssh <host> -- docker exec <container> mkdir -p <container workdir>` — creates `/tmp/multi-review-<ts>/` inside the container
+2. `ssh <host> -- mkdir -p <host staging dir>` — creates `/tmp/multi-review-staging-<ts>/` on the host as a scp landing pad
+3. `scp bundle.git <host>:<host staging>/bundle.git` — host filesystem only
+4. `ssh <host> -- docker cp <host staging>/bundle.git <container>:<container workdir>/bundle.git` — moves the bundle into the container
+5. `ssh <host> -- docker exec <container> 'cd <container workdir> && git clone -q bundle.git <repo>'` — clones inside the container
+6. `ssh <host> -- docker exec <container> sh -c "git -C <repo> diff <base>..<head> > diff.txt && wc -c diff.txt && wc -l diff.txt"` — pre-computes the diff inside the container
 
-The diff file lands at `<remoteWorkdir>/diff.txt` — a sibling of the cloned repo, inside the same temp directory that gets garbage-collected when the run finishes. The task message tells each reviewer to `cat <diffPath>` and review the contents. Reviewers don't need to `cd` into the repo or run git themselves. If the diff is >1MB, the task message appends a `git diff --stat` hint so reviewers can do a file-level pass first.
+The clone and `diff.txt` end up where reviewers can actually see them. Cleanup is two-stage on completion: `docker exec rm -rf <container workdir>` and `ssh rm -rf <host staging>`. Both honor `--skip-cleanup`.
+
+The task message tells each reviewer to `cat <diffPath>` and review the contents — they don't need to `cd` into the repo or run git themselves. If the diff is >1MB, the task message appends a `git diff --stat` hint so reviewers can do a file-level pass first.
 
 **Output layout under `--output-dir`:**
 
@@ -2181,7 +2184,10 @@ The diff file lands at `<remoteWorkdir>/diff.txt` — a sibling of the cloned re
 
 | Scenario | Behavior |
 |----------|----------|
-| Bundle/ship fails (SSH down, scp error, remote clone fails) | Hard-stop with error naming the host |
+| `--base` empty | Validation error before any remote calls |
+| Container mkdir / `docker cp` / container clone fails | Hard-stop with error naming the failure step |
+| Bundle/ship fails (SSH down, scp error) | Hard-stop with error naming the host |
+| Diff pre-compute fails (bad ref, etc.) | Hard-stop before reviewers are invoked; surfaces git stderr |
 | 1+ reviewer fails, 1+ succeeds | Continue with successful ones, `partial: true` in summary, exit 0 |
 | All reviewers fail | Exit 1 with summary path |
 

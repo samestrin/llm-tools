@@ -9,19 +9,28 @@ import (
 	"time"
 )
 
-// PreComputeDiffParams configures pre-computing a diff inside the remote workdir.
+// PreComputeDiffParams configures pre-computing a diff inside the gateway
+// container's workdir.
 //
-// We do this so reviewer agents only need to `cat` a known file, not navigate
-// the cloned repo and run git themselves. In real use we observed weaker
-// reviewers hallucinate "clone missing" / "ref not found" failures rather
-// than persisting through the diff fetch. Pre-computing removes that surface.
+// We do this so reviewer agents only need to `cat` a known file, not
+// navigate the cloned repo and run git themselves. In real use we observed
+// weaker reviewers hallucinate "clone missing" / "ref not found" failures
+// rather than persisting through the diff fetch. Pre-computing removes that
+// surface — AND, equally important, writing inside the container is what
+// makes the file visible to reviewers (the container's /tmp is overlay-only,
+// not bind-mounted from the host).
 type PreComputeDiffParams struct {
 	// Host is the SSH target (e.g. "user@nucleus.lan").
 	Host string
-	// RemoteRepoPath is the cloned repo on the remote (the `git -C` target).
+	// GatewayContainer is the docker container name where reviewers run.
+	// Defaults to "openclaw-gateway" when empty.
+	GatewayContainer string
+	// RemoteRepoPath is the cloned repo INSIDE the container (the `git -C`
+	// target). Must match the path reviewers would `cd` to.
 	RemoteRepoPath string
-	// RemoteWorkdir is the parent directory; diff.txt lands here so it's
-	// peers with the clone — keeps a single defer-clean dir.
+	// RemoteWorkdir is the parent directory inside the container; diff.txt
+	// lands here so it's peers with the clone — keeps a single defer-clean
+	// dir.
 	RemoteWorkdir string
 	// BaseRef is required — no working-tree fallback (that mode produced
 	// the very failures this fix exists to prevent).
@@ -91,13 +100,14 @@ func PreComputeDiff(parent context.Context, p PreComputeDiffParams) (PreComputeD
 		shellQuote(diffPath),
 	)
 
-	res, err := SSHRun(parent, SSHParams{
-		Host:    p.Host,
-		Command: remoteCmd,
-		Timeout: p.Timeout,
+	res, err := ContainerExec(parent, ContainerExecParams{
+		Host:             p.Host,
+		GatewayContainer: p.GatewayContainer,
+		Command:          remoteCmd,
+		Timeout:          p.Timeout,
 	})
 	if err != nil {
-		return PreComputeDiffResult{}, fmt.Errorf("diff: ssh: %w", err)
+		return PreComputeDiffResult{}, fmt.Errorf("diff: container exec: %w", err)
 	}
 	if res.ExitCode != 0 {
 		return PreComputeDiffResult{}, fmt.Errorf("diff: git exit %d, stderr: %s", res.ExitCode, strings.TrimSpace(res.Stderr))

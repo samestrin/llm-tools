@@ -14,13 +14,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// invokeReviewerFn, shipBundleFn, and preComputeDiffFn are package-level
-// function variables that tests swap to inject deterministic behavior.
-// Production points them at the real multireview package functions.
+// invokeReviewerFn, shipBundleFn, preComputeDiffFn, sshRunFn, and
+// containerExecFn are package-level function variables that tests swap to
+// inject deterministic behavior. Production points them at the real
+// multireview package functions.
+//
+// sshRunFn and containerExecFn cover the two cleanup channels (host staging
+// dir via raw ssh, container workdir via docker exec) so tests can assert
+// both fire on success and neither fires under --skip-cleanup.
 var (
 	invokeReviewerFn = multireview.InvokeReviewer
 	shipBundleFn     = multireview.ShipBundle
 	preComputeDiffFn = multireview.PreComputeDiff
+	sshRunFn         = multireview.SSHRun
+	containerExecFn  = multireview.ContainerExec
 )
 
 // Flag variables for the multi_review command.
@@ -64,18 +71,24 @@ func newMultiReviewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "multi_review",
 		Short: "Fan out a code review to multiple openclaw reviewer agents",
-		Long: `Bundle a local repo, ship it to an openclaw-hosting machine, pre-compute
-the diff once, and invoke several reviewer agents in parallel (or in a
-serial lane for those that share rate-limited providers). Collects
-per-reviewer findings and writes a merged TD stream the /code-review
-command can consume.
+		Long: `Bundle a local repo, ship it INTO the openclaw-gateway container on
+the remote host, pre-compute the diff once inside the container, and
+invoke several reviewer agents in parallel (or in a serial lane for
+those that share rate-limited providers). Collects per-reviewer findings
+and writes a merged TD stream the /code-review command can consume.
 
-Pre-compute step: --base is REQUIRED. After the bundle is shipped, we run
-'git diff <base>..<head>' on the remote and write the result to
-<workdir>/diff.txt. Reviewers are told to 'cat' that file rather than
-running git themselves — observed in production, weaker reviewers
-hallucinate "clone missing" failures rather than persist through a multi-step
-git invocation. Pre-computing eliminates that surface.
+Container routing: filesystem ops route through 'docker exec' because
+the gateway container has no /tmp bind mount from the host. The bundle
+lands briefly on the host as a staging scp pad, then 'docker cp' moves
+it into the container where the clone and pre-computed diff live —
+where reviewers (also inside the container) can actually read them.
+
+Pre-compute step: --base is REQUIRED. After the bundle is shipped, we
+run 'git diff <base>..<head>' inside the container and write the
+result to <container-workdir>/diff.txt. Reviewers are told to 'cat'
+that file rather than running git themselves — observed in production,
+weaker reviewers hallucinate "clone missing" failures rather than
+persisting through a multi-step git invocation.
 
 Output layout:
   <output-dir>/raw/<agent>/{review.md,td-stream.txt,status.json,response.json}
@@ -150,42 +163,70 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 	defer cancelTotal()
 
 	// 1. Ship the bundle. Hard-stop on failure.
+	//
+	// remoteWorkdir is a path INSIDE the openclaw-gateway container — that's
+	// where the clone and the pre-computed diff need to live, because the
+	// container's /tmp is overlay-only (no bind mount from host /tmp).
+	// hostStagingDir is on the SSH target host; it exists only briefly as the
+	// scp landing pad before `docker cp` moves the bundle into the container.
 	repoName := filepath.Base(strings.TrimRight(mrRepo, "/"))
 	remoteWorkdir := fmt.Sprintf("/tmp/multi-review-%d", start.Unix())
-	shipRes, err := shipBundleFn(totalCtx, multireview.ShipBundleParams{
-		LocalRepo:     mrRepo,
-		Host:          mrOpenclawHost,
-		RemoteWorkdir: remoteWorkdir,
-		RepoName:      repoName,
-		Timeout:       time.Duration(mrTimeoutSeconds) * time.Second,
-	})
-	if err != nil {
-		return fmt.Errorf("ship bundle to %s: %w", mrOpenclawHost, err)
-	}
+	hostStagingDir := fmt.Sprintf("/tmp/multi-review-staging-%d", start.Unix())
+
+	// Register cleanup BEFORE ShipBundle so partial-state failures
+	// (container mkdir succeeds, then scp fails) don't leak. rm -rf on a
+	// non-existent path is a harmless no-op; cleanup results are
+	// best-effort and intentionally ignored.
 	defer func() {
 		if !mrSkipCleanup {
-			// Best-effort teardown of the remote workdir.
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			_, _ = multireview.SSHRun(cleanupCtx, multireview.SSHParams{
+			_, _ = containerExecFn(cleanupCtx, multireview.ContainerExecParams{
+				Host:             mrOpenclawHost,
+				GatewayContainer: mrGatewayContainer,
+				Command:          "rm -rf " + shellQuote(remoteWorkdir),
+				Timeout:          30 * time.Second,
+			})
+		}
+	}()
+	defer func() {
+		if !mrSkipCleanup {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_, _ = sshRunFn(cleanupCtx, multireview.SSHParams{
 				Host:    mrOpenclawHost,
-				Command: "rm -rf " + shellQuote(remoteWorkdir),
+				Command: "rm -rf " + shellQuote(hostStagingDir),
 				Timeout: 30 * time.Second,
 			})
 		}
 	}()
 
-	// 2. Pre-compute the diff on the remote so reviewers only need to
-	//    `cat <diffPath>`. Removes the hallucination surface where weaker
+	shipRes, err := shipBundleFn(totalCtx, multireview.ShipBundleParams{
+		LocalRepo:        mrRepo,
+		Host:             mrOpenclawHost,
+		GatewayContainer: mrGatewayContainer,
+		RemoteWorkdir:    remoteWorkdir,
+		HostStagingDir:   hostStagingDir,
+		RepoName:         repoName,
+		Timeout:          time.Duration(mrTimeoutSeconds) * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("ship bundle to %s: %w", mrOpenclawHost, err)
+	}
+
+	// 2. Pre-compute the diff inside the container so reviewers only need
+	//    to `cat <diffPath>`. Removes the hallucination surface where weaker
 	//    reviewers were inventing "clone missing" failures rather than
-	//    running `git diff` themselves.
+	//    running `git diff` themselves AND the container-can't-see-host bug
+	//    that made the diff invisible in PR #30.
 	diffRes, err := preComputeDiffFn(totalCtx, multireview.PreComputeDiffParams{
-		Host:           mrOpenclawHost,
-		RemoteRepoPath: shipRes.RemoteRepoPath,
-		RemoteWorkdir:  remoteWorkdir,
-		BaseRef:        mrBaseRef,
-		HeadRef:        mrHeadRef,
-		Timeout:        time.Duration(mrTimeoutSeconds) * time.Second,
+		Host:             mrOpenclawHost,
+		GatewayContainer: mrGatewayContainer,
+		RemoteRepoPath:   shipRes.RemoteRepoPath,
+		RemoteWorkdir:    remoteWorkdir,
+		BaseRef:          mrBaseRef,
+		HeadRef:          mrHeadRef,
+		Timeout:          time.Duration(mrTimeoutSeconds) * time.Second,
 	})
 	if err != nil {
 		return fmt.Errorf("pre-compute diff on %s: %w", mrOpenclawHost, err)
