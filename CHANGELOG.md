@@ -35,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`yaml.parseNumber` preserves version-like strings** — values whose float representation would lose information (e.g. `"4.30"` → `4.3` → `"4.3"`) now stay strings. Only coerces to float when the value round-trips through YAML marshal back to the exact input.
 
+- **`multi_review` reviewer diff visibility** — production runs revealed that reviewer agents (especially weaker models) hallucinate "clone missing" / "ref not found" failures rather than running `git diff <base>..<head>` themselves. The fix pre-computes the diff on the remote and writes it to `<workdir>/diff.txt`; reviewers' task message now tells them to `cat` that file rather than navigate the repo and invoke git.
+  - New `PreComputeDiff` helper in `internal/support/multireview/diff.go` runs `git -C <repo> diff <base>..<head> > <work>/diff.txt && wc -c && wc -l` in a single SSH round-trip; returns the diff path plus size/line counts for the task message header.
+  - `runMultiReview` calls it after `ShipBundle` returns and hard-stops on failure before any reviewer is invoked.
+  - Rewritten task message includes the diff path, size, line count, an anti-hallucination clause (do NOT report "clone failed" unless `ls` proves it), and a `--stat` hint when diff size exceeds 1 MB.
+  - **`--base` is now required** — working-tree mode is intentionally unsupported (it produced the failure mode this fix exists to prevent).
+  - **`--per-reviewer-timeout-seconds` default bumped 600 → 1200** — production observation: Greta and Dax timed out at 600s on a real sprint. Aligns with the existing `--timeout-seconds` (total) default.
+
 ## [1.8.2] - 2026-01-27
 
 ### Fixed

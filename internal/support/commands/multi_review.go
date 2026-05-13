@@ -64,10 +64,18 @@ func newMultiReviewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "multi_review",
 		Short: "Fan out a code review to multiple openclaw reviewer agents",
-		Long: `Bundle a local repo, ship it to an openclaw-hosting machine, and invoke
-several reviewer agents in parallel (or in a serial lane for those that
-share rate-limited providers). Collects per-reviewer findings and writes
-a merged TD stream the /code-review command can consume.
+		Long: `Bundle a local repo, ship it to an openclaw-hosting machine, pre-compute
+the diff once, and invoke several reviewer agents in parallel (or in a
+serial lane for those that share rate-limited providers). Collects
+per-reviewer findings and writes a merged TD stream the /code-review
+command can consume.
+
+Pre-compute step: --base is REQUIRED. After the bundle is shipped, we run
+'git diff <base>..<head>' on the remote and write the result to
+<workdir>/diff.txt. Reviewers are told to 'cat' that file rather than
+running git themselves — observed in production, weaker reviewers
+hallucinate "clone missing" failures rather than persist through a multi-step
+git invocation. Pre-computing eliminates that surface.
 
 Output layout:
   <output-dir>/raw/<agent>/{review.md,td-stream.txt,status.json,response.json}
@@ -78,8 +86,11 @@ Output layout:
   <output-dir>/multi-review-summary.json    (per-reviewer status + counts)
 
 Failure semantics:
+  - --base missing       → validation error, no remote calls
   - Bundle/ship failure  → hard-stop (no point invoking reviewers without
     the diff staged on the remote)
+  - Diff pre-compute failure (bad ref, etc.) → hard-stop before reviewers
+    are invoked; surfaces git stderr in the error message
   - Per-reviewer failure → recorded as failed in summary; other reviewers
     continue; exit 0 with partial: true
   - All reviewers fail   → exit 1 with summary of what failed`,
@@ -88,7 +99,7 @@ Failure semantics:
 	cmd.Flags().StringVar(&mrReviewers, "reviewers", "", "Comma-separated reviewer agent names (required)")
 	cmd.Flags().StringVar(&mrSerialReviewers, "serial-reviewers", "", "Comma-separated subset that runs serially after the parallel lane")
 	cmd.Flags().StringVar(&mrRepo, "repo", "", "Local repo path to bundle (required)")
-	cmd.Flags().StringVar(&mrBaseRef, "base", "", "Base ref for the diff range (informational, included in task message)")
+	cmd.Flags().StringVar(&mrBaseRef, "base", "", "Base ref for the diff range — REQUIRED (we pre-compute git diff <base>..<head> on the remote)")
 	cmd.Flags().StringVar(&mrHeadRef, "head", "HEAD", "Head ref for the diff range")
 	cmd.Flags().StringVar(&mrOpenclawHost, "openclaw-host", "", "SSH target running openclaw-gateway (required)")
 	cmd.Flags().StringVar(&mrOutputDir, "output-dir", "", "Where per-reviewer artifacts and merged stream land (required)")
