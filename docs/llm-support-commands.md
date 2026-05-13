@@ -2120,6 +2120,8 @@ These columns are emitted only when at least one input row carries a non-empty v
 
 Fan out a code review across multiple openclaw reviewer agents on a remote host, collect each reviewer's TD findings, and merge them with per-row attribution.
 
+> **CLI-only — not exposed via MCP.** This command is long-running (minutes), streams live progress to stdout, and produces artifacts on disk rather than a single response payload. Invoke directly from a shell or slash-command `Bash` block.
+
 ```bash
 llm-support multi_review [flags]
 ```
