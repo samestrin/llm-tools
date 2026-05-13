@@ -42,6 +42,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`--base` is now required** — working-tree mode is intentionally unsupported (it produced the failure mode this fix exists to prevent).
   - **`--per-reviewer-timeout-seconds` default bumped 600 → 1200** — production observation: Greta and Dax timed out at 600s on a real sprint. Aligns with the existing `--timeout-seconds` (total) default.
 
+- **`multi_review` writes the clone and diff INSIDE the gateway container** — empirical smoke test against a real sprint revealed the previous fix still failed in practice: the `openclaw-gateway` container has no `/tmp` bind mount, so `ssh mkdir`, `scp`, `git clone`, and `git diff > diff.txt` all landed on the host's `/tmp`, which the container's overlay `/tmp` could not see. Reviewers ran `ls -la <diffPath>` and got "No such file or directory" — every multi-reviewer run since the subcommand shipped has been reviewing either stale orphan clones or nothing.
+  - New `ContainerExec` helper in `internal/support/multireview/container.go` mirrors `SSHRun` but wraps `ssh <host> -- docker exec <c> sh -c "$(echo <b64> | base64 -d)"`. Base64 round-trip removes all quoting concerns for arbitrary commands.
+  - `ShipBundle` now runs a 5-step pipeline (was 3): `docker exec mkdir` (container workdir), `ssh mkdir` (host staging scp landing pad), `scp` (bundle to host staging), `docker cp` (bundle into container), `docker exec git clone` (inside container). `ShipBundleParams` gains `GatewayContainer` (defaults to `openclaw-gateway`) and `HostStagingDir` (required).
+  - `PreComputeDiff` runs its inner `git diff > diff.txt && wc -c && wc -l` pipeline via `docker exec` inside the container. `PreComputeDiffParams` gains `GatewayContainer`.
+  - `runMultiReview` cleanup is now two-stage: `docker exec rm -rf <container workdir>` and `ssh rm -rf <host staging>`. Both honor `--skip-cleanup`.
+  - `ShipBundleResult.RemoteRepoPath` now returns a container-local path. `RemoteBundlePath` was renamed to `HostStagingBundlePath` since the bundle on disk lives on the host, not the container.
+
 ## [1.8.2] - 2026-01-27
 
 ### Fixed
