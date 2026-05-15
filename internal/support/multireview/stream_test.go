@@ -94,7 +94,13 @@ func TestWriteReviewerStream_WritesAndAnnotates(t *testing.T) {
 		}
 	}
 
-	// td-stream.txt should have 3 lines, REVIEWER annotation appended
+	// td-stream.txt should have 3 lines in the unified 8-col format with
+	// REVIEWER annotation appended. Inbound openclaw lines are 5-col
+	// (SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY); we pad with empty EST_MINUTES
+	// and EVIDENCE, then append the reviewer:
+	//   SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY||<empty EVIDENCE>|<agent>
+	// (Reviewers don't currently emit EST_MINUTES/EVIDENCE; leaving them
+	// empty preserves a consistent column count.)
 	tdData, err := os.ReadFile(paths.TDStream)
 	if err != nil {
 		t.Fatal(err)
@@ -106,6 +112,19 @@ func TestWriteReviewerStream_WritesAndAnnotates(t *testing.T) {
 	for i, line := range tdLines {
 		if !strings.HasSuffix(line, "|bruce") {
 			t.Errorf("line %d should end with |bruce: %q", i, line)
+		}
+		// Verify 8 columns: count pipes (8 columns = 7 separators).
+		fields := strings.Split(line, "|")
+		if len(fields) != 8 {
+			t.Errorf("line %d should have 8 columns (7 pipes), got %d fields: %q", i, len(fields), line)
+			continue
+		}
+		// Fields 6 (EST_MINUTES) and 7 (EVIDENCE) should be empty for openclaw output.
+		if fields[5] != "" {
+			t.Errorf("line %d field 6 (EST_MINUTES) should be empty for openclaw reviewer, got %q", i, fields[5])
+		}
+		if fields[6] != "" {
+			t.Errorf("line %d field 7 (EVIDENCE) should be empty for openclaw reviewer, got %q", i, fields[6])
 		}
 	}
 }
@@ -133,6 +152,10 @@ func TestWriteReviewerOutput_HandlesEmptyTD(t *testing.T) {
 }
 
 func TestMergeStreams_ConcatenatesWithHeader(t *testing.T) {
+	// Per-reviewer td-stream.txt files are now in the unified 8-col format:
+	//   SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY|EST_MINUTES|EVIDENCE|REVIEWER
+	// MergeStreams concatenates them verbatim (it doesn't re-append the
+	// reviewer — WriteReviewerOutput did that already).
 	dir := t.TempDir()
 	bruceDir := filepath.Join(dir, "bruce")
 	gretaDir := filepath.Join(dir, "greta")
@@ -143,11 +166,11 @@ func TestMergeStreams_ConcatenatesWithHeader(t *testing.T) {
 		}
 	}
 	if err := os.WriteFile(filepath.Join(bruceDir, "td-stream.txt"),
-		[]byte("HIGH|f:1|p|x|c|bruce\nMEDIUM|f:2|p|x|c|bruce\n"), 0o644); err != nil {
+		[]byte("HIGH|f:1|p|x|c|||bruce\nMEDIUM|f:2|p|x|c|||bruce\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(gretaDir, "td-stream.txt"),
-		[]byte("LOW|f:3|p|x|c|greta\n"), 0o644); err != nil {
+		[]byte("LOW|f:3|p|x|c|||greta\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// otto produced empty
@@ -167,14 +190,18 @@ func TestMergeStreams_ConcatenatesWithHeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "HIGH|f:1|") {
-		t.Error("missing bruce line 1")
+	if !strings.Contains(content, "HIGH|f:1|p|x|c|||bruce") {
+		t.Error("missing bruce line 1 in 8-col form")
 	}
-	if !strings.Contains(content, "LOW|f:3|") {
-		t.Error("missing greta line")
+	if !strings.Contains(content, "LOW|f:3|p|x|c|||greta") {
+		t.Error("missing greta line in 8-col form")
 	}
 	if !strings.Contains(content, "# TD_STREAM - merged") {
 		t.Error("merged file missing header")
+	}
+	// Header should document the new 8-col format.
+	if !strings.Contains(content, "SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY|EST_MINUTES|EVIDENCE|REVIEWER") {
+		t.Error("merged file header should document the 8-col format")
 	}
 }
 
@@ -187,7 +214,7 @@ func TestMergeStreams_ToleratesMissingFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(bruceDir, "td-stream.txt"),
-		[]byte("HIGH|f:1|p|x|c|bruce\n"), 0o644); err != nil {
+		[]byte("HIGH|f:1|p|x|c|||bruce\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
