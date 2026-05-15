@@ -397,6 +397,8 @@ After your normal review, append a section titled "TD_STREAM" with each finding 
   SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY
 
 Where SEVERITY is HIGH/MEDIUM/LOW (map blocking->HIGH, significant->MEDIUM, minor->LOW). One line per finding. No header row, no commentary in this section.
+
+IMPORTANT: If any field (PROBLEM, FIX, etc.) needs to contain a literal pipe character, replace it with a forward slash (/). The pipe is the column separator and unescaped pipes will corrupt the row.
 `)
 	return b.String()
 }

@@ -129,6 +129,52 @@ func TestWriteReviewerStream_WritesAndAnnotates(t *testing.T) {
 	}
 }
 
+func TestPadTo7Columns(t *testing.T) {
+	cases := []struct {
+		name  string
+		in    string
+		want  string
+		nCols int // expected pipe-separated field count after padding
+	}{
+		{
+			name:  "5-col openclaw line padded to 7",
+			in:    "HIGH|src/x.go:1|problem|fix|cat",
+			want:  "HIGH|src/x.go:1|problem|fix|cat||",
+			nCols: 7,
+		},
+		{
+			name:  "already 7 cols pass-through",
+			in:    "HIGH|src/x.go:1|p|f|c|10|src/x.go:1-5",
+			want:  "HIGH|src/x.go:1|p|f|c|10|src/x.go:1-5",
+			nCols: 7,
+		},
+		{
+			name:  "more than 7 cols pass-through (no truncation)",
+			in:    "HIGH|src/x.go:1|p|f|c|10|src/x.go:1-5|extra",
+			want:  "HIGH|src/x.go:1|p|f|c|10|src/x.go:1-5|extra",
+			nCols: 8,
+		},
+		{
+			name:  "2-col pathological case padded to 7",
+			in:    "HIGH|only",
+			want:  "HIGH|only|||||",
+			nCols: 7,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := padTo7Columns(c.in)
+			if got != c.want {
+				t.Errorf("padTo7Columns(%q) = %q, want %q", c.in, got, c.want)
+			}
+			cols := strings.Count(got, "|") + 1
+			if cols != c.nCols {
+				t.Errorf("padded result has %d cols, want %d", cols, c.nCols)
+			}
+		})
+	}
+}
+
 func TestWriteReviewerOutput_HandlesEmptyTD(t *testing.T) {
 	// A reviewer that produces a review but no TD lines (e.g. "no issues")
 	// should still write all artifacts; td-stream.txt is just empty.
