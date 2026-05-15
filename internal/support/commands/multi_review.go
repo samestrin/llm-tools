@@ -50,7 +50,7 @@ var (
 type ReviewerStatus struct {
 	Agent       string `json:"agent"`
 	Model       string `json:"model,omitempty"`
-	Status      string `json:"status"` // "ok" | "failed" | "skipped"
+	Status      string `json:"status"` // "ok" | "failed" | "aborted" | "skipped"
 	DurationMS  int64  `json:"durationMs,omitempty"`
 	TDLineCount int    `json:"tdLineCount"`
 	Error       string `json:"error,omitempty"`
@@ -260,10 +260,18 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 			st.Model = res.Model
 			st.DurationMS = res.DurationMS
 			st.TDLineCount = len(multireview.ExtractTDLines(res.ReviewProse))
-			if werr != nil {
+			switch {
+			case werr != nil:
 				st.Status = "failed"
 				st.Error = werr.Error()
-			} else {
+			case res.Aborted:
+				// Openclaw aborted the agent before it produced a review
+				// (e.g. per-turn time ceiling, tool-call limit). Distinguish
+				// this from a clean "ok with 0 findings" run — the reviewer
+				// didn't get to write findings, so its output is unreliable.
+				st.Status = "aborted"
+				st.Error = "reviewer aborted by openclaw before producing review"
+			default:
 				st.Status = "ok"
 			}
 		}
