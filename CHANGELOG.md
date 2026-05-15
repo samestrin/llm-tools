@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### llm-support
+
+- **`multi_review` td-stream.txt output is now 8 columns** — unified format across the whole code-review pipeline (Claude Phase 5, multi_review pool, sprint-capture pre-seed):
+
+  ```
+  SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY|EST_MINUTES|EVIDENCE|REVIEWER
+  ```
+
+  Previously the binary emitted 6 columns (`SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY|REVIEWER`). The new format pads two additional fields — `EST_MINUTES` and `EVIDENCE` — both empty for openclaw output since reviewers don't currently produce those values. This matches the schema written by Claude `/code-review` Phase 5 and `/code-review` Step 10 pre-seed, so reconcile sees identically-shaped per-source rows from every writer.
+
+  - New `padTo7Columns` helper pads inbound openclaw 5-col prose lines to 7 columns before appending the agent name as REVIEWER.
+  - `MergeStreams` header comment updated to document the 8-col contract.
+  - Reviewer task message updated to instruct escaping literal `|` characters as `/` (same convention already used by Claude writers).
+  - `reconcile-code-review` (in `claude-prompts`) recognizes the 8-col format as its primary schema while continuing to tolerate legacy 5/6/10-col rows on disk via a compat shim — so old `td-stream.txt` files from previous sprints still parse correctly.
+
 ### Added
 
 #### llm-support
