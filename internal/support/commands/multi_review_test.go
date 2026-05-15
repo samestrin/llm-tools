@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/samestrin/llm-tools/internal/support/multireview"
@@ -628,6 +629,205 @@ func TestMultiReview_AbortedReviewerCountedAsNotOk(t *testing.T) {
 	}
 	if statusByAgent["bruce"] != "ok" {
 		t.Errorf("bruce should be ok, got %q", statusByAgent["bruce"])
+	}
+}
+
+// ---- per-agent prompt template tests ----
+
+// withPromptDir writes the given (filename → content) entries into a temp
+// dir and points LLM_TOOLS_MULTI_REVIEW_PROMPTS at it for the duration of
+// the test. The dir is automatically cleaned up.
+func withPromptDir(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	t.Setenv("LLM_TOOLS_MULTI_REVIEW_PROMPTS", dir)
+	return dir
+}
+
+func TestMultiReview_PerAgentPromptIsLoaded(t *testing.T) {
+	// When ~/.llm-tools/multi-review/prompts/<agent>.md exists, the rendered
+	// content of that file is sent as the task message — not the hardcoded
+	// buildDefaultTaskMessage output.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+	withPromptDir(t, map[string]string{
+		"_base.md": "BASE for {{.AgentName}}",
+		"bruce.md": "PER-AGENT bruce prompt — diff at {{.DiffPath}}, repo {{.RemoteRepo}}",
+	})
+
+	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
+
+	var captured = map[string]string{}
+	var capturedMu sync.Mutex
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		capturedMu.Lock()
+		captured[p.AgentName] = p.TaskMessage
+		capturedMu.Unlock()
+		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce,greta",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	// Bruce: has a per-agent file. Should see the bruce.md content (rendered).
+	if !strings.Contains(captured["bruce"], "PER-AGENT bruce prompt") {
+		t.Errorf("bruce should get per-agent file content, got: %q", captured["bruce"])
+	}
+	if !strings.Contains(captured["bruce"], "/diff.txt") {
+		t.Errorf("bruce per-agent template should render DiffPath, got: %q", captured["bruce"])
+	}
+
+	// Greta: no greta.md, only _base.md. Should see the _base.md content.
+	if !strings.Contains(captured["greta"], "BASE for greta") {
+		t.Errorf("greta should fall back to _base.md, got: %q", captured["greta"])
+	}
+	if strings.Contains(captured["greta"], "PER-AGENT bruce") {
+		t.Errorf("greta must not see bruce's per-agent content, got: %q", captured["greta"])
+	}
+}
+
+func TestMultiReview_TaskMessageFlagBeatsPerAgentPrompt(t *testing.T) {
+	// --task-message is the explicit user override and wins over per-agent
+	// files. Same message goes to every reviewer.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+	withPromptDir(t, map[string]string{
+		"_base.md": "BASE",
+		"bruce.md": "PER-AGENT bruce",
+		"greta.md": "PER-AGENT greta",
+	})
+
+	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
+
+	var captured = map[string]string{}
+	var capturedMu sync.Mutex
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		capturedMu.Lock()
+		captured[p.AgentName] = p.TaskMessage
+		capturedMu.Unlock()
+		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce,greta",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+		"--task-message", "CLI OVERRIDE - same for everyone",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	for _, agent := range []string{"bruce", "greta"} {
+		if captured[agent] != "CLI OVERRIDE - same for everyone" {
+			t.Errorf("%s should get CLI override, got: %q", agent, captured[agent])
+		}
+	}
+}
+
+func TestMultiReview_FallsBackToHardcodedWhenNoPrompts(t *testing.T) {
+	// When neither <agent>.md nor _base.md exists (empty prompts dir),
+	// the binary falls back to buildDefaultTaskMessage and the reviewer
+	// still gets a valid task message. Critical for fresh installs that
+	// haven't run update-prompts.sh yet — nothing must break.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+	// Point env at a temp dir with NO files.
+	withPromptDir(t, map[string]string{})
+
+	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
+
+	var captured = map[string]string{}
+	var capturedMu sync.Mutex
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		capturedMu.Lock()
+		captured[p.AgentName] = p.TaskMessage
+		capturedMu.Unlock()
+		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	// Hardcoded buildDefaultTaskMessage has these signature strings.
+	if !strings.Contains(captured["bruce"], "A pre-computed unified diff is at:") {
+		t.Errorf("bruce should get hardcoded fallback, got: %q", captured["bruce"])
+	}
+	if !strings.Contains(captured["bruce"], "INSTRUCTIONS — follow exactly:") {
+		t.Errorf("hardcoded fallback should have INSTRUCTIONS header, got: %q", captured["bruce"])
+	}
+}
+
+func TestMultiReview_FallsBackToHardcodedWhenDirMissing(t *testing.T) {
+	// When LLM_TOOLS_MULTI_REVIEW_PROMPTS points at a non-existent dir,
+	// loader returns empty and binary uses hardcoded fallback.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+	t.Setenv("LLM_TOOLS_MULTI_REVIEW_PROMPTS", "/nonexistent/dir/never-created")
+
+	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
+
+	var captured = map[string]string{}
+	var capturedMu sync.Mutex
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		capturedMu.Lock()
+		captured[p.AgentName] = p.TaskMessage
+		capturedMu.Unlock()
+		return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !strings.Contains(captured["bruce"], "A pre-computed unified diff is at:") {
+		t.Errorf("missing dir should fall back to hardcoded, got: %q", captured["bruce"])
 	}
 }
 
