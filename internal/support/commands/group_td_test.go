@@ -1702,3 +1702,432 @@ MEDIUM|src/b.ts:2|P2|F2|style|10|code-review||
 		t.Errorf("expected empty reviewers + confidence cells, got:\n%s", data)
 	}
 }
+
+// ---- global-numbering tests ----
+
+// TestScanExistingActiveGroupNumbers_MissingFile: scanner returns (0, nil) when
+// the file doesn't exist. Caller uses 0+1=1 as the starting number — preserves
+// today's behavior for the no-existing-file case.
+func TestScanExistingActiveGroupNumbers_MissingFile(t *testing.T) {
+	max, err := scanExistingActiveGroupNumbers("/nonexistent/path/that/does/not/exist.md")
+	if err != nil {
+		t.Fatalf("missing file should not error, got: %v", err)
+	}
+	if max != 0 {
+		t.Errorf("missing file should return 0, got: %d", max)
+	}
+}
+
+func TestScanExistingActiveGroupNumbers_EmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md")
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	max, err := scanExistingActiveGroupNumbers(path)
+	if err != nil {
+		t.Fatalf("empty file: %v", err)
+	}
+	if max != 0 {
+		t.Errorf("empty file should return 0, got: %d", max)
+	}
+}
+
+func TestScanExistingActiveGroupNumbers_OnlyHeaderNoTable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md")
+	content := `# Technical Debt Backlog
+
+Items from code review. Use ` + "`/resolve-td --group=N`" + ` to fix by group.
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	max, err := scanExistingActiveGroupNumbers(path)
+	if err != nil {
+		t.Fatalf("header-only file: %v", err)
+	}
+	if max != 0 {
+		t.Errorf("header-only file should return 0, got: %d", max)
+	}
+}
+
+func TestScanExistingActiveGroupNumbers_AllRowsChecked(t *testing.T) {
+	// A section with only [x] rows is inactive. Its group numbers don't
+	// reserve anything; max should be 0 so the next section starts at 1.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md")
+	content := `# Technical Debt Backlog
+
+### [2026-01-01] From Sprint: old-finished
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [x] | LOW | a.go:1 | done | fixed | maint | 0 |
+| 2 | [x] | LOW | b.go:1 | done | fixed | maint | 0 |
+| 3 | [x] | LOW | c.go:1 | done | fixed | maint | 0 |
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	max, err := scanExistingActiveGroupNumbers(path)
+	if err != nil {
+		t.Fatalf("all-checked: %v", err)
+	}
+	if max != 0 {
+		t.Errorf("all-[x] section should free up its numbers (max=0), got: %d", max)
+	}
+}
+
+func TestScanExistingActiveGroupNumbers_ActiveSection(t *testing.T) {
+	// Section with mixed [ ] and [x] is active. Max active group = highest
+	// number that has at least one [ ] row.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md")
+	content := `# Technical Debt Backlog
+
+### [2026-02-01] From Sprint: in-progress
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [x] | LOW | a.go:1 | done | fixed | maint | 0 |
+| 1 | [ ] | LOW | a.go:2 | still open | fix | maint | 30 |
+| 2 | [x] | LOW | b.go:1 | done | fixed | maint | 0 |
+| 3 | [ ] | LOW | c.go:1 | open | fix | maint | 15 |
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	max, err := scanExistingActiveGroupNumbers(path)
+	if err != nil {
+		t.Fatalf("active: %v", err)
+	}
+	// Active groups: 1 (has [ ]) and 3 (has [ ]). Group 2 is all [x] so it's
+	// inactive within this section, but we don't gap-fill. max active = 3.
+	if max != 3 {
+		t.Errorf("active max should be 3 (groups 1 and 3 have [ ] rows), got: %d", max)
+	}
+}
+
+func TestScanExistingActiveGroupNumbers_IgnoresSoloAndUngrouped(t *testing.T) {
+	// Solo and U rows are not numbered groups. They must NOT bump the
+	// max-active counter (Solo isn't an integer; U isn't either).
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md")
+	content := `# Technical Debt Backlog
+
+### [2026-03-01] From Sprint: with-solo
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [ ] | LOW | a.go:1 | open | fix | maint | 15 |
+| Solo | [ ] | HIGH | b.go:1 | open | fix | maint | 30 |
+| U | [ ] | LOW | c.go:1 | open | fix | maint | 5 |
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	max, err := scanExistingActiveGroupNumbers(path)
+	if err != nil {
+		t.Fatalf("with solo/U: %v", err)
+	}
+	if max != 1 {
+		t.Errorf("Solo and U should be ignored, max should be 1, got: %d", max)
+	}
+}
+
+func TestScanExistingActiveGroupNumbers_MultipleSections(t *testing.T) {
+	// Multiple sections in the file. Max active across the WHOLE file is
+	// what we need (caller starts new numbering at max+1).
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md")
+	content := `# Technical Debt Backlog
+
+### [2026-04-01] From Sprint: A
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [ ] | LOW | a.go:1 | open | fix | maint | 15 |
+| 2 | [x] | LOW | b.go:1 | done | fix | maint | 0 |
+
+### [2026-04-15] From Sprint: B
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [ ] | LOW | x.go:1 | open | fix | maint | 15 |
+| 2 | [ ] | LOW | y.go:1 | open | fix | maint | 15 |
+| 3 | [ ] | LOW | z.go:1 | open | fix | maint | 15 |
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	max, err := scanExistingActiveGroupNumbers(path)
+	if err != nil {
+		t.Fatalf("multi: %v", err)
+	}
+	if max != 3 {
+		t.Errorf("max active across sections should be 3 (section B's group 3), got: %d", max)
+	}
+}
+
+// TestGroupTD_AppendsAfterExistingMax: end-to-end. README already has active
+// group 3. New invocation with --output-file pointing at it should number its
+// groups starting from 4.
+func TestGroupTD_AppendsAfterExistingMax(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md")
+	existing := `# Technical Debt Backlog
+
+### [2026-05-01] From Sprint: previous
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [ ] | LOW | a.go:1 | open | fix | maint | 15 |
+| 2 | [ ] | LOW | b.go:1 | open | fix | maint | 15 |
+| 3 | [ ] | LOW | c.go:1 | open | fix | maint | 15 |
+`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Brand-new run with two new theme groups. These should land as 4 and 5,
+	// NOT 1 and 2.
+	input := `[
+		{"FILE_LINE": "src/x/file1.ts:10", "PROBLEM": "P1", "EST_MINUTES": 30},
+		{"FILE_LINE": "src/x/file2.ts:20", "PROBLEM": "P2", "EST_MINUTES": 30},
+		{"FILE_LINE": "src/x/file3.ts:30", "PROBLEM": "P3", "EST_MINUTES": 30},
+		{"FILE_LINE": "src/y/file1.ts:40", "PROBLEM": "P4", "EST_MINUTES": 30},
+		{"FILE_LINE": "src/y/file2.ts:50", "PROBLEM": "P5", "EST_MINUTES": 30},
+		{"FILE_LINE": "src/y/file3.ts:60", "PROBLEM": "P6", "EST_MINUTES": 30}
+	]`
+	cmd := newGroupTDCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetArgs([]string{
+		"--content", input,
+		"--assign-numbers",
+		"--checkbox",
+		"--output-file", path,
+		"--sprint-label", "new-section",
+		"--date-label", "2026-05-15",
+		"--min-group-size", "3",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	// The new section should have rows with Group=4 and Group=5, not 1/2.
+	// Reliable way: parse table rows in the new section, check the Group cell.
+	if !strings.Contains(content, "| 4 |") {
+		t.Errorf("new section should have group 4 (continuing from previous max=3), full content:\n%s", content)
+	}
+	if !strings.Contains(content, "| 5 |") {
+		t.Errorf("new section should have group 5, full content:\n%s", content)
+	}
+	// Critical: the new section should NOT have introduced a duplicate group 1.
+	// Scope to just the new section's text by taking everything from its
+	// header up to (but not including) the next `### ` header — writeGroupedMarkdown
+	// PREPENDS new sections, so "previous" appears after "new-section" in the file.
+	newIdx := strings.Index(content, "From Sprint: new-section")
+	if newIdx < 0 {
+		t.Fatal("new section not found in output")
+	}
+	newSection := content[newIdx:]
+	if nextHeader := strings.Index(newSection[1:], "### "); nextHeader >= 0 {
+		newSection = newSection[:nextHeader+1]
+	}
+	if strings.Contains(newSection, "| 1 |") {
+		t.Errorf("new section must NOT contain group 1 — would collide with previous section. New section text:\n%s", newSection)
+	}
+	if strings.Contains(newSection, "| 2 |") {
+		t.Errorf("new section must NOT contain group 2 — would collide with previous section. New section text:\n%s", newSection)
+	}
+	if strings.Contains(newSection, "| 3 |") {
+		t.Errorf("new section must NOT contain group 3 — would collide with previous section. New section text:\n%s", newSection)
+	}
+}
+
+// TestGroupTD_StartsAtOneWhenFileMissing: regression test for the no-existing-
+// file case. Behavior must match today: groups 1, 2, 3, ...
+func TestGroupTD_StartsAtOneWhenFileMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md") // doesn't exist yet
+	input := `[
+		{"FILE_LINE": "src/auth/a.ts:1", "PROBLEM": "P1", "EST_MINUTES": 30},
+		{"FILE_LINE": "src/auth/b.ts:2", "PROBLEM": "P2", "EST_MINUTES": 30},
+		{"FILE_LINE": "src/auth/c.ts:3", "PROBLEM": "P3", "EST_MINUTES": 30}
+	]`
+	cmd := newGroupTDCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetArgs([]string{
+		"--content", input,
+		"--assign-numbers",
+		"--checkbox",
+		"--output-file", path,
+		"--sprint-label", "fresh",
+		"--date-label", "2026-05-15",
+		"--min-group-size", "3",
+		"--json",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "| 1 |") {
+		t.Errorf("fresh file should number from 1, got:\n%s", content)
+	}
+}
+
+// ---- --renumber tests ----
+
+// TestGroupTD_Renumber_FixesCollisions: README has two active sections both
+// using groups 1 and 2. --renumber should make active groups globally unique.
+func TestGroupTD_Renumber_FixesCollisions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md")
+	content := `# Technical Debt Backlog
+
+### [2026-05-01] From Sprint: A
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [ ] | LOW | a.go:1 | A1 | fix | maint | 15 |
+| 1 | [ ] | LOW | a.go:2 | A2 | fix | maint | 15 |
+| 2 | [ ] | LOW | b.go:1 | A3 | fix | maint | 15 |
+
+### [2026-05-15] From Sprint: B
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [ ] | LOW | x.go:1 | B1 | fix | maint | 15 |
+| 2 | [ ] | LOW | y.go:1 | B2 | fix | maint | 15 |
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newGroupTDCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{
+		"--renumber",
+		"--output-file", path,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("renumber: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(data)
+
+	// After renumber: A keeps 1, 2. B should be renumbered to 3, 4 (no collision).
+	// (Order: sections appear top-to-bottom; we renumber the second section's
+	// active groups starting at A's max+1.)
+	idxA := strings.Index(out, "From Sprint: A")
+	idxB := strings.Index(out, "From Sprint: B")
+	if idxA < 0 || idxB < 0 || idxA >= idxB {
+		t.Fatalf("sections not found in expected order. out:\n%s", out)
+	}
+	sectionA := out[idxA:idxB]
+	sectionB := out[idxB:]
+
+	// Section A: keeps "| 1 |" and "| 2 |"
+	if !strings.Contains(sectionA, "| 1 |") || !strings.Contains(sectionA, "| 2 |") {
+		t.Errorf("section A should retain groups 1, 2 after renumber:\n%s", sectionA)
+	}
+	// Section B: should NO LONGER have "| 1 |" or "| 2 |"
+	if strings.Contains(sectionB, "| 1 |") {
+		t.Errorf("section B should not have group 1 after renumber (collides with A):\n%s", sectionB)
+	}
+	if strings.Contains(sectionB, "| 2 |") {
+		t.Errorf("section B should not have group 2 after renumber (collides with A):\n%s", sectionB)
+	}
+	// Section B should now contain "| 3 |" and "| 4 |"
+	if !strings.Contains(sectionB, "| 3 |") {
+		t.Errorf("section B should be renumbered to start at 3:\n%s", sectionB)
+	}
+	if !strings.Contains(sectionB, "| 4 |") {
+		t.Errorf("section B should have group 4:\n%s", sectionB)
+	}
+}
+
+// TestGroupTD_Renumber_InactiveSectionsUnchanged: a section with only [x] rows
+// is inactive — renumber must leave it alone so we don't rewrite completed
+// history. Active sections get fresh non-overlapping numbers.
+func TestGroupTD_Renumber_InactiveSectionsUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "README.md")
+	content := `# Technical Debt Backlog
+
+### [2026-04-01] From Sprint: done
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [x] | LOW | a.go:1 | A1 | fix | maint | 0 |
+| 2 | [x] | LOW | b.go:1 | A2 | fix | maint | 0 |
+
+### [2026-05-15] From Sprint: open
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [ ] | LOW | x.go:1 | B1 | fix | maint | 15 |
+| 2 | [ ] | LOW | y.go:1 | B2 | fix | maint | 15 |
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newGroupTDCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{"--renumber", "--output-file", path})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("renumber: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	out := string(data)
+
+	idxDone := strings.Index(out, "From Sprint: done")
+	idxOpen := strings.Index(out, "From Sprint: open")
+	if idxDone < 0 || idxOpen < 0 {
+		t.Fatalf("sections not found:\n%s", out)
+	}
+	doneSection := out[idxDone:idxOpen]
+	openSection := out[idxOpen:]
+
+	// Done section is all [x]: numbers UNCHANGED. Still 1, 2.
+	if !strings.Contains(doneSection, "| 1 |") || !strings.Contains(doneSection, "| 2 |") {
+		t.Errorf("inactive section should keep its original numbers:\n%s", doneSection)
+	}
+
+	// Open section is active. Inactive done-section numbers are "free", so
+	// the open section should still get 1, 2 (no collision because done is
+	// all [x] — /resolve-td will never select those rows).
+	if !strings.Contains(openSection, "| 1 |") || !strings.Contains(openSection, "| 2 |") {
+		t.Errorf("active section should number 1, 2 since done section is all [x] (free numbers):\n%s", openSection)
+	}
+}
+
+// TestGroupTD_Renumber_RequiresOutputFile: --renumber without --output-file
+// is a user error.
+func TestGroupTD_Renumber_RequiresOutputFile(t *testing.T) {
+	cmd := newGroupTDCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{"--renumber"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("--renumber without --output-file should error")
+	}
+}

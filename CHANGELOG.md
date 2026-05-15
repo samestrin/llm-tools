@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### llm-support
+
+- **`group_td` global group numbering across README sections** — group numbers across all active sections in a `--output-file` README are now globally unique, so `/resolve-td --group=N` targets exactly one set of rows. Previously, each invocation numbered its new section 1, 2, 3, ... independently, producing collisions: a README with sections from sprints A and B would each have group 1, 2, 3, and `/resolve-td --group=2` would process items from both — causing file-edit conflicts when running parallel sessions.
+  - When `--output-file` is given and the file exists, `group_td` scans existing sections, finds the highest active group number (a group is **active** if at least one of its rows is `[ ]`), and starts the new section's numbering from that max + 1.
+  - **New `--renumber` flag** rewrites an existing `--output-file` so every active group has a globally unique number. Inactive sections (all `[x]`) keep their original numbers — completed history isn't rewritten.
+  - `parseTableRowForGroupState` and `scanExistingActiveGroupNumbers` helpers are reusable for future tooling that needs to reason about active groups.
+  - Backward compatible: a fresh README (no existing file) still numbers from 1 as before.
+
 ### Added
 
 #### llm-support
