@@ -485,8 +485,149 @@ func TestMultiReview_LargeDiffWarning(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
+	// New: large-diff workflow must be DIRECTIVE (not optional) and front-
+	// load the stat-first approach. The previous "if your context budget
+	// is tight" wording was observed in production to be too weak — kai
+	// (kimi-k2.6-coding) burned its 30-min budget exploring a 1.2 MB diff
+	// without producing findings.
 	if !strings.Contains(capturedTaskMessage, "--stat") {
 		t.Errorf("task message should include --stat hint for large diff. Got:\n%s", capturedTaskMessage)
+	}
+	if !strings.Contains(capturedTaskMessage, "LARGE DIFF WORKFLOW (REQUIRED") {
+		t.Errorf("task message should label the large-diff workflow as REQUIRED, not optional. Got:\n%s", capturedTaskMessage)
+	}
+	if !strings.Contains(capturedTaskMessage, "Tool-call budget") {
+		t.Errorf("task message should set a tool-call budget for large diffs. Got:\n%s", capturedTaskMessage)
+	}
+	if !strings.Contains(capturedTaskMessage, "Stop exploring") {
+		t.Errorf("task message should explicitly tell reviewers to stop exploring. Got:\n%s", capturedTaskMessage)
+	}
+}
+
+func TestMultiReview_AbortedReviewerReportsAbortedStatus(t *testing.T) {
+	// When openclaw aborts an agent before it produces findings (e.g. hit
+	// the harness's per-turn time ceiling), the reviewer's response carries
+	// Aborted=true. Today this is silently reported as status: "ok" with 0
+	// findings, which is indistinguishable from a clean review that found
+	// nothing. Distinguish them: aborted reviewers report status: "aborted".
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		// Simulate openclaw aborting kai with no findings produced.
+		return multireview.InvokeReviewerResult{
+			AgentName:   p.AgentName,
+			Status:      "ok", // openclaw side reports ok with Aborted=true
+			Model:       "mock-" + p.AgentName,
+			DurationMS:  1800000,
+			Aborted:     true,
+			ReviewProse: "Tool failed", // truncated/abandoned output
+			RawJSON:     `{"runId":"x","aborted":true}`,
+		}, nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "kai",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	// All reviewers aborted → exit non-zero (treated like all-fail).
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected non-zero exit when sole reviewer is aborted with no findings")
+	}
+
+	summaryData, err := os.ReadFile(filepath.Join(outDir, "multi-review-summary.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Reviewers []struct {
+			Agent  string `json:"agent"`
+			Status string `json:"status"`
+		} `json:"reviewers"`
+	}
+	if err := json.Unmarshal(summaryData, &s); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Reviewers) != 1 {
+		t.Fatalf("expected 1 reviewer in summary, got %d", len(s.Reviewers))
+	}
+	if s.Reviewers[0].Status != "aborted" {
+		t.Errorf("aborted reviewer should have status=aborted, got %q", s.Reviewers[0].Status)
+	}
+}
+
+func TestMultiReview_AbortedReviewerCountedAsNotOk(t *testing.T) {
+	// Mixed pool: one clean reviewer, one aborted. The aborted one should
+	// NOT count toward okCount, so partial:true should fire and the merged
+	// stream should include only the clean reviewer's findings.
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	withMockShipBundle(t)
+	withMockPreComputeDiff(t)
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		if p.AgentName == "kai" {
+			return multireview.InvokeReviewerResult{
+				AgentName:   p.AgentName,
+				Status:      "ok",
+				Model:       "mock-kai",
+				DurationMS:  1800000,
+				Aborted:     true,
+				ReviewProse: "Tool failed",
+			}, nil
+		}
+		return mockResultFor(p.AgentName, "MEDIUM|src/a.go:1|p|x|cat"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce,kai",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v1",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v (mixed pool with one aborted should not be fatal)", err)
+	}
+
+	summaryData, err := os.ReadFile(filepath.Join(outDir, "multi-review-summary.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Partial   bool `json:"partial"`
+		Reviewers []struct {
+			Agent  string `json:"agent"`
+			Status string `json:"status"`
+		} `json:"reviewers"`
+	}
+	if err := json.Unmarshal(summaryData, &s); err != nil {
+		t.Fatal(err)
+	}
+	if !s.Partial {
+		t.Error("mixed pool with one aborted should set partial:true")
+	}
+	statusByAgent := make(map[string]string)
+	for _, r := range s.Reviewers {
+		statusByAgent[r.Agent] = r.Status
+	}
+	if statusByAgent["kai"] != "aborted" {
+		t.Errorf("kai should be aborted, got %q", statusByAgent["kai"])
+	}
+	if statusByAgent["bruce"] != "ok" {
+		t.Errorf("bruce should be ok, got %q", statusByAgent["bruce"])
 	}
 }
 

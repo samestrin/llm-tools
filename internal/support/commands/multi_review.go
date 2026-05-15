@@ -380,14 +380,31 @@ func buildDefaultTaskMessage(remoteRepo, repoName, base, head string, diff multi
    in the diff for context. The clone IS there.
 
 `)
-	// Large-diff hint: tell reviewers with tight context to start with --stat.
+	// Large-diff workflow: directive (not optional) for diffs >1MB. Observed
+	// behavior — reasoning models given a large unstructured diff burn the
+	// time budget exploring instead of converging on findings. Force a
+	// stat-first workflow with a hard cap on file inspections.
 	if diff.SizeBytes > 1_000_000 {
 		mb := float64(diff.SizeBytes) / 1_000_000
-		b.WriteString(fmt.Sprintf(`NOTE: Diff is large (%.1f MB). If your context budget is tight, get the
-file-level summary first with `+"`git -C %s diff --stat %s..%s`"+`,
-then focus on files with the most changes.
+		b.WriteString(fmt.Sprintf(`LARGE DIFF WORKFLOW (REQUIRED — diff is %.1f MB):
 
-`, mb, remoteRepo, base, head))
+This diff is too large for full-text review within your time budget. Follow
+this workflow exactly:
+
+a. FIRST, run `+"`git -C %s diff --stat %s..%s`"+` to see the
+   per-file change summary. Pick AT MOST 10 files: the largest by line
+   count, plus any files in security-sensitive paths (auth, crypto,
+   sessions, permissions, payments, SQL).
+b. For each picked file, `+"`cat`"+` only that file's hunk:
+   `+"`git -C %s diff %s..%s -- <path>`"+`. Do NOT cat the full diff.txt.
+c. After inspecting your picked files, produce findings. Stop exploring.
+   You have one job: write the review.
+d. Tool-call budget: aim for at most 15 tool calls total (1 for --stat,
+   up to 10 for per-file diffs, the rest for surgical greps if needed).
+   If you've made 20+ tool calls without writing findings, you are
+   over-exploring — stop and write what you have.
+
+`, mb, remoteRepo, base, head, remoteRepo, base, head))
 	}
 	b.WriteString(`Produce your normal review report (verdict + severity-graded findings + what was done well + out-of-scope).
 Reply with the review body only — no preamble.
