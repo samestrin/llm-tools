@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### llm-support
+
+- **`multi_review` distinguishes aborted reviewers from clean-with-no-findings** — when openclaw aborts an agent before it produces a review (e.g. tool-call ceiling, per-turn time limit), the response carries `Aborted=true`. Previously this surfaced as `status: ok` with `tdLineCount: 0`, indistinguishable from a reviewer that ran cleanly and found nothing. Now aborted reviewers report `status: aborted` with an explanatory error message, and don't count toward `okCount`. If ALL reviewers abort, the run exits non-zero (treated like all-fail).
+
+- **`multi_review` task message: directive large-diff workflow** — for diffs >1MB, replaced the soft "if your context budget is tight" hint with a REQUIRED workflow: (a) `git diff --stat` first, (b) pick at most 10 files (largest + security-sensitive paths), (c) per-file `git diff` only on picked files, (d) hard tool-call budget of 15 with a 20-call ceiling. Observed in production that the soft hint failed to redirect reasoning models like `kimi-k2.6-coding` away from exhaustive exploration — kai made 148 tool calls on a 1.2 MB diff and never produced findings.
+
 ### Changed
 
 #### llm-support
