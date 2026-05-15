@@ -232,13 +232,45 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("pre-compute diff on %s: %w", mrOpenclawHost, err)
 	}
 
-	// 3. Build the task message (auto if not overridden).
-	taskMessage := mrTaskMessage
-	if taskMessage == "" {
-		taskMessage = buildDefaultTaskMessage(shipRes.RemoteRepoPath, repoName, mrBaseRef, mrHeadRef, diffRes)
+	// 3. Build per-agent template variables and resolve the prompt
+	//    directory once. The actual task message is resolved per agent
+	//    inside invokeOne (per-agent files can override the base).
+	promptDir := multireview.ResolvePromptDir()
+	headForVars := mrHeadRef
+	if headForVars == "" {
+		headForVars = "HEAD"
+	}
+	promptVarsBase := multireview.PromptVars{
+		DiffPath:   diffRes.DiffPath,
+		DiffBytes:  diffRes.SizeBytes,
+		DiffLines:  diffRes.LineCount,
+		DiffMB:     float64(diffRes.SizeBytes) / 1_000_000,
+		LargeDiff:  diffRes.SizeBytes > 1_000_000,
+		BaseRef:    mrBaseRef,
+		HeadRef:    headForVars,
+		RemoteRepo: shipRes.RemoteRepoPath,
+		// AgentName is filled per-call in invokeOne.
 	}
 
-	// 3. Invoke reviewers. Parallel lane first, then serial.
+	// resolveTaskMessage picks the right message for one agent, applying:
+	//   1. --task-message CLI flag (explicit override, wins for ALL agents)
+	//   2. per-agent file via LoadAgentPrompt (<agent>.md → _base.md)
+	//   3. hardcoded buildDefaultTaskMessage (today's behavior, last resort)
+	resolveTaskMessage := func(agent string) string {
+		if mrTaskMessage != "" {
+			return mrTaskMessage
+		}
+		vars := promptVarsBase
+		vars.AgentName = agent
+		loaded, err := multireview.LoadAgentPrompt(promptDir, agent, vars)
+		if err == nil && loaded != "" {
+			return loaded
+		}
+		// Empty (no files found) OR I/O error: fall back to hardcoded.
+		return buildDefaultTaskMessage(shipRes.RemoteRepoPath, repoName, mrBaseRef, mrHeadRef, diffRes)
+	}
+
+	// 4. Invoke reviewers. Parallel lane first, then serial.
 	statuses := make([]ReviewerStatus, 0, len(allReviewers))
 	statusByAgent := make(map[string]ReviewerStatus)
 	var statusMu sync.Mutex
@@ -247,7 +279,7 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 		res, err := invokeReviewerFn(totalCtx, multireview.InvokeReviewerParams{
 			Host:             mrOpenclawHost,
 			AgentName:        agent,
-			TaskMessage:      taskMessage,
+			TaskMessage:      resolveTaskMessage(agent),
 			Timeout:          time.Duration(mrPerReviewerTO) * time.Second,
 			GatewayContainer: mrGatewayContainer,
 		})

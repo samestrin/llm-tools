@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### llm-support
+
+- **`multi_review` per-agent prompt template loader** — externalizes the task message sent to each reviewer to disk-based markdown templates so per-model prompts can be tuned without rebuilding the binary. Lives under `~/.llm-tools/multi-review/prompts/`, populated by the `claude-prompts` sync script (`update-prompts.sh`).
+  - Fallback chain (per agent invocation): `--task-message` CLI flag → `<dir>/<agent>.md` → `<dir>/_base.md` → hardcoded `buildDefaultTaskMessage` (today's behavior, last resort).
+  - Templating: Go `text/template` with `PromptVars{DiffPath, DiffBytes, DiffLines, DiffMB, LargeDiff, BaseRef, HeadRef, RemoteRepo, AgentName}`. `LargeDiff` is pre-computed (`DiffBytes > 1_000_000`) so templates can use `{{if .LargeDiff}}...{{end}}` for the directive >1MB workflow.
+  - Resilient: missing dir, missing files, broken template syntax, OR template execution errors all silently fall through to the next layer. A single broken per-agent file never crashes the run.
+  - Path-traversal safe: agent name is collapsed via `filepath.Base()` before joining with the prompts dir.
+  - Test override: `LLM_TOOLS_MULTI_REVIEW_PROMPTS` env var bypasses the default `~/.llm-tools/...` path. Intended for tests; no CLI flag.
+  - Backward compatible: fresh installs that haven't run `update-prompts.sh` see no behavior change — the hardcoded fallback still produces today's task message.
+
 ### Fixed
 
 #### llm-support
