@@ -16,6 +16,22 @@ import (
 // or similar are not picked up.
 var tdLinePattern = regexp.MustCompile(`(?m)^(CRITICAL|HIGH|MEDIUM|LOW)\|.+$`)
 
+// padTo7Columns ensures the input line has exactly 7 pipe-separated fields
+// by appending empty fields until the count reaches 7. The caller appends
+// the REVIEWER as field 8.
+//
+// Inbound openclaw lines are typically 5 columns; this pads them to 7. If a
+// line already has 7 or more columns, it is returned unchanged (the caller's
+// reviewer-append still works correctly — the result will simply have more
+// than 8 total columns, which reconcile's compat shim handles).
+func padTo7Columns(line string) string {
+	fields := strings.Split(line, "|")
+	for len(fields) < 7 {
+		fields = append(fields, "")
+	}
+	return strings.Join(fields, "|")
+}
+
 // ExtractTDLines returns all pipe-delimited TD findings from a review body.
 // Order is preserved. Trailing whitespace is trimmed.
 func ExtractTDLines(reviewProse string) []string {
@@ -42,13 +58,21 @@ type ReviewerOutputPaths struct {
 // WriteReviewerOutput writes one reviewer's full output to a per-agent dir:
 //
 //	<root>/<agent>/review.md       — extracted prose, human-readable
-//	<root>/<agent>/td-stream.txt   — pipe-delimited TD lines with |<agent> appended
+//	<root>/<agent>/td-stream.txt   — pipe-delimited TD lines in unified 8-col format
 //	<root>/<agent>/status.json     — small metadata blob (model, duration, status)
 //	<root>/<agent>/response.json   — raw openclaw envelope, untouched
 //
-// The td-stream lines have the reviewer's agent name appended as a final
-// column so downstream merge keeps attribution. Format matches the existing
-// TD_STREAM convention extended with REVIEWERS.
+// td-stream.txt rows use the unified 8-column format:
+//
+//	SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY|EST_MINUTES|EVIDENCE|REVIEWER
+//
+// Inbound openclaw reviewer prose typically contains 5-column lines
+// (SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY). We pad with empty EST_MINUTES
+// and EVIDENCE before appending the agent name as REVIEWER, so all writers
+// in the system produce identically-shaped per-source streams. If a future
+// reviewer emits more columns, they pass through unchanged up to and
+// including position 7 (EVIDENCE), with REVIEWER always being the final
+// column we append here.
 func WriteReviewerOutput(rootDir string, res InvokeReviewerResult) (ReviewerOutputPaths, error) {
 	if rootDir == "" {
 		return ReviewerOutputPaths{}, fmt.Errorf("write: root dir required")
@@ -74,10 +98,12 @@ func WriteReviewerOutput(rootDir string, res InvokeReviewerResult) (ReviewerOutp
 		return paths, fmt.Errorf("write review.md: %w", err)
 	}
 
-	// Build per-reviewer td-stream with reviewer name appended.
+	// Build per-reviewer td-stream in the unified 8-col format. Inbound
+	// lines from reviewer prose are typically 5-col; pad with empty fields
+	// up to position 7 (EVIDENCE), then append the agent name as REVIEWER.
 	var tdBuf strings.Builder
 	for _, line := range ExtractTDLines(res.ReviewProse) {
-		tdBuf.WriteString(line)
+		tdBuf.WriteString(padTo7Columns(line))
 		tdBuf.WriteString("|")
 		tdBuf.WriteString(res.AgentName)
 		tdBuf.WriteString("\n")
@@ -125,7 +151,7 @@ func MergeStreams(rootDir string, reviewers []string) (string, int, error) {
 	mergedPath := filepath.Join(rootDir, "td-stream-all.txt")
 	var out strings.Builder
 	out.WriteString("# TD_STREAM - merged from " + fmt.Sprintf("%d", len(reviewers)) + " reviewer(s)\n")
-	out.WriteString("# Format: SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY|REVIEWER\n")
+	out.WriteString("# Format: SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY|EST_MINUTES|EVIDENCE|REVIEWER\n")
 
 	count := 0
 	for _, agent := range reviewers {
