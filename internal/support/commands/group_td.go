@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/samestrin/llm-tools/pkg/output"
@@ -32,6 +33,7 @@ var (
 	groupTDFormat           string
 	groupTDHeaders          string
 	groupTDDelimiter        string
+	groupTDRenumber         bool
 )
 
 // Constants
@@ -136,6 +138,7 @@ Examples:
 	cmd.Flags().StringVar(&groupTDFormat, "format", "json", "Input format: json or pipe")
 	cmd.Flags().StringVar(&groupTDHeaders, "headers", "", "Comma-separated headers for pipe format (required with --format=pipe)")
 	cmd.Flags().StringVar(&groupTDDelimiter, "delimiter", "|", "Field delimiter for pipe format")
+	cmd.Flags().BoolVar(&groupTDRenumber, "renumber", false, "Renumber active groups in --output-file so each globally-active group number is unique. No input needed. Inactive ([x]-only) sections keep their numbers.")
 
 	return cmd
 }
@@ -145,6 +148,16 @@ func init() {
 }
 
 func runGroupTD(cmd *cobra.Command, args []string) error {
+	// --renumber short-circuit: don't parse input, just rewrite groups in
+	// the existing --output-file so each active group number is globally
+	// unique. No input means no new section to append.
+	if groupTDRenumber {
+		if groupTDOutputFile == "" {
+			return fmt.Errorf("--renumber requires --output-file")
+		}
+		return renumberActiveGroupsInPlace(groupTDOutputFile)
+	}
+
 	// Validate flags
 	validGroupBy := map[string]bool{
 		groupByPath:     true,
@@ -175,8 +188,25 @@ func runGroupTD(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse input: %w", err)
 	}
 
+	// Resolve global-numbering offset. When the caller writes a new section
+	// to an existing README (--output-file points at a file that already
+	// contains sections), start numbering from max(active groups) + 1 so
+	// the new section's group numbers don't collide with existing active
+	// groups in other sections. Inactive sections (all [x]) don't reserve
+	// numbers.
+	startNumber := 0
+	if groupTDOutputFile != "" && groupTDAssignNumbers {
+		existingMax, scanErr := scanExistingActiveGroupNumbers(groupTDOutputFile)
+		if scanErr != nil {
+			// Non-fatal: warn and fall back to start-at-1 behavior.
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not scan existing output file for group numbers: %v\n", scanErr)
+		} else if existingMax > 0 {
+			startNumber = existingMax + 1
+		}
+	}
+
 	// Group items
-	result := groupItems(items, groupTDGroupBy, groupTDPathDepth, groupTDMinGroupSize, groupTDCriticalOverride, groupTDRootTheme, groupTDAssignNumbers)
+	result := groupItems(items, groupTDGroupBy, groupTDPathDepth, groupTDMinGroupSize, groupTDCriticalOverride, groupTDRootTheme, groupTDAssignNumbers, startNumber)
 
 	// Validate no data loss
 	totalOutput := result.Summary.GroupedCount + result.Summary.UngroupedCount
@@ -314,7 +344,12 @@ func parsePipeInput(input string, headersStr string, delimiter string) ([]map[st
 	return items, nil
 }
 
-func groupItems(items []map[string]interface{}, groupBy string, pathDepth, minGroupSize int, criticalOverride bool, rootTheme string, assignNumbers bool) GroupTDResult {
+// groupItems clusters TD items into groups. When assignNumbers is true and
+// startNumber > 0, numbered groups begin at startNumber (used to continue
+// globally-unique numbering across existing README sections). startNumber=0
+// is treated the same as 1 (today's behavior) for backward compatibility
+// with callers that don't pass an explicit start.
+func groupItems(items []map[string]interface{}, groupBy string, pathDepth, minGroupSize int, criticalOverride bool, rootTheme string, assignNumbers bool, startNumber int) GroupTDResult {
 	// Step 1: Extract theme for each item
 	itemThemes := make(map[int]string)
 	for i, item := range items {
@@ -454,6 +489,9 @@ func groupItems(items []map[string]interface{}, groupBy string, pathDepth, minGr
 	// Step 9: Assign group numbers if requested
 	if assignNumbers {
 		num := 1
+		if startNumber > 0 {
+			num = startNumber
+		}
 		for i := range groups {
 			if groups[i].Theme == soloTheme {
 				groups[i].Number = 0
@@ -909,4 +947,239 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 	}
 
 	return nil
+}
+
+// scanExistingActiveGroupNumbers reads a README.md-style file, parses all
+// markdown table rows across all sections, and returns the highest "active"
+// group number found.
+//
+// A group is **active** if at least one of its rows is an unchecked checkbox
+// (`[ ]`). Groups consisting entirely of `[x]` rows are inactive — completed
+// work that won't be re-processed by /resolve-td, so their numbers are free
+// for reuse by new sections.
+//
+// Solo, U, and other non-integer Group values are ignored. A missing file is
+// not an error (returns 0, nil) — callers use the result + 1 as the starting
+// number, so missing-file naturally produces "start at 1" for a fresh README.
+//
+// Caller uses scanExistingActiveGroupNumbers + 1 as the starting number for
+// a new section's groups, achieving global uniqueness across all active
+// sections in the file.
+func scanExistingActiveGroupNumbers(path string) (int, error) {
+	if path == "" {
+		return 0, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	// activeGroups[n] = true if group n has at least one [ ] row.
+	activeGroups := make(map[int]bool)
+
+	for _, line := range strings.Split(string(data), "\n") {
+		groupNum, isUnchecked, ok := parseTableRowForGroupState(line)
+		if !ok {
+			continue
+		}
+		if isUnchecked {
+			activeGroups[groupNum] = true
+		} else if _, seen := activeGroups[groupNum]; !seen {
+			// First time we've seen this group AND the row is checked.
+			// Record as inactive (false) so the max-scan below sees it.
+			// We don't overwrite an existing `true` — once active, stays active.
+			activeGroups[groupNum] = false
+		}
+	}
+
+	max := 0
+	for num, active := range activeGroups {
+		if active && num > max {
+			max = num
+		}
+	}
+	return max, nil
+}
+
+// parseTableRowForGroupState parses one line of a markdown table row in the
+// README format. Returns:
+//
+//	(groupNumber, isUnchecked, ok=true)  for a real numbered-group data row
+//	(0, false, ok=false)                  for anything else (header, separator,
+//	                                       Solo/U row, non-table line)
+//
+// Expected row shape:
+//
+//	| <group> | <checkbox> | <severity> | <file> | <problem> | ... |
+//
+// where <group> is an integer (we skip "Solo", "U", "Group"), and <checkbox>
+// is "[ ]" or "[x]" / "[X]".
+func parseTableRowForGroupState(line string) (int, bool, bool) {
+	if !strings.HasPrefix(line, "|") {
+		return 0, false, false
+	}
+	// Skip separator lines like "|---|---|..."
+	if strings.Contains(line, "|---") || strings.Contains(line, "|------") {
+		return 0, false, false
+	}
+	// Split on `|` and strip empty leading/trailing splits.
+	cells := strings.Split(line, "|")
+	if len(cells) < 4 { // need at least: "", group, checkbox, severity, ...
+		return 0, false, false
+	}
+	// cells[0] is empty (leading "|"), cells[1] is group, cells[2] is checkbox
+	group := strings.TrimSpace(cells[1])
+	checkbox := strings.TrimSpace(cells[2])
+
+	// Skip header row ("Group" / "-------")
+	if group == "Group" || group == "" || strings.HasPrefix(group, "-") {
+		return 0, false, false
+	}
+
+	// Try to parse as integer. Solo / U / anything non-integer is ignored.
+	num, err := strconv.Atoi(group)
+	if err != nil {
+		return 0, false, false
+	}
+
+	isUnchecked := checkbox == "[ ]"
+	return num, isUnchecked, true
+}
+
+// renumberActiveGroupsInPlace reads a README.md-style file, parses all
+// sections, and rewrites the file so that every ACTIVE group (a group with
+// at least one [ ] row anywhere in the file) has a globally-unique number.
+//
+// Algorithm:
+//
+//  1. First pass: identify every (section, oldGroupNum) tuple that's active.
+//     A group is active if at least one of its rows in that section is `[ ]`.
+//     Solo and U rows are not numbered groups and are left alone.
+//  2. Second pass: assign new numbers 1, 2, 3, ... to active groups in
+//     section-order, then within each section in first-appearance order.
+//  3. Third pass: rewrite the file, replacing each active group's number in
+//     its rows. Inactive groups (all [x]) keep their old numbers.
+//
+// Idempotent: re-running renumber on an already-renumbered file produces no
+// change to active-group numbers (they're already in section-order, starting
+// at 1 for the first active section).
+func renumberActiveGroupsInPlace(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	lines := strings.Split(string(data), "\n")
+
+	// Parse: walk lines, find section boundaries, for each section determine
+	// which (oldNum) groups are active within that section. Track the order
+	// in which active groups first appear per section so we can renumber
+	// deterministically.
+
+	type sectionInfo struct {
+		startLine     int          // index of `### ...` header
+		endLine       int          // exclusive end (next section header or EOF)
+		activeOldNums []int        // ordered, deduplicated old numbers of active groups
+		activeOldSet  map[int]bool // membership check
+	}
+	var sections []*sectionInfo
+	var cur *sectionInfo
+
+	for i, line := range lines {
+		if strings.HasPrefix(line, "### ") {
+			if cur != nil {
+				cur.endLine = i
+				sections = append(sections, cur)
+			}
+			cur = &sectionInfo{startLine: i, activeOldSet: map[int]bool{}}
+			continue
+		}
+		if cur == nil {
+			continue
+		}
+		num, isUnchecked, ok := parseTableRowForGroupState(line)
+		if !ok {
+			continue
+		}
+		if isUnchecked {
+			if !cur.activeOldSet[num] {
+				cur.activeOldSet[num] = true
+				cur.activeOldNums = append(cur.activeOldNums, num)
+			}
+		}
+	}
+	if cur != nil {
+		cur.endLine = len(lines)
+		sections = append(sections, cur)
+	}
+
+	// Build the per-section old→new mapping.
+	// New numbers start at 1 and increment for every active group encountered,
+	// in section-order then first-appearance order within section.
+	nextNum := 1
+	renumberMaps := make([]map[int]int, len(sections))
+	for si, s := range sections {
+		m := map[int]int{}
+		for _, oldNum := range s.activeOldNums {
+			m[oldNum] = nextNum
+			nextNum++
+		}
+		renumberMaps[si] = m
+	}
+
+	// Rewrite lines.
+	out := make([]string, len(lines))
+	copy(out, lines)
+	for si, s := range sections {
+		m := renumberMaps[si]
+		if len(m) == 0 {
+			continue // no active groups in this section
+		}
+		for i := s.startLine; i < s.endLine; i++ {
+			oldNum, isUnchecked, ok := parseTableRowForGroupState(out[i])
+			if !ok {
+				continue
+			}
+			// Only renumber rows that belong to a group we're remapping.
+			// Inactive groups (all [x]) won't be in `m`. But we also need to
+			// renumber [x] rows of groups that ARE active (so all rows in an
+			// active group share the same new number).
+			newNum, mapped := m[oldNum]
+			if !mapped {
+				// Group is inactive — leave the row alone.
+				_ = isUnchecked // shut up unused-warning even though not used here
+				continue
+			}
+			out[i] = replaceGroupNumberInRow(out[i], newNum)
+		}
+	}
+
+	if err := os.WriteFile(path, []byte(strings.Join(out, "\n")), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// replaceGroupNumberInRow rewrites the first cell of a markdown table data
+// row to contain the given integer. Preserves the rest of the row verbatim.
+// Returns the line unchanged if it doesn't look like a numbered-group data
+// row.
+func replaceGroupNumberInRow(line string, newNum int) string {
+	if _, _, ok := parseTableRowForGroupState(line); !ok {
+		return line
+	}
+	// Find the first "|" and the second "|"; replace the cell between them.
+	first := strings.Index(line, "|")
+	if first < 0 {
+		return line
+	}
+	second := strings.Index(line[first+1:], "|")
+	if second < 0 {
+		return line
+	}
+	second += first + 1
+	// Reconstruct: keep prefix up to first "|" + " <newNum> " + rest from second "|"
+	return line[:first] + "| " + strconv.Itoa(newNum) + " " + line[second:]
 }

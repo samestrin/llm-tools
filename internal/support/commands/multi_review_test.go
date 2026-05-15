@@ -451,7 +451,12 @@ func TestMultiReview_DiffPathInTaskMessage(t *testing.T) {
 }
 
 func TestMultiReview_LargeDiffWarning(t *testing.T) {
-	// SizeBytes > 1_000_000 should append the --stat hint.
+	// SizeBytes > 1_000_000 should append the --stat hint. Isolate from the
+	// user's installed per-agent templates by pointing the loader at an empty
+	// dir — this test asserts on the BUILTIN hardcoded message's behavior,
+	// not on whatever templates the user has synced locally.
+	t.Setenv("LLM_TOOLS_MULTI_REVIEW_PROMPTS", t.TempDir())
+
 	repo := initFixtureRepoMR(t)
 	outDir := filepath.Join(t.TempDir(), "out")
 
@@ -1116,6 +1121,13 @@ func TestMultiReview_SkipCleanupSkipsBoth(t *testing.T) {
 
 func TestMultiReview_SmallDiffNoWarning(t *testing.T) {
 	// SizeBytes < 1_000_000 should NOT append the --stat hint.
+	// Test isolation: point LLM_TOOLS_MULTI_REVIEW_PROMPTS at an empty temp
+	// dir so the loader falls back to the hardcoded message (the only place
+	// this test's "--stat" assertion is meaningful — per-agent template files
+	// the user has installed locally may mention --stat in their operational
+	// rules unconditionally).
+	t.Setenv("LLM_TOOLS_MULTI_REVIEW_PROMPTS", t.TempDir())
+
 	repo := initFixtureRepoMR(t)
 	outDir := filepath.Join(t.TempDir(), "out")
 
