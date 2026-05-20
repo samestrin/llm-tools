@@ -2131,3 +2131,448 @@ func TestGroupTD_Renumber_RequiresOutputFile(t *testing.T) {
 		t.Fatal("--renumber without --output-file should error")
 	}
 }
+
+// ---- Frontend-detection tests ----
+//
+// Mirrors the per-item rule from claude-prompts resolve-td.md:664-670, which
+// /resolve-td --visual uses to decide whether to spin up a browser for a TD
+// item. We compute it group-side here so /reconcile-code-review can suggest
+// --visual commands for the right groups.
+//
+// Rule (OR of three):
+//   1. File extension in {.tsx, .jsx, .svelte, .vue, .html, .css, .scss}
+//   2. File extension == .py AND CATEGORY contains {ux, accessibility, layout, ui}
+//   3. CATEGORY contains {accessibility, ux, layout, ui, responsive, visual, css, touch, frontend}
+// All checks case-insensitive on CATEGORY.
+
+func TestDetectFrontendItem_TsxExtension(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "src/Button.tsx:42", "CATEGORY": "bug"}
+	if !detectFrontendItem(item) {
+		t.Error(".tsx file should be detected as frontend")
+	}
+}
+
+func TestDetectFrontendItem_CssExtension(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "styles/app.css:1", "CATEGORY": "performance"}
+	if !detectFrontendItem(item) {
+		t.Error(".css file should be detected as frontend")
+	}
+}
+
+func TestDetectFrontendItem_AllFrontendExtensions(t *testing.T) {
+	exts := []string{".tsx", ".jsx", ".svelte", ".vue", ".html", ".css", ".scss"}
+	for _, ext := range exts {
+		item := map[string]interface{}{"FILE_LINE": "src/comp" + ext + ":1", "CATEGORY": "bug"}
+		if !detectFrontendItem(item) {
+			t.Errorf("extension %s should be detected as frontend", ext)
+		}
+	}
+}
+
+func TestDetectFrontendItem_ExtensionCaseInsensitive(t *testing.T) {
+	// Filesystem-tolerated: SomeComponent.TSX, Style.CSS, page.HTML
+	tests := []string{"src/Button.TSX:1", "src/Style.CSS:1", "src/page.HTML:1"}
+	for _, fl := range tests {
+		item := map[string]interface{}{"FILE_LINE": fl, "CATEGORY": "bug"}
+		if !detectFrontendItem(item) {
+			t.Errorf("uppercase extension in %s should still be detected as frontend", fl)
+		}
+	}
+}
+
+func TestDetectFrontendItem_NoFileLineColon(t *testing.T) {
+	// FILE_LINE without a :line suffix (some legacy sources) — extension
+	// extraction still works without the colon-strip step.
+	item := map[string]interface{}{"FILE_LINE": "src/components/Button.tsx", "CATEGORY": "bug"}
+	if !detectFrontendItem(item) {
+		t.Error("FILE_LINE without :line suffix should still detect .tsx as frontend")
+	}
+}
+
+func TestDetectFrontendItem_ReflexPyWithUICategory(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "pages/settings.py:88", "CATEGORY": "ui"}
+	if !detectFrontendItem(item) {
+		t.Error(".py with category=ui (Reflex) should be frontend")
+	}
+}
+
+func TestDetectFrontendItem_ReflexPyAllUICategories(t *testing.T) {
+	cats := []string{"ux", "accessibility", "layout", "ui"}
+	for _, cat := range cats {
+		item := map[string]interface{}{"FILE_LINE": "pages/x.py:1", "CATEGORY": cat}
+		if !detectFrontendItem(item) {
+			t.Errorf(".py with category=%s should be frontend", cat)
+		}
+	}
+}
+
+func TestDetectFrontendItem_ReflexPyCaseInsensitive(t *testing.T) {
+	// Reflex rule path also lowercases — verify explicitly.
+	tests := []string{"UX", "Accessibility", "LAYOUT", "Ui"}
+	for _, cat := range tests {
+		item := map[string]interface{}{"FILE_LINE": "pages/x.py:1", "CATEGORY": cat}
+		if !detectFrontendItem(item) {
+			t.Errorf(".py with category=%s (mixed case) should be frontend", cat)
+		}
+	}
+}
+
+func TestDetectFrontendItem_PyBackendCategory(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "api/handler.py:10", "CATEGORY": "security"}
+	if detectFrontendItem(item) {
+		t.Error(".py with backend category should NOT be frontend")
+	}
+}
+
+func TestDetectFrontendItem_CategoryKeywordOnly(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "src/util.go:5", "CATEGORY": "accessibility"}
+	if !detectFrontendItem(item) {
+		t.Error(".go file with accessibility category should be frontend (category match)")
+	}
+}
+
+func TestDetectFrontendItem_AllCategoryKeywords(t *testing.T) {
+	cats := []string{"accessibility", "ux", "layout", "ui", "responsive", "visual", "css", "touch", "frontend"}
+	for _, cat := range cats {
+		item := map[string]interface{}{"FILE_LINE": "src/util.go:1", "CATEGORY": cat}
+		if !detectFrontendItem(item) {
+			t.Errorf("category=%s should trigger frontend", cat)
+		}
+	}
+}
+
+func TestDetectFrontendItem_PureBackend(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "src/auth.go:42", "CATEGORY": "security"}
+	if detectFrontendItem(item) {
+		t.Error("backend .go file with backend category should NOT be frontend")
+	}
+}
+
+func TestDetectFrontendItem_CategoryCaseInsensitive(t *testing.T) {
+	tests := []string{"Accessibility", "UX", "Layout", "FRONTEND", "Visual"}
+	for _, cat := range tests {
+		item := map[string]interface{}{"FILE_LINE": "src/util.go:1", "CATEGORY": cat}
+		if !detectFrontendItem(item) {
+			t.Errorf("category=%s (mixed case) should trigger frontend (case-insensitive match)", cat)
+		}
+	}
+}
+
+func TestDetectFrontendItem_MissingCategory(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "src/Button.tsx:1"}
+	if !detectFrontendItem(item) {
+		t.Error("missing CATEGORY should still match on .tsx extension")
+	}
+}
+
+func TestDetectFrontendItem_MissingFileLine(t *testing.T) {
+	item := map[string]interface{}{"CATEGORY": "accessibility"}
+	if !detectFrontendItem(item) {
+		t.Error("missing FILE_LINE should still match on category keyword")
+	}
+}
+
+func TestDetectFrontendItem_EmptyItem(t *testing.T) {
+	item := map[string]interface{}{}
+	if detectFrontendItem(item) {
+		t.Error("empty item should NOT be frontend")
+	}
+}
+
+func TestDetectFrontendGroup_AnyItemTriggers(t *testing.T) {
+	// One frontend item in a sea of backend → group is frontend (any rule)
+	items := []map[string]interface{}{
+		{"FILE_LINE": "src/auth.go:1", "CATEGORY": "security"},
+		{"FILE_LINE": "src/db.go:2", "CATEGORY": "performance"},
+		{"FILE_LINE": "src/api.go:3", "CATEGORY": "reliability"},
+		{"FILE_LINE": "src/Button.tsx:4", "CATEGORY": "bug"},
+		{"FILE_LINE": "src/util.go:5", "CATEGORY": "bug"},
+	}
+	if !detectFrontendGroup(items) {
+		t.Error("group with one frontend item should be frontend (any-rule)")
+	}
+}
+
+func TestDetectFrontendGroup_AllBackend(t *testing.T) {
+	items := []map[string]interface{}{
+		{"FILE_LINE": "src/auth.go:1", "CATEGORY": "security"},
+		{"FILE_LINE": "src/db.go:2", "CATEGORY": "performance"},
+	}
+	if detectFrontendGroup(items) {
+		t.Error("all-backend group should NOT be frontend")
+	}
+}
+
+func TestDetectFrontendGroup_EmptyGroup(t *testing.T) {
+	// Edge case: empty items slice. Should not panic and return false.
+	if detectFrontendGroup([]map[string]interface{}{}) {
+		t.Error("empty group should NOT be frontend")
+	}
+}
+
+// TestGroupItems_PopulatesFrontendField verifies that groupItems sets
+// TDGroup.Frontend correctly per the any-item rule.
+func TestGroupItems_PopulatesFrontendField(t *testing.T) {
+	// Need ≥ defaultMinGroupSize (3) per theme to form a group.
+	// "frontend" group: src/components — 3 .tsx files.
+	// "backend" group: src/api — 3 .go files.
+	input := `[
+		{"FILE_LINE": "src/components/Button.tsx:1", "CATEGORY": "bug", "PROBLEM": "p1"},
+		{"FILE_LINE": "src/components/Nav.tsx:2", "CATEGORY": "bug", "PROBLEM": "p2"},
+		{"FILE_LINE": "src/components/Footer.tsx:3", "CATEGORY": "bug", "PROBLEM": "p3"},
+		{"FILE_LINE": "src/api/users.go:1", "CATEGORY": "security", "PROBLEM": "p4"},
+		{"FILE_LINE": "src/api/orders.go:2", "CATEGORY": "security", "PROBLEM": "p5"},
+		{"FILE_LINE": "src/api/auth.go:3", "CATEGORY": "security", "PROBLEM": "p6"}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse output: %v\nOutput: %s", err, buf.String())
+	}
+
+	feGroup := findGroupByTheme(result.Groups, "src-components")
+	if feGroup == nil {
+		t.Fatal("expected src-components group")
+	}
+	if !feGroup.Frontend {
+		t.Error("src-components group (all .tsx) should have Frontend=true")
+	}
+
+	beGroup := findGroupByTheme(result.Groups, "src-api")
+	if beGroup == nil {
+		t.Fatal("expected src-api group")
+	}
+	if beGroup.Frontend {
+		t.Error("src-api group (all .go + security) should have Frontend=false")
+	}
+}
+
+// TestGroupItems_FrontendFieldAnyRule verifies the any-item rule: a single
+// frontend item in an otherwise-backend group flips the group to frontend.
+func TestGroupItems_FrontendFieldAnyRule(t *testing.T) {
+	input := `[
+		{"FILE_LINE": "src/util/parse.go:1", "CATEGORY": "bug", "PROBLEM": "p1"},
+		{"FILE_LINE": "src/util/format.go:2", "CATEGORY": "bug", "PROBLEM": "p2"},
+		{"FILE_LINE": "src/util/Widget.tsx:3", "CATEGORY": "bug", "PROBLEM": "p3"}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+
+	g := findGroupByTheme(result.Groups, "src-util")
+	if g == nil {
+		t.Fatal("expected src-util group")
+	}
+	if !g.Frontend {
+		t.Error("mixed group with one .tsx should be Frontend=true (any-rule)")
+	}
+}
+
+// ---- frontend-groups marker comment tests ----
+//
+// /reconcile-code-review.md greps for `<!-- frontend-groups: N,M -->` to
+// learn which groups need --visual. Tests verify:
+//   - comment is emitted when ≥1 frontend group is present
+//   - comment is suppressed when all groups are backend
+//   - Solo group is NEVER listed in the comment (Solo handles itself at
+//     /resolve-td runtime, and Solo's group number is 0 / "Solo" label)
+//   - the comment doesn't break scanExistingActiveGroupNumbers parsing
+
+func runGroupTDOutputFile(t *testing.T, input string, extraArgs ...string) (string, string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	args := []string{
+		"--content", input,
+		"--output-file", outputFile,
+		"--assign-numbers",
+		"--sprint-label", "test-sprint",
+		"--date-label", "2026-05-19",
+	}
+	args = append(args, extraArgs...)
+	cmd.SetArgs(args)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output file: %v", err)
+	}
+	return string(data), outputFile
+}
+
+func TestWriteGroupedMarkdown_EmitsFrontendComment(t *testing.T) {
+	// One frontend group (src/components, all .tsx) and one backend group
+	// (src/api, all .go). Expect: <!-- frontend-groups: N --> with the
+	// frontend group's number.
+	input := `[
+		{"FILE_LINE": "src/components/Button.tsx:1", "CATEGORY": "bug", "PROBLEM": "p1", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Nav.tsx:2", "CATEGORY": "bug", "PROBLEM": "p2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Footer.tsx:3", "CATEGORY": "bug", "PROBLEM": "p3", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/users.go:1", "CATEGORY": "security", "PROBLEM": "p4", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/orders.go:2", "CATEGORY": "security", "PROBLEM": "p5", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/auth.go:3", "CATEGORY": "security", "PROBLEM": "p6", "SEVERITY": "MEDIUM"}
+	]`
+
+	data, _ := runGroupTDOutputFile(t, input)
+
+	// Must contain a frontend-groups comment.
+	if !strings.Contains(data, "<!-- frontend-groups:") {
+		t.Fatalf("expected <!-- frontend-groups: ... --> comment in output:\n%s", data)
+	}
+
+	// Find the frontend group's number from the table. The frontend group is
+	// src-components — find its first table row to learn the assigned number.
+	lines := strings.Split(data, "\n")
+	var frontendGroupNum string
+	for _, line := range lines {
+		if strings.Contains(line, "Button.tsx") {
+			// Row format: | <num> | <severity> | ... — extract num.
+			parts := strings.Split(line, "|")
+			if len(parts) > 1 {
+				frontendGroupNum = strings.TrimSpace(parts[1])
+				break
+			}
+		}
+	}
+	if frontendGroupNum == "" {
+		t.Fatalf("could not find Button.tsx row in output to determine group number:\n%s", data)
+	}
+
+	expectedComment := "<!-- frontend-groups: " + frontendGroupNum + " -->"
+	if !strings.Contains(data, expectedComment) {
+		t.Errorf("expected comment %q in output, got:\n%s", expectedComment, data)
+	}
+}
+
+func TestWriteGroupedMarkdown_NoFrontendCommentWhenAllBackend(t *testing.T) {
+	input := `[
+		{"FILE_LINE": "src/api/users.go:1", "CATEGORY": "security", "PROBLEM": "p1", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/orders.go:2", "CATEGORY": "security", "PROBLEM": "p2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/auth.go:3", "CATEGORY": "security", "PROBLEM": "p3", "SEVERITY": "MEDIUM"}
+	]`
+
+	data, _ := runGroupTDOutputFile(t, input)
+
+	if strings.Contains(data, "<!-- frontend-groups:") {
+		t.Errorf("expected NO frontend-groups comment when all groups are backend, got:\n%s", data)
+	}
+}
+
+func TestWriteGroupedMarkdown_FrontendCommentSkipsSolo(t *testing.T) {
+	// One frontend Solo item (HIGH .tsx that doesn't reach min-group-size)
+	// and one full backend group. The Solo's frontend status MUST NOT appear
+	// in the frontend-groups comment — Solo handles its own --visual decision
+	// at /resolve-td runtime, and its "group number" is 0 / "Solo" label.
+	input := `[
+		{"FILE_LINE": "src/lonely/Widget.tsx:1", "CATEGORY": "bug", "PROBLEM": "p1", "SEVERITY": "HIGH"},
+		{"FILE_LINE": "src/api/users.go:1", "CATEGORY": "security", "PROBLEM": "p2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/orders.go:2", "CATEGORY": "security", "PROBLEM": "p3", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/auth.go:3", "CATEGORY": "security", "PROBLEM": "p4", "SEVERITY": "MEDIUM"}
+	]`
+
+	data, _ := runGroupTDOutputFile(t, input)
+
+	// The Widget.tsx should land in a Solo group (HIGH severity, ungrouped).
+	// Expect: NO frontend-groups comment because the only frontend item is
+	// in Solo, and Solo isn't an integer group number.
+	if strings.Contains(data, "Solo") {
+		// Confirms Solo was used as expected.
+		if strings.Contains(data, "<!-- frontend-groups:") {
+			t.Errorf("expected NO frontend-groups comment — only frontend item is in Solo:\n%s", data)
+		}
+	} else {
+		t.Fatalf("expected Solo group for HIGH .tsx item, got:\n%s", data)
+	}
+}
+
+func TestWriteGroupedMarkdown_NoCommentWithoutAssignNumbers(t *testing.T) {
+	// Without --assign-numbers, group.Number is nil. The frontend-groups
+	// comment requires integer group numbers (reconcile builds /resolve-td
+	// --group=N commands), so the comment must be suppressed in this case.
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+	input := `[
+		{"FILE_LINE": "src/components/Button.tsx:1", "CATEGORY": "bug", "PROBLEM": "p1", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Nav.tsx:2", "CATEGORY": "bug", "PROBLEM": "p2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Footer.tsx:3", "CATEGORY": "bug", "PROBLEM": "p3", "SEVERITY": "MEDIUM"}
+	]`
+
+	cmd := newGroupTDCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	// Intentionally omit --assign-numbers.
+	cmd.SetArgs([]string{
+		"--content", input,
+		"--output-file", outputFile,
+		"--sprint-label", "test", "--date-label", "2026-05-19",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("could not read output: %v", err)
+	}
+	if strings.Contains(string(data), "<!-- frontend-groups:") {
+		t.Errorf("expected NO frontend-groups comment without --assign-numbers (no integer group numbers to reference):\n%s", string(data))
+	}
+}
+
+func TestWriteGroupedMarkdown_FrontendCommentDoesNotBreakRenumber(t *testing.T) {
+	// Write a section with a frontend-groups comment, then immediately call
+	// the --renumber path on the same file. Renumber should NOT crash and
+	// must preserve the comment (or at least not regress to corrupt the
+	// markdown).
+	input := `[
+		{"FILE_LINE": "src/components/Button.tsx:1", "CATEGORY": "bug", "PROBLEM": "p1", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Nav.tsx:2", "CATEGORY": "bug", "PROBLEM": "p2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Footer.tsx:3", "CATEGORY": "bug", "PROBLEM": "p3", "SEVERITY": "MEDIUM"}
+	]`
+
+	data, outputFile := runGroupTDOutputFile(t, input)
+
+	if !strings.Contains(data, "<!-- frontend-groups:") {
+		t.Fatal("setup: expected frontend-groups comment in initial section")
+	}
+
+	// Now run --renumber against the same file. Should succeed.
+	cmd := newGroupTDCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{"--renumber", "--output-file", outputFile})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("--renumber failed on file with frontend-groups comment: %v", err)
+	}
+
+	// Re-read and verify the file is still valid markdown (table header intact).
+	after, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("could not re-read after --renumber: %v", err)
+	}
+	if !strings.Contains(string(after), "| Group |") {
+		t.Errorf("--renumber corrupted the markdown table:\n%s", string(after))
+	}
+}
