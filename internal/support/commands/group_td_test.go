@@ -2169,6 +2169,26 @@ func TestDetectFrontendItem_AllFrontendExtensions(t *testing.T) {
 	}
 }
 
+func TestDetectFrontendItem_ExtensionCaseInsensitive(t *testing.T) {
+	// Filesystem-tolerated: SomeComponent.TSX, Style.CSS, page.HTML
+	tests := []string{"src/Button.TSX:1", "src/Style.CSS:1", "src/page.HTML:1"}
+	for _, fl := range tests {
+		item := map[string]interface{}{"FILE_LINE": fl, "CATEGORY": "bug"}
+		if !detectFrontendItem(item) {
+			t.Errorf("uppercase extension in %s should still be detected as frontend", fl)
+		}
+	}
+}
+
+func TestDetectFrontendItem_NoFileLineColon(t *testing.T) {
+	// FILE_LINE without a :line suffix (some legacy sources) — extension
+	// extraction still works without the colon-strip step.
+	item := map[string]interface{}{"FILE_LINE": "src/components/Button.tsx", "CATEGORY": "bug"}
+	if !detectFrontendItem(item) {
+		t.Error("FILE_LINE without :line suffix should still detect .tsx as frontend")
+	}
+}
+
 func TestDetectFrontendItem_ReflexPyWithUICategory(t *testing.T) {
 	item := map[string]interface{}{"FILE_LINE": "pages/settings.py:88", "CATEGORY": "ui"}
 	if !detectFrontendItem(item) {
@@ -2182,6 +2202,17 @@ func TestDetectFrontendItem_ReflexPyAllUICategories(t *testing.T) {
 		item := map[string]interface{}{"FILE_LINE": "pages/x.py:1", "CATEGORY": cat}
 		if !detectFrontendItem(item) {
 			t.Errorf(".py with category=%s should be frontend", cat)
+		}
+	}
+}
+
+func TestDetectFrontendItem_ReflexPyCaseInsensitive(t *testing.T) {
+	// Reflex rule path also lowercases — verify explicitly.
+	tests := []string{"UX", "Accessibility", "LAYOUT", "Ui"}
+	for _, cat := range tests {
+		item := map[string]interface{}{"FILE_LINE": "pages/x.py:1", "CATEGORY": cat}
+		if !detectFrontendItem(item) {
+			t.Errorf(".py with category=%s (mixed case) should be frontend", cat)
 		}
 	}
 }
@@ -2475,6 +2506,38 @@ func TestWriteGroupedMarkdown_FrontendCommentSkipsSolo(t *testing.T) {
 		}
 	} else {
 		t.Fatalf("expected Solo group for HIGH .tsx item, got:\n%s", data)
+	}
+}
+
+func TestWriteGroupedMarkdown_NoCommentWithoutAssignNumbers(t *testing.T) {
+	// Without --assign-numbers, group.Number is nil. The frontend-groups
+	// comment requires integer group numbers (reconcile builds /resolve-td
+	// --group=N commands), so the comment must be suppressed in this case.
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+	input := `[
+		{"FILE_LINE": "src/components/Button.tsx:1", "CATEGORY": "bug", "PROBLEM": "p1", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Nav.tsx:2", "CATEGORY": "bug", "PROBLEM": "p2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Footer.tsx:3", "CATEGORY": "bug", "PROBLEM": "p3", "SEVERITY": "MEDIUM"}
+	]`
+
+	cmd := newGroupTDCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	// Intentionally omit --assign-numbers.
+	cmd.SetArgs([]string{
+		"--content", input,
+		"--output-file", outputFile,
+		"--sprint-label", "test", "--date-label", "2026-05-19",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("could not read output: %v", err)
+	}
+	if strings.Contains(string(data), "<!-- frontend-groups:") {
+		t.Errorf("expected NO frontend-groups comment without --assign-numbers (no integer group numbers to reference):\n%s", string(data))
 	}
 }
 
