@@ -866,6 +866,35 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 	var buf strings.Builder
 	buf.WriteString("\n" + sectionHeader + "\n\n")
 
+	// Emit frontend-groups marker comment if any integer-numbered group is
+	// frontend. Consumed by /reconcile-code-review to suggest --visual
+	// commands. Solo groups are intentionally excluded — Solo's "number" is
+	// 0 / "Solo" label, not an integer, and /resolve-td's per-item check
+	// handles Solo's visual decision at runtime.
+	frontendGroupNums := []string{}
+	for _, g := range result.Groups {
+		if !g.Frontend {
+			continue
+		}
+		if g.Theme == soloTheme {
+			continue
+		}
+		// Number is interface{} (set by assignNumbers); accept int and skip
+		// anything that isn't a positive integer.
+		switch n := g.Number.(type) {
+		case int:
+			if n > 0 {
+				frontendGroupNums = append(frontendGroupNums, strconv.Itoa(n))
+			}
+		case nil:
+			// Unnumbered groups (assignNumbers=false): skip — reconcile only
+			// suggests commands by group number, which won't exist here.
+		}
+	}
+	if len(frontendGroupNums) > 0 {
+		buf.WriteString("<!-- frontend-groups: " + strings.Join(frontendGroupNums, ",") + " -->\n\n")
+	}
+
 	// Header is assembled dynamically so adding feature-flagged trailing
 	// columns doesn't combinatorially explode the switch (3 flags = 8 cases).
 	//

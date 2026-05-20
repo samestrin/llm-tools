@@ -2354,3 +2354,162 @@ func TestGroupItems_FrontendFieldAnyRule(t *testing.T) {
 		t.Error("mixed group with one .tsx should be Frontend=true (any-rule)")
 	}
 }
+
+// ---- frontend-groups marker comment tests ----
+//
+// /reconcile-code-review.md greps for `<!-- frontend-groups: N,M -->` to
+// learn which groups need --visual. Tests verify:
+//   - comment is emitted when ≥1 frontend group is present
+//   - comment is suppressed when all groups are backend
+//   - Solo group is NEVER listed in the comment (Solo handles itself at
+//     /resolve-td runtime, and Solo's group number is 0 / "Solo" label)
+//   - the comment doesn't break scanExistingActiveGroupNumbers parsing
+
+func runGroupTDOutputFile(t *testing.T, input string, extraArgs ...string) (string, string) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	args := []string{
+		"--content", input,
+		"--output-file", outputFile,
+		"--assign-numbers",
+		"--sprint-label", "test-sprint",
+		"--date-label", "2026-05-19",
+	}
+	args = append(args, extraArgs...)
+	cmd.SetArgs(args)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output file: %v", err)
+	}
+	return string(data), outputFile
+}
+
+func TestWriteGroupedMarkdown_EmitsFrontendComment(t *testing.T) {
+	// One frontend group (src/components, all .tsx) and one backend group
+	// (src/api, all .go). Expect: <!-- frontend-groups: N --> with the
+	// frontend group's number.
+	input := `[
+		{"FILE_LINE": "src/components/Button.tsx:1", "CATEGORY": "bug", "PROBLEM": "p1", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Nav.tsx:2", "CATEGORY": "bug", "PROBLEM": "p2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Footer.tsx:3", "CATEGORY": "bug", "PROBLEM": "p3", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/users.go:1", "CATEGORY": "security", "PROBLEM": "p4", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/orders.go:2", "CATEGORY": "security", "PROBLEM": "p5", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/auth.go:3", "CATEGORY": "security", "PROBLEM": "p6", "SEVERITY": "MEDIUM"}
+	]`
+
+	data, _ := runGroupTDOutputFile(t, input)
+
+	// Must contain a frontend-groups comment.
+	if !strings.Contains(data, "<!-- frontend-groups:") {
+		t.Fatalf("expected <!-- frontend-groups: ... --> comment in output:\n%s", data)
+	}
+
+	// Find the frontend group's number from the table. The frontend group is
+	// src-components — find its first table row to learn the assigned number.
+	lines := strings.Split(data, "\n")
+	var frontendGroupNum string
+	for _, line := range lines {
+		if strings.Contains(line, "Button.tsx") {
+			// Row format: | <num> | <severity> | ... — extract num.
+			parts := strings.Split(line, "|")
+			if len(parts) > 1 {
+				frontendGroupNum = strings.TrimSpace(parts[1])
+				break
+			}
+		}
+	}
+	if frontendGroupNum == "" {
+		t.Fatalf("could not find Button.tsx row in output to determine group number:\n%s", data)
+	}
+
+	expectedComment := "<!-- frontend-groups: " + frontendGroupNum + " -->"
+	if !strings.Contains(data, expectedComment) {
+		t.Errorf("expected comment %q in output, got:\n%s", expectedComment, data)
+	}
+}
+
+func TestWriteGroupedMarkdown_NoFrontendCommentWhenAllBackend(t *testing.T) {
+	input := `[
+		{"FILE_LINE": "src/api/users.go:1", "CATEGORY": "security", "PROBLEM": "p1", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/orders.go:2", "CATEGORY": "security", "PROBLEM": "p2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/auth.go:3", "CATEGORY": "security", "PROBLEM": "p3", "SEVERITY": "MEDIUM"}
+	]`
+
+	data, _ := runGroupTDOutputFile(t, input)
+
+	if strings.Contains(data, "<!-- frontend-groups:") {
+		t.Errorf("expected NO frontend-groups comment when all groups are backend, got:\n%s", data)
+	}
+}
+
+func TestWriteGroupedMarkdown_FrontendCommentSkipsSolo(t *testing.T) {
+	// One frontend Solo item (HIGH .tsx that doesn't reach min-group-size)
+	// and one full backend group. The Solo's frontend status MUST NOT appear
+	// in the frontend-groups comment — Solo handles its own --visual decision
+	// at /resolve-td runtime, and its "group number" is 0 / "Solo" label.
+	input := `[
+		{"FILE_LINE": "src/lonely/Widget.tsx:1", "CATEGORY": "bug", "PROBLEM": "p1", "SEVERITY": "HIGH"},
+		{"FILE_LINE": "src/api/users.go:1", "CATEGORY": "security", "PROBLEM": "p2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/orders.go:2", "CATEGORY": "security", "PROBLEM": "p3", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/api/auth.go:3", "CATEGORY": "security", "PROBLEM": "p4", "SEVERITY": "MEDIUM"}
+	]`
+
+	data, _ := runGroupTDOutputFile(t, input)
+
+	// The Widget.tsx should land in a Solo group (HIGH severity, ungrouped).
+	// Expect: NO frontend-groups comment because the only frontend item is
+	// in Solo, and Solo isn't an integer group number.
+	if strings.Contains(data, "Solo") {
+		// Confirms Solo was used as expected.
+		if strings.Contains(data, "<!-- frontend-groups:") {
+			t.Errorf("expected NO frontend-groups comment — only frontend item is in Solo:\n%s", data)
+		}
+	} else {
+		t.Fatalf("expected Solo group for HIGH .tsx item, got:\n%s", data)
+	}
+}
+
+func TestWriteGroupedMarkdown_FrontendCommentDoesNotBreakRenumber(t *testing.T) {
+	// Write a section with a frontend-groups comment, then immediately call
+	// the --renumber path on the same file. Renumber should NOT crash and
+	// must preserve the comment (or at least not regress to corrupt the
+	// markdown).
+	input := `[
+		{"FILE_LINE": "src/components/Button.tsx:1", "CATEGORY": "bug", "PROBLEM": "p1", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Nav.tsx:2", "CATEGORY": "bug", "PROBLEM": "p2", "SEVERITY": "MEDIUM"},
+		{"FILE_LINE": "src/components/Footer.tsx:3", "CATEGORY": "bug", "PROBLEM": "p3", "SEVERITY": "MEDIUM"}
+	]`
+
+	data, outputFile := runGroupTDOutputFile(t, input)
+
+	if !strings.Contains(data, "<!-- frontend-groups:") {
+		t.Fatal("setup: expected frontend-groups comment in initial section")
+	}
+
+	// Now run --renumber against the same file. Should succeed.
+	cmd := newGroupTDCmd()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SetArgs([]string{"--renumber", "--output-file", outputFile})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("--renumber failed on file with frontend-groups comment: %v", err)
+	}
+
+	// Re-read and verify the file is still valid markdown (table header intact).
+	after, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("could not re-read after --renumber: %v", err)
+	}
+	if !strings.Contains(string(after), "| Group |") {
+		t.Errorf("--renumber corrupted the markdown table:\n%s", string(after))
+	}
+}
