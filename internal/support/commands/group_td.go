@@ -51,6 +51,21 @@ const (
 	ungroupedLabel      = "U"
 )
 
+// Frontend-detection rule sources.
+//
+// Mirrors claude-prompts resolve-td.md:664-670, which /resolve-td --visual
+// uses per-item at runtime to decide whether to spin up a browser. We
+// compute it group-side here so /reconcile-code-review can suggest --visual
+// commands for the right groups in its final report.
+//
+// If you update either list, also update resolve-td.md and the README
+// comment in this file's reconcile-code-review consumer.
+var (
+	frontendFileExts         = []string{".tsx", ".jsx", ".svelte", ".vue", ".html", ".css", ".scss"}
+	frontendCategoryKeywords = []string{"accessibility", "ux", "layout", "ui", "responsive", "visual", "css", "touch", "frontend"}
+	reflexPyCategoryKeywords = []string{"ux", "accessibility", "layout", "ui"}
+)
+
 // GroupTDInput represents the input format
 type GroupTDInput struct {
 	Items []map[string]interface{} `json:"items"`
@@ -72,6 +87,10 @@ type TDGroup struct {
 	Items        []map[string]interface{} `json:"items"`
 	Count        int                      `json:"count"`
 	TotalMinutes int                      `json:"total_minutes"`
+	// Frontend is true if any item in the group satisfies the frontend-
+	// detection rule (see detectFrontendItem). Consumed by reconcile-code-
+	// review.md to suggest /resolve-td --visual commands. Default false.
+	Frontend bool `json:"frontend"`
 }
 
 // GroupTDSummary provides counts
@@ -80,6 +99,73 @@ type GroupTDSummary struct {
 	GroupedCount   int `json:"grouped_count"`
 	UngroupedCount int `json:"ungrouped_count"`
 	GroupCount     int `json:"group_count"`
+}
+
+// detectFrontendItem reports whether a single TD item targets frontend code,
+// as defined by the shared rule in claude-prompts resolve-td.md:664-670.
+//
+// Rule (OR of three):
+//  1. FILE_LINE extension in frontendFileExts
+//  2. FILE_LINE extension == .py AND CATEGORY contains any reflexPyCategoryKeywords
+//  3. CATEGORY contains any frontendCategoryKeywords (substring, case-insensitive)
+//
+// Missing fields are tolerated: an item with only CATEGORY can match via
+// rule 3; an item with only FILE_LINE can match via rule 1.
+func detectFrontendItem(item map[string]interface{}) bool {
+	fileLine, _ := item["FILE_LINE"].(string)
+	category, _ := item["CATEGORY"].(string)
+	categoryLower := strings.ToLower(category)
+
+	// Extract extension from the path portion of FILE_LINE (strip ":line" suffix if present).
+	ext := ""
+	if fileLine != "" {
+		path := fileLine
+		if idx := strings.LastIndex(path, ":"); idx > 0 {
+			path = path[:idx]
+		}
+		ext = strings.ToLower(filepath.Ext(path))
+	}
+
+	// Rule 1: frontend file extension.
+	for _, fe := range frontendFileExts {
+		if ext == fe {
+			return true
+		}
+	}
+
+	// Rule 2: .py with Reflex UI category.
+	if ext == ".py" {
+		for _, kw := range reflexPyCategoryKeywords {
+			if strings.Contains(categoryLower, kw) {
+				return true
+			}
+		}
+	}
+
+	// Rule 3: category keyword (substring, case-insensitive).
+	if categoryLower != "" {
+		for _, kw := range frontendCategoryKeywords {
+			if strings.Contains(categoryLower, kw) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// detectFrontendGroup reports whether a group is frontend (any-item rule).
+// A group with even one frontend item is treated as frontend, so
+// /reconcile-code-review will suggest a --visual command for it.
+// /resolve-td's per-item check still skips visual for backend items within
+// the group, so over-recommending here is cheap.
+func detectFrontendGroup(items []map[string]interface{}) bool {
+	for _, item := range items {
+		if detectFrontendItem(item) {
+			return true
+		}
+	}
+	return false
 }
 
 func newGroupTDCmd() *cobra.Command {

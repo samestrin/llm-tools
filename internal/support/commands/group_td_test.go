@@ -2131,3 +2131,150 @@ func TestGroupTD_Renumber_RequiresOutputFile(t *testing.T) {
 		t.Fatal("--renumber without --output-file should error")
 	}
 }
+
+// ---- Frontend-detection tests ----
+//
+// Mirrors the per-item rule from claude-prompts resolve-td.md:664-670, which
+// /resolve-td --visual uses to decide whether to spin up a browser for a TD
+// item. We compute it group-side here so /reconcile-code-review can suggest
+// --visual commands for the right groups.
+//
+// Rule (OR of three):
+//   1. File extension in {.tsx, .jsx, .svelte, .vue, .html, .css, .scss}
+//   2. File extension == .py AND CATEGORY contains {ux, accessibility, layout, ui}
+//   3. CATEGORY contains {accessibility, ux, layout, ui, responsive, visual, css, touch, frontend}
+// All checks case-insensitive on CATEGORY.
+
+func TestDetectFrontendItem_TsxExtension(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "src/Button.tsx:42", "CATEGORY": "bug"}
+	if !detectFrontendItem(item) {
+		t.Error(".tsx file should be detected as frontend")
+	}
+}
+
+func TestDetectFrontendItem_CssExtension(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "styles/app.css:1", "CATEGORY": "performance"}
+	if !detectFrontendItem(item) {
+		t.Error(".css file should be detected as frontend")
+	}
+}
+
+func TestDetectFrontendItem_AllFrontendExtensions(t *testing.T) {
+	exts := []string{".tsx", ".jsx", ".svelte", ".vue", ".html", ".css", ".scss"}
+	for _, ext := range exts {
+		item := map[string]interface{}{"FILE_LINE": "src/comp" + ext + ":1", "CATEGORY": "bug"}
+		if !detectFrontendItem(item) {
+			t.Errorf("extension %s should be detected as frontend", ext)
+		}
+	}
+}
+
+func TestDetectFrontendItem_ReflexPyWithUICategory(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "pages/settings.py:88", "CATEGORY": "ui"}
+	if !detectFrontendItem(item) {
+		t.Error(".py with category=ui (Reflex) should be frontend")
+	}
+}
+
+func TestDetectFrontendItem_ReflexPyAllUICategories(t *testing.T) {
+	cats := []string{"ux", "accessibility", "layout", "ui"}
+	for _, cat := range cats {
+		item := map[string]interface{}{"FILE_LINE": "pages/x.py:1", "CATEGORY": cat}
+		if !detectFrontendItem(item) {
+			t.Errorf(".py with category=%s should be frontend", cat)
+		}
+	}
+}
+
+func TestDetectFrontendItem_PyBackendCategory(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "api/handler.py:10", "CATEGORY": "security"}
+	if detectFrontendItem(item) {
+		t.Error(".py with backend category should NOT be frontend")
+	}
+}
+
+func TestDetectFrontendItem_CategoryKeywordOnly(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "src/util.go:5", "CATEGORY": "accessibility"}
+	if !detectFrontendItem(item) {
+		t.Error(".go file with accessibility category should be frontend (category match)")
+	}
+}
+
+func TestDetectFrontendItem_AllCategoryKeywords(t *testing.T) {
+	cats := []string{"accessibility", "ux", "layout", "ui", "responsive", "visual", "css", "touch", "frontend"}
+	for _, cat := range cats {
+		item := map[string]interface{}{"FILE_LINE": "src/util.go:1", "CATEGORY": cat}
+		if !detectFrontendItem(item) {
+			t.Errorf("category=%s should trigger frontend", cat)
+		}
+	}
+}
+
+func TestDetectFrontendItem_PureBackend(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "src/auth.go:42", "CATEGORY": "security"}
+	if detectFrontendItem(item) {
+		t.Error("backend .go file with backend category should NOT be frontend")
+	}
+}
+
+func TestDetectFrontendItem_CategoryCaseInsensitive(t *testing.T) {
+	tests := []string{"Accessibility", "UX", "Layout", "FRONTEND", "Visual"}
+	for _, cat := range tests {
+		item := map[string]interface{}{"FILE_LINE": "src/util.go:1", "CATEGORY": cat}
+		if !detectFrontendItem(item) {
+			t.Errorf("category=%s (mixed case) should trigger frontend (case-insensitive match)", cat)
+		}
+	}
+}
+
+func TestDetectFrontendItem_MissingCategory(t *testing.T) {
+	item := map[string]interface{}{"FILE_LINE": "src/Button.tsx:1"}
+	if !detectFrontendItem(item) {
+		t.Error("missing CATEGORY should still match on .tsx extension")
+	}
+}
+
+func TestDetectFrontendItem_MissingFileLine(t *testing.T) {
+	item := map[string]interface{}{"CATEGORY": "accessibility"}
+	if !detectFrontendItem(item) {
+		t.Error("missing FILE_LINE should still match on category keyword")
+	}
+}
+
+func TestDetectFrontendItem_EmptyItem(t *testing.T) {
+	item := map[string]interface{}{}
+	if detectFrontendItem(item) {
+		t.Error("empty item should NOT be frontend")
+	}
+}
+
+func TestDetectFrontendGroup_AnyItemTriggers(t *testing.T) {
+	// One frontend item in a sea of backend → group is frontend (any rule)
+	items := []map[string]interface{}{
+		{"FILE_LINE": "src/auth.go:1", "CATEGORY": "security"},
+		{"FILE_LINE": "src/db.go:2", "CATEGORY": "performance"},
+		{"FILE_LINE": "src/api.go:3", "CATEGORY": "reliability"},
+		{"FILE_LINE": "src/Button.tsx:4", "CATEGORY": "bug"},
+		{"FILE_LINE": "src/util.go:5", "CATEGORY": "bug"},
+	}
+	if !detectFrontendGroup(items) {
+		t.Error("group with one frontend item should be frontend (any-rule)")
+	}
+}
+
+func TestDetectFrontendGroup_AllBackend(t *testing.T) {
+	items := []map[string]interface{}{
+		{"FILE_LINE": "src/auth.go:1", "CATEGORY": "security"},
+		{"FILE_LINE": "src/db.go:2", "CATEGORY": "performance"},
+	}
+	if detectFrontendGroup(items) {
+		t.Error("all-backend group should NOT be frontend")
+	}
+}
+
+func TestDetectFrontendGroup_EmptyGroup(t *testing.T) {
+	// Edge case: empty items slice. Should not panic and return false.
+	if detectFrontendGroup([]map[string]interface{}{}) {
+		t.Error("empty group should NOT be frontend")
+	}
+}
