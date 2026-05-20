@@ -569,6 +569,7 @@ func groupItems(items []map[string]interface{}, groupBy string, pathDepth, minGr
 	for _, theme := range finalOrder {
 		g := groupMap[theme]
 		g.Count = len(g.Items)
+		g.Frontend = detectFrontendGroup(g.Items)
 		groups = append(groups, *g)
 	}
 

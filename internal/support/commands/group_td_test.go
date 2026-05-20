@@ -2278,3 +2278,79 @@ func TestDetectFrontendGroup_EmptyGroup(t *testing.T) {
 		t.Error("empty group should NOT be frontend")
 	}
 }
+
+// TestGroupItems_PopulatesFrontendField verifies that groupItems sets
+// TDGroup.Frontend correctly per the any-item rule.
+func TestGroupItems_PopulatesFrontendField(t *testing.T) {
+	// Need ≥ defaultMinGroupSize (3) per theme to form a group.
+	// "frontend" group: src/components — 3 .tsx files.
+	// "backend" group: src/api — 3 .go files.
+	input := `[
+		{"FILE_LINE": "src/components/Button.tsx:1", "CATEGORY": "bug", "PROBLEM": "p1"},
+		{"FILE_LINE": "src/components/Nav.tsx:2", "CATEGORY": "bug", "PROBLEM": "p2"},
+		{"FILE_LINE": "src/components/Footer.tsx:3", "CATEGORY": "bug", "PROBLEM": "p3"},
+		{"FILE_LINE": "src/api/users.go:1", "CATEGORY": "security", "PROBLEM": "p4"},
+		{"FILE_LINE": "src/api/orders.go:2", "CATEGORY": "security", "PROBLEM": "p5"},
+		{"FILE_LINE": "src/api/auth.go:3", "CATEGORY": "security", "PROBLEM": "p6"}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse output: %v\nOutput: %s", err, buf.String())
+	}
+
+	feGroup := findGroupByTheme(result.Groups, "src-components")
+	if feGroup == nil {
+		t.Fatal("expected src-components group")
+	}
+	if !feGroup.Frontend {
+		t.Error("src-components group (all .tsx) should have Frontend=true")
+	}
+
+	beGroup := findGroupByTheme(result.Groups, "src-api")
+	if beGroup == nil {
+		t.Fatal("expected src-api group")
+	}
+	if beGroup.Frontend {
+		t.Error("src-api group (all .go + security) should have Frontend=false")
+	}
+}
+
+// TestGroupItems_FrontendFieldAnyRule verifies the any-item rule: a single
+// frontend item in an otherwise-backend group flips the group to frontend.
+func TestGroupItems_FrontendFieldAnyRule(t *testing.T) {
+	input := `[
+		{"FILE_LINE": "src/util/parse.go:1", "CATEGORY": "bug", "PROBLEM": "p1"},
+		{"FILE_LINE": "src/util/format.go:2", "CATEGORY": "bug", "PROBLEM": "p2"},
+		{"FILE_LINE": "src/util/Widget.tsx:3", "CATEGORY": "bug", "PROBLEM": "p3"}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--content", input, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+
+	g := findGroupByTheme(result.Groups, "src-util")
+	if g == nil {
+		t.Fatal("expected src-util group")
+	}
+	if !g.Frontend {
+		t.Error("mixed group with one .tsx should be Frontend=true (any-rule)")
+	}
+}
