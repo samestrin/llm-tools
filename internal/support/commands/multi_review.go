@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/samestrin/llm-tools/internal/support/gitrange"
 	"github.com/samestrin/llm-tools/internal/support/multireview"
 	"github.com/spf13/cobra"
 )
@@ -37,6 +38,7 @@ var (
 	mrRepo             string
 	mrBaseRef          string
 	mrHeadRef          string
+	mrMergeCommit      string
 	mrOpenclawHost     string
 	mrOutputDir        string
 	mrTimeoutSeconds   int
@@ -84,9 +86,13 @@ lands briefly on the host as a staging scp pad, then 'docker cp' moves
 it into the container where the clone and pre-computed diff live —
 where reviewers (also inside the container) can actually read them.
 
-Pre-compute step: --base is REQUIRED. After the bundle is shipped, we
-run 'git diff <base>..<head>' inside the container and write the
-result to <container-workdir>/diff.txt. Reviewers are told to 'cat'
+Pre-compute step: after the bundle is shipped, we run
+'git diff <base>..<head>' inside the container and write the result to
+<container-workdir>/diff.txt. When --base is omitted the range is
+auto-resolved locally first (--merge-commit reviews sha^..sha for
+already-merged branches; otherwise merge-base of HEAD against the
+default branch) and resolved SHAs are sent to the remote. An empty
+range fails fast BEFORE the bundle ships. Reviewers are told to 'cat'
 that file rather than running git themselves — observed in production,
 weaker reviewers hallucinate "clone missing" failures rather than
 persisting through a multi-step git invocation.
@@ -100,7 +106,8 @@ Output layout:
   <output-dir>/multi-review-summary.json    (per-reviewer status + counts)
 
 Failure semantics:
-  - --base missing       → validation error, no remote calls
+  - Empty range          → hard-stop before bundle/ship (local) or before
+    reviewers are invoked (remote pre-compute)
   - Bundle/ship failure  → hard-stop (no point invoking reviewers without
     the diff staged on the remote)
   - Diff pre-compute failure (bad ref, etc.) → hard-stop before reviewers
@@ -113,8 +120,9 @@ Failure semantics:
 	cmd.Flags().StringVar(&mrReviewers, "reviewers", "", "Comma-separated reviewer agent names (required)")
 	cmd.Flags().StringVar(&mrSerialReviewers, "serial-reviewers", "", "Comma-separated subset that runs serially after the parallel lane")
 	cmd.Flags().StringVar(&mrRepo, "repo", "", "Local repo path to bundle (required)")
-	cmd.Flags().StringVar(&mrBaseRef, "base", "", "Base ref for the diff range — REQUIRED (we pre-compute git diff <base>..<head> on the remote)")
+	cmd.Flags().StringVar(&mrBaseRef, "base", "", "Base ref for the diff range (auto-resolved via merge-base against the default branch when omitted)")
 	cmd.Flags().StringVar(&mrHeadRef, "head", "HEAD", "Head ref for the diff range")
+	cmd.Flags().StringVar(&mrMergeCommit, "merge-commit", "", "Merge/squash commit SHA; reviews sha^..sha (mutually exclusive with --base/--head)")
 	cmd.Flags().StringVar(&mrOpenclawHost, "openclaw-host", "", "SSH target running openclaw-gateway (required)")
 	cmd.Flags().StringVar(&mrOutputDir, "output-dir", "", "Where per-reviewer artifacts and merged stream land (required)")
 	cmd.Flags().IntVar(&mrTimeoutSeconds, "timeout-seconds", 1200, "Total wall-clock budget for the entire fan-out")
@@ -144,8 +152,26 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 	if mrOutputDir == "" {
 		return fmt.Errorf("--output-dir required")
 	}
+	if mrMergeCommit != "" && (mrBaseRef != "" || cmd.Flags().Changed("head")) {
+		return fmt.Errorf("--merge-commit is mutually exclusive with --base/--head")
+	}
 	if mrBaseRef == "" {
-		return fmt.Errorf("--base required (working-tree mode is not supported — pass --base=<ref> so we can pre-compute the diff for reviewers)")
+		// Auto-resolve the range locally (merge-commit mode, or merge-base
+		// against the default branch). Resolved SHAs — not branch names — go
+		// to the remote: the bundle clone may not carry local branch refs.
+		rangeRes, err := gitrange.Resolve(gitrange.Params{
+			RepoPath:    mrRepo,
+			MergeCommit: mrMergeCommit,
+		})
+		if err != nil {
+			return fmt.Errorf("could not auto-resolve base (%w); pass --base explicitly", err)
+		}
+		if rangeRes.Empty {
+			return fmt.Errorf("resolved range %s..%s is empty — nothing to review. %s",
+				rangeRes.Base[:7], rangeRes.Head[:7], rangeRes.Message)
+		}
+		mrBaseRef = rangeRes.Base
+		mrHeadRef = rangeRes.Head
 	}
 
 	allReviewers := splitAndTrim(mrReviewers)

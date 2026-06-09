@@ -371,15 +371,16 @@ func TestMultiReview_DiffFailureHardStops(t *testing.T) {
 	}
 }
 
-func TestMultiReview_EmptyBaseRefRejected(t *testing.T) {
+func TestMultiReview_AutoResolveEmptyFailsFastBeforeShip(t *testing.T) {
+	// initFixtureRepoMR is a single-branch repo on main: auto-resolution
+	// (no --base) yields HEAD == merge-base → empty range → hard fail
+	// BEFORE the expensive bundle/ship round trip.
 	repo := initFixtureRepoMR(t)
 	outDir := filepath.Join(t.TempDir(), "out")
 
-	// We don't need any of the mocks — validation should reject before then.
-	// Ensure invokeReviewerFn and shipBundleFn are never called by failing loud.
 	origShip := shipBundleFn
 	shipBundleFn = func(ctx context.Context, p multireview.ShipBundleParams) (multireview.ShipBundleResult, error) {
-		t.Errorf("shipBundleFn called — should have validated --base before this")
+		t.Errorf("shipBundleFn called — empty range should fail before shipping")
 		return multireview.ShipBundleResult{}, nil
 	}
 	t.Cleanup(func() { shipBundleFn = origShip })
@@ -390,13 +391,126 @@ func TestMultiReview_EmptyBaseRefRejected(t *testing.T) {
 		"--repo", repo,
 		"--openclaw-host", "user@example.lan",
 		"--output-dir", outDir,
-		// no --base passed
+		// no --base passed → local auto-resolution
 		"--timeout-seconds", "30",
 	})
 	cmd.SetOut(new(bytes.Buffer))
 	cmd.SetErr(new(bytes.Buffer))
-	if err := cmd.Execute(); err == nil {
-		t.Fatal("expected validation error when --base is missing")
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected empty-range error when auto-resolving on the default branch")
+	}
+	if !strings.Contains(err.Error(), "empty") {
+		t.Errorf("error %q should mention empty range", err.Error())
+	}
+}
+
+func TestMultiReview_AutoResolveBasePassesSHAsRemotely(t *testing.T) {
+	repo := initRangeFixtureRepo(t) // on feature branch, 2 ahead of main
+	outDir := filepath.Join(t.TempDir(), "out")
+	wantBase := gitInDir(t, repo, "merge-base", "HEAD", "main")
+	wantHead := gitInDir(t, repo, "rev-parse", "HEAD")
+
+	withMockShipBundle(t)
+	var gotBase, gotHead string
+	origDiff := preComputeDiffFn
+	preComputeDiffFn = func(ctx context.Context, p multireview.PreComputeDiffParams) (multireview.PreComputeDiffResult, error) {
+		gotBase, gotHead = p.BaseRef, p.HeadRef
+		return multireview.PreComputeDiffResult{
+			DiffPath: p.RemoteWorkdir + "/diff.txt", SizeBytes: 1234, LineCount: 50,
+		}, nil
+	}
+	t.Cleanup(func() { preComputeDiffFn = origDiff })
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		return mockResultFor(p.AgentName, "LOW|x:1|p|f|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if gotBase != wantBase {
+		t.Errorf("remote BaseRef = %q, want merge-base SHA %q", gotBase, wantBase)
+	}
+	if gotHead != wantHead {
+		t.Errorf("remote HeadRef = %q, want HEAD SHA %q", gotHead, wantHead)
+	}
+}
+
+func TestMultiReview_MergeCommitFlag(t *testing.T) {
+	repo := initRangeFixtureRepo(t)
+	gitInDir(t, repo, "checkout", "-q", "main")
+	gitInDir(t, repo, "merge", "--squash", "-q", "feature")
+	gitInDir(t, repo, "commit", "-q", "-m", "squash feature")
+	sha := gitInDir(t, repo, "rev-parse", "HEAD")
+	wantBase := gitInDir(t, repo, "rev-parse", "HEAD^")
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	withMockShipBundle(t)
+	var gotBase, gotHead string
+	origDiff := preComputeDiffFn
+	preComputeDiffFn = func(ctx context.Context, p multireview.PreComputeDiffParams) (multireview.PreComputeDiffResult, error) {
+		gotBase, gotHead = p.BaseRef, p.HeadRef
+		return multireview.PreComputeDiffResult{
+			DiffPath: p.RemoteWorkdir + "/diff.txt", SizeBytes: 1234, LineCount: 50,
+		}, nil
+	}
+	t.Cleanup(func() { preComputeDiffFn = origDiff })
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		return mockResultFor(p.AgentName, "LOW|x:1|p|f|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--merge-commit", sha,
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if gotBase != wantBase || gotHead != sha {
+		t.Errorf("remote range = %s..%s, want %s..%s", gotBase, gotHead, wantBase, sha)
+	}
+}
+
+func TestMultiReview_MergeCommitMutualExclusion(t *testing.T) {
+	repo := initRangeFixtureRepo(t)
+	sha := gitInDir(t, repo, "rev-parse", "HEAD")
+
+	for _, extra := range [][]string{
+		{"--base", "main"},
+		{"--head", "feature"},
+	} {
+		cmd := newMultiReviewCmd()
+		args := append([]string{
+			"--reviewers", "bruce",
+			"--repo", repo,
+			"--openclaw-host", "user@example.lan",
+			"--output-dir", filepath.Join(t.TempDir(), "out"),
+			"--merge-commit", sha,
+		}, extra...)
+		cmd.SetArgs(args)
+		cmd.SetOut(new(bytes.Buffer))
+		cmd.SetErr(new(bytes.Buffer))
+		err := cmd.Execute()
+		if err == nil {
+			t.Errorf("%v: expected mutual-exclusion error", extra)
+		} else if !strings.Contains(err.Error(), "mutually exclusive") {
+			t.Errorf("%v: error %q should say mutually exclusive", extra, err.Error())
+		}
 	}
 }
 
