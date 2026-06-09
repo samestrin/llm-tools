@@ -31,7 +31,12 @@ func configCSV(cfg map[string]interface{}, key string) (string, bool, error) {
 	case []interface{}:
 		parts := make([]string, 0, len(v))
 		for _, item := range v {
-			parts = append(parts, strings.TrimSpace(fmt.Sprintf("%v", item)))
+			switch item.(type) {
+			case string, int, int64, uint64, float64, bool:
+				parts = append(parts, strings.TrimSpace(fmt.Sprintf("%v", item)))
+			default:
+				return "", false, fmt.Errorf("config key %s: list items must be scalars, got %T", key, item)
+			}
 		}
 		return strings.Join(parts, ","), true, nil
 	default:
@@ -79,6 +84,18 @@ func configInt(cfg map[string]interface{}, key string) (int, bool, error) {
 	}
 }
 
+// configPositiveInt is configInt plus a > 0 constraint (timeouts).
+func configPositiveInt(cfg map[string]interface{}, key string) (int, bool, error) {
+	v, ok, err := configInt(cfg, key)
+	if err != nil || !ok {
+		return v, ok, err
+	}
+	if v <= 0 {
+		return 0, false, fmt.Errorf("config key %s: must be > 0, got %d", key, v)
+	}
+	return v, true, nil
+}
+
 // loadReviewConfig reads an explicitly requested config file; a missing or
 // unparseable file is a hard error (the flag was explicit).
 func loadReviewConfig(path string) (map[string]interface{}, error) {
@@ -111,7 +128,7 @@ func applyReviewDirectConfig(cmd *cobra.Command, cfgPath string) error {
 		}
 	}
 	if !cmd.Flags().Changed("timeout-seconds") {
-		if v, ok, err := configInt(cfg, "review.direct.timeout_seconds"); err != nil {
+		if v, ok, err := configPositiveInt(cfg, "review.direct.timeout_seconds"); err != nil {
 			return err
 		} else if ok {
 			rdTimeoutSeconds = v
@@ -149,14 +166,14 @@ func applyMultiAgentConfig(cmd *cobra.Command, cfgPath string) error {
 		}
 	}
 	if !cmd.Flags().Changed("timeout-seconds") {
-		if v, ok, err := configInt(cfg, "review.multi_agent.timeout_seconds"); err != nil {
+		if v, ok, err := configPositiveInt(cfg, "review.multi_agent.timeout_seconds"); err != nil {
 			return err
 		} else if ok {
 			mrTimeoutSeconds = v
 		}
 	}
 	if !cmd.Flags().Changed("per-reviewer-timeout-seconds") {
-		if v, ok, err := configInt(cfg, "review.multi_agent.per_reviewer_timeout_seconds"); err != nil {
+		if v, ok, err := configPositiveInt(cfg, "review.multi_agent.per_reviewer_timeout_seconds"); err != nil {
 			return err
 		} else if ok {
 			mrPerReviewerTO = v

@@ -1626,12 +1626,11 @@ func TestBuildReviewRangeArgs(t *testing.T) {
 		{
 			name: "all params",
 			args: map[string]interface{}{
-				"repo":          "/path/to/repo",
-				"base":          "main",
-				"head":          "feature",
-				"fail_on_empty": true,
+				"repo": "/path/to/repo",
+				"base": "main",
+				"head": "feature",
 			},
-			want: []string{"review_range", "--repo", "/path/to/repo", "--base", "main", "--head", "feature", "--fail-on-empty"},
+			want: []string{"review_range", "--repo", "/path/to/repo", "--base", "main", "--head", "feature"},
 		},
 		{
 			name: "merge commit",

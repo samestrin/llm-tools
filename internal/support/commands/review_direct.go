@@ -96,7 +96,14 @@ func runReviewDirect(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Flag validation
+	if cmd.Flags().Changed("diff-file") && rdDiffFile == "" {
+		return fmt.Errorf("--diff-file was provided but is empty (unset shell variable?) — " +
+			"pass a real path, or omit it and use --repo/--base/--head/--merge-commit for self-serve mode")
+	}
 	if rdReviewers == "" {
+		if rdConfig != "" {
+			return fmt.Errorf("--reviewers required (--config %s has no review.direct.agents)", rdConfig)
+		}
 		return fmt.Errorf("--reviewers required")
 	}
 	if rdOutputDir == "" {
@@ -136,7 +143,7 @@ func runReviewDirect(cmd *cobra.Command, _ []string) error {
 		}
 		if rangeRes.Empty {
 			return fmt.Errorf("empty diff for %s..%s (detection: %s) — nothing to review. %s",
-				rangeRes.Base[:7], rangeRes.Head[:7], rangeRes.Detection, rangeRes.Message)
+				gitrange.Short(rangeRes.Base), gitrange.Short(rangeRes.Head), rangeRes.Detection, rangeRes.Message)
 		}
 		diffText, err := gitrange.Diff(rdRepo, rangeRes.Base, rangeRes.Head)
 		if err != nil {
@@ -144,15 +151,15 @@ func runReviewDirect(cmd *cobra.Command, _ []string) error {
 		}
 		if strings.TrimSpace(diffText) == "" {
 			return fmt.Errorf("diff for %s..%s is empty (commits without content changes) — nothing to review",
-				rangeRes.Base[:7], rangeRes.Head[:7])
+				gitrange.Short(rangeRes.Base), gitrange.Short(rangeRes.Head))
 		}
 		diffContent = []byte(diffText)
 		diffPath := filepath.Join(rdOutputDir, "diff.txt")
 		if err := os.WriteFile(diffPath, diffContent, 0644); err != nil {
 			return fmt.Errorf("failed to write %s: %w", diffPath, err)
 		}
-		fmt.Printf("diff: %s (%d bytes, %s..%s via %s)\n",
-			diffPath, len(diffContent), rangeRes.Base[:7], rangeRes.Head[:7], rangeRes.Detection)
+		fmt.Fprintf(cmd.OutOrStdout(), "diff: %s (%d bytes, %s..%s via %s)\n",
+			diffPath, len(diffContent), gitrange.Short(rangeRes.Base), gitrange.Short(rangeRes.Head), rangeRes.Detection)
 	}
 
 	// Load registry

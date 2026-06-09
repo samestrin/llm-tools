@@ -654,9 +654,6 @@ func buildReviewRangeArgs(args map[string]interface{}) []string {
 	if mc, ok := args["merge_commit"].(string); ok && mc != "" {
 		cmdArgs = append(cmdArgs, "--merge-commit", mc)
 	}
-	if getBool(args, "fail_on_empty") {
-		cmdArgs = append(cmdArgs, "--fail-on-empty")
-	}
 	return cmdArgs
 }
 

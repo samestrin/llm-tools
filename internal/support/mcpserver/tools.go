@@ -1673,10 +1673,6 @@ func GetToolDefinitions() []ToolDefinition {
 							"merge_commit": {
 								"type": "string",
 								"description": "Merge/squash commit SHA; resolves to sha^..sha (mutually exclusive with base/head)"
-							},
-							"fail_on_empty": {
-								"type": "boolean",
-								"description": "Return an error when the resolved range is empty"
 							}
 						}
 					}`),

@@ -2143,7 +2143,9 @@ llm-support review_range [flags]
 
 1. `--merge-commit <sha>` → `sha^..sha` — the escape hatch when the work is already merged (e.g. reviewing a squash-merged epic from the default branch).
 2. `--base [--head]` → explicit refs, rev-parsed to SHAs.
-3. Neither → merge-base of HEAD against the default branch, detected via `origin/HEAD`, then `main`, `master`, `origin/main`, `origin/master`.
+3. Neither → merge-base of HEAD against the default branch, detected via `origin/HEAD`, then `origin/main`, `origin/master`, `main`, `master` (remote-tracking refs first — a stale local `main` would over-widen the range).
+
+Note: explicit `--base`/`--head` uses two-dot semantics (`git diff base..head`) — on diverged branches the diff includes base-side changes as deletions while `commit_count` counts only head-side commits. For branch review, prefer the merge-base or `--merge-commit` modes, where base is always an ancestor of head.
 
 **Output (JSON):**
 

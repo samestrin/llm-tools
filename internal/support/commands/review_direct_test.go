@@ -335,8 +335,7 @@ agents:
 `
 	os.WriteFile(filepath.Join(registryDir, "registry.yaml"), []byte(registryYAML), 0644)
 	os.WriteFile(filepath.Join(registryDir, "alice.md"), []byte("You are a code reviewer."), 0644)
-	os.Setenv("TEST_API_KEY", "test-key")
-	t.Cleanup(func() { os.Unsetenv("TEST_API_KEY") })
+	t.Setenv("TEST_API_KEY", "test-key")
 	return registryDir
 }
 
@@ -448,5 +447,25 @@ func TestReviewDirectCmd_SelfServeEmptyRange(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(err.Error()), []byte("empty")) {
 		t.Errorf("error %q should mention empty", err.Error())
+	}
+}
+
+func TestReviewDirectCmd_ExplicitlyEmptyDiffFileRejected(t *testing.T) {
+	// --diff-file "" (classic unset shell variable) must NOT silently fall
+	// into self-serve mode against the cwd repo.
+	cmd := newReviewDirectCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "alice",
+		"--diff-file", "",
+		"--output-dir", t.TempDir(),
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for explicitly empty --diff-file")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("--diff-file")) {
+		t.Errorf("error %q should mention --diff-file", err.Error())
 	}
 }

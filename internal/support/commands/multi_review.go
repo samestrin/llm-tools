@@ -151,12 +151,18 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 
 	// Flag validation
 	if mrReviewers == "" {
+		if mrConfig != "" {
+			return fmt.Errorf("--reviewers required (--config %s has no review.multi_agent.reviewers)", mrConfig)
+		}
 		return fmt.Errorf("--reviewers required")
 	}
 	if mrRepo == "" {
 		return fmt.Errorf("--repo required")
 	}
 	if mrOpenclawHost == "" {
+		if mrConfig != "" {
+			return fmt.Errorf("--openclaw-host required (--config %s has no review.multi_agent.openclaw_host)", mrConfig)
+		}
 		return fmt.Errorf("--openclaw-host required")
 	}
 	if mrOutputDir == "" {
@@ -169,16 +175,23 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 		// Auto-resolve the range locally (merge-commit mode, or merge-base
 		// against the default branch). Resolved SHAs — not branch names — go
 		// to the remote: the bundle clone may not carry local branch refs.
-		rangeRes, err := gitrange.Resolve(gitrange.Params{
-			RepoPath:    mrRepo,
-			MergeCommit: mrMergeCommit,
-		})
+		params := gitrange.Params{RepoPath: mrRepo, MergeCommit: mrMergeCommit}
+		if mrMergeCommit == "" {
+			params.HeadRef = mrHeadRef // honor an explicit --head without --base
+		}
+		rangeRes, err := gitrange.Resolve(params)
 		if err != nil {
 			return fmt.Errorf("could not auto-resolve base (%w); pass --base explicitly", err)
 		}
 		if rangeRes.Empty {
 			return fmt.Errorf("resolved range %s..%s is empty — nothing to review. %s",
-				rangeRes.Base[:7], rangeRes.Head[:7], rangeRes.Message)
+				gitrange.Short(rangeRes.Base), gitrange.Short(rangeRes.Head), rangeRes.Message)
+		}
+		if reachable, rerr := gitrange.BundleReachable(mrRepo, rangeRes.Head); rerr == nil && !reachable {
+			return fmt.Errorf("commit %s is not reachable from HEAD, any local branch, or tag — "+
+				"the repo bundle shipped to the remote would not contain it. "+
+				"Bring it onto a local ref first (e.g. `git pull`, or `git branch review-tmp %s`)",
+				gitrange.Short(rangeRes.Head), gitrange.Short(rangeRes.Head))
 		}
 		mrBaseRef = rangeRes.Base
 		mrHeadRef = rangeRes.Head

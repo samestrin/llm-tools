@@ -1322,3 +1322,87 @@ func TestMultiReview_EmptyRemoteDiffHardFails(t *testing.T) {
 		t.Errorf("reviewers invoked %d times on empty diff, want 0", n)
 	}
 }
+
+func TestMultiReview_AutoResolveHonorsExplicitHead(t *testing.T) {
+	repo := initRangeFixtureRepo(t)
+	gitInDir(t, repo, "checkout", "-q", "main") // run from main, review feature via --head
+	wantHead := gitInDir(t, repo, "rev-parse", "feature")
+	wantBase := gitInDir(t, repo, "merge-base", "main", "feature")
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	withMockShipBundle(t)
+	var gotBase, gotHead string
+	origDiff := preComputeDiffFn
+	preComputeDiffFn = func(ctx context.Context, p multireview.PreComputeDiffParams) (multireview.PreComputeDiffResult, error) {
+		gotBase, gotHead = p.BaseRef, p.HeadRef
+		return multireview.PreComputeDiffResult{
+			DiffPath: p.RemoteWorkdir + "/diff.txt", SizeBytes: 1234, LineCount: 50,
+		}, nil
+	}
+	t.Cleanup(func() { preComputeDiffFn = origDiff })
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		return mockResultFor(p.AgentName, "LOW|x:1|p|f|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--head", "feature", // no --base → auto-resolve must honor this
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if gotHead != wantHead {
+		t.Errorf("remote HeadRef = %q, want %q (explicit --head must survive auto-resolve)", gotHead, wantHead)
+	}
+	if gotBase != wantBase {
+		t.Errorf("remote BaseRef = %q, want %q", gotBase, wantBase)
+	}
+}
+
+func TestMultiReview_MergeCommitUnreachableFromBundleRefs(t *testing.T) {
+	repo := initRangeFixtureRepo(t)
+	gitInDir(t, repo, "checkout", "-q", "main")
+	// Commit reachable only from a deleted branch: present in the odb,
+	// absent from a `bundle create HEAD --branches --tags` bundle.
+	gitInDir(t, repo, "checkout", "-q", "-b", "doomed")
+	if err := os.WriteFile(filepath.Join(repo, "z.txt"), []byte("z"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitInDir(t, repo, "add", "z.txt")
+	gitInDir(t, repo, "commit", "-q", "-m", "doomed work")
+	sha := gitInDir(t, repo, "rev-parse", "HEAD")
+	gitInDir(t, repo, "checkout", "-q", "main")
+	gitInDir(t, repo, "branch", "-D", "doomed")
+
+	origShip := shipBundleFn
+	shipBundleFn = func(ctx context.Context, p multireview.ShipBundleParams) (multireview.ShipBundleResult, error) {
+		t.Errorf("shipBundleFn called — unreachable commit should fail before shipping")
+		return multireview.ShipBundleResult{}, nil
+	}
+	t.Cleanup(func() { shipBundleFn = origShip })
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", filepath.Join(t.TempDir(), "out"),
+		"--merge-commit", sha,
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected reachability error")
+	}
+	if !strings.Contains(err.Error(), "reachable") {
+		t.Errorf("error %q should explain the commit is not bundle-reachable", err.Error())
+	}
+}

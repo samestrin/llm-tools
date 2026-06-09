@@ -350,14 +350,7 @@ func TestResolve_HeadBehindBase(t *testing.T) {
 func TestResolve_DefaultRepoPathAndHead(t *testing.T) {
 	dir := fixtureFeatureBranch(t)
 	// RepoPath defaults to "." — run from inside the repo.
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(wd) })
+	t.Chdir(dir)
 
 	res, err := Resolve(Params{})
 	if err != nil {
@@ -392,5 +385,34 @@ func TestDiff_BadRef(t *testing.T) {
 	dir := fixtureFeatureBranch(t)
 	if _, err := Diff(dir, "nope", "feature"); err == nil {
 		t.Fatal("expected error for bad ref")
+	}
+}
+
+func TestBundleReachable(t *testing.T) {
+	dir := fixtureFeatureBranch(t)
+	headSHA := mustGit(t, dir, "rev-parse", "HEAD")
+
+	reachable, err := BundleReachable(dir, headSHA)
+	if err != nil {
+		t.Fatalf("BundleReachable: %v", err)
+	}
+	if !reachable {
+		t.Error("HEAD should be bundle-reachable")
+	}
+
+	// A commit referenced by nothing (deleted branch) is in the odb but
+	// would not ship in a `git bundle create HEAD --branches --tags`.
+	mustGit(t, dir, "checkout", "-q", "-b", "doomed")
+	commitFile(t, dir, "e.txt", "five", "doomed1")
+	orphan := mustGit(t, dir, "rev-parse", "HEAD")
+	mustGit(t, dir, "checkout", "-q", "feature")
+	mustGit(t, dir, "branch", "-D", "doomed")
+
+	reachable, err = BundleReachable(dir, orphan)
+	if err != nil {
+		t.Fatalf("BundleReachable(orphan): %v", err)
+	}
+	if reachable {
+		t.Error("orphaned commit should NOT be bundle-reachable")
 	}
 }

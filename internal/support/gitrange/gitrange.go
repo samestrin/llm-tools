@@ -74,7 +74,8 @@ func resolveCommit(repo, ref string) (string, error) {
 	return sha, nil
 }
 
-func short(sha string) string {
+// Short returns the 7-char abbreviation of a SHA (safe on shorter strings).
+func Short(sha string) string {
 	if len(sha) > 7 {
 		return sha[:7]
 	}
@@ -103,7 +104,7 @@ func Resolve(p Params) (Result, error) {
 		}
 		parent, err := gitOut(repo, "rev-parse", "--verify", "--quiet", sha+"^")
 		if err != nil || parent == "" {
-			return Result{}, fmt.Errorf("merge commit %s has no parent (root commit) — cannot derive a base", short(sha))
+			return Result{}, fmt.Errorf("merge commit %s has no parent (root commit) — cannot derive a base", Short(sha))
 		}
 		res = Result{Base: parent, Head: sha, Detection: "merge-commit"}
 
@@ -140,7 +141,7 @@ func Resolve(p Params) (Result, error) {
 			if isShallow(repo) {
 				return Result{}, fmt.Errorf("shallow clone: merge-base against %s unavailable; run `git fetch --unshallow` or pass --base explicitly", defBranch)
 			}
-			return Result{}, fmt.Errorf("merge-base %s %s failed: %w", defBranch, short(headSHA), err)
+			return Result{}, fmt.Errorf("merge-base %s %s failed: %w", defBranch, Short(headSHA), err)
 		}
 		res = Result{Base: base, Head: headSHA, BaseSymbolic: defBranch, Detection: "merge-base"}
 	}
@@ -167,7 +168,7 @@ func Resolve(p Params) (Result, error) {
 		res.Message = fmt.Sprintf(
 			"Empty range: %s..%s contains no commits. The branch may already be merged into the default branch, or head is behind base. "+
 				"Re-run with --merge-commit <sha-of-the-merge>, or pass explicit --base/--head.",
-			short(res.Base), short(res.Head))
+			Short(res.Base), Short(res.Head))
 	}
 	return res, nil
 }
@@ -180,17 +181,32 @@ func defaultBranch(repo string) (string, error) {
 			return ref, nil
 		}
 	}
-	for _, cand := range []string{"main", "master", "origin/main", "origin/master"} {
+	// Remote-tracking refs first: when origin exists, origin/main is the
+	// upstream truth — a stale local main would over-widen the range.
+	for _, cand := range []string{"origin/main", "origin/master", "main", "master"} {
 		if _, err := resolveCommit(repo, cand); err == nil {
 			return cand, nil
 		}
 	}
-	return "", fmt.Errorf("cannot determine default branch (tried origin/HEAD, main, master, origin/main, origin/master); pass --base explicitly")
+	return "", fmt.Errorf("cannot determine default branch (tried origin/HEAD, origin/main, origin/master, main, master); pass --base explicitly")
 }
 
 func isShallow(repo string) bool {
 	out, err := gitOut(repo, "rev-parse", "--is-shallow-repository")
 	return err == nil && out == "true"
+}
+
+// BundleReachable reports whether sha is reachable from HEAD, local branches,
+// or tags — the refs `git bundle create HEAD --branches --tags` ships. A
+// commit that is only reachable from remote-tracking refs (e.g. a squash
+// merge fetched but not pulled) resolves locally yet would be missing from
+// the bundle.
+func BundleReachable(repoPath, sha string) (bool, error) {
+	out, err := gitOut(repoPath, "rev-list", "--max-count=1", sha, "--not", "HEAD", "--branches", "--tags")
+	if err != nil {
+		return false, err
+	}
+	return out == "", nil
 }
 
 // Diff returns the unified diff text for base..head. Raw output is preserved

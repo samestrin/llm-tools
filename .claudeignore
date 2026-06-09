@@ -1,0 +1,61 @@
+# Version control
+.git/
+
+# OS / editor cruft
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Build outputs and compiled binaries
+/build/
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+coverage.out
+coverage.html
+
+# Release archives
+/releases/
+
+# Compiled CLI/MCP binaries committed at repo root
+/llm-semantic
+/llm-semantic-mcp
+/llm-support
+/llm-support-mcp
+/llm-filesystem
+/llm-filesystem-mcp
+/llm-clarification
+/llm-clarification-mcp
+
+# Indexes and local databases
+.llm-index/
+*.db
+qdrant_fts.db
+
+# Dependencies
+/vendor/
+
+# Logs and temp artifacts
+*.log
+*.tmp
+
+# Compressed blobs
+*.gz
+*.zip
+*.tar
+*.tar.*

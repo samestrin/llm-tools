@@ -42,8 +42,10 @@ Examples:
   llm-support review_range --repo .
   llm-support review_range --repo . --merge-commit 9e013e7
   llm-support review_range --repo . --base main --head feature --fail-on-empty`,
-		Args: cobra.NoArgs,
-		RunE: runReviewRange,
+		Args:          cobra.NoArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE:          runReviewRange,
 	}
 
 	cmd.Flags().StringVar(&rrRepo, "repo", ".", "Repository path")
@@ -68,13 +70,19 @@ func runReviewRange(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	formatter := output.New(rrJSON, rrMinimal, cmd.OutOrStdout())
-	if printErr := formatter.Print(res, printReviewRangeText); printErr != nil {
-		return printErr
+	failEmpty := rrFailOnEmpty && res.Empty
+	// In JSON mode a failing run must emit exactly ONE JSON document — the
+	// root error handler prints a JSON error doc, so skip the result print.
+	if !(failEmpty && rrJSON) {
+		formatter := output.New(rrJSON, rrMinimal, cmd.OutOrStdout())
+		if printErr := formatter.Print(res, printReviewRangeText); printErr != nil {
+			return printErr
+		}
 	}
 
-	if rrFailOnEmpty && res.Empty {
-		return fmt.Errorf("range %s..%s is empty — nothing to review", res.Base[:7], res.Head[:7])
+	if failEmpty {
+		return fmt.Errorf("range %s..%s is empty — nothing to review. %s",
+			gitrange.Short(res.Base), gitrange.Short(res.Head), res.Message)
 	}
 	return nil
 }

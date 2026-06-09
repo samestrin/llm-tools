@@ -149,12 +149,26 @@ func TestReviewRangeCmd_FailOnEmpty(t *testing.T) {
 	dir := initRangeFixtureRepo(t)
 	gitInDir(t, dir, "checkout", "-q", "main")
 
-	_, err := runReviewRangeCmd(t, "--repo", dir, "--json", "--fail-on-empty")
+	out, err := runReviewRangeCmd(t, "--repo", dir, "--json", "--fail-on-empty")
 	if err == nil {
 		t.Fatal("expected error with --fail-on-empty on empty range")
 	}
 	if !strings.Contains(err.Error(), "empty") {
 		t.Errorf("error %q should mention empty", err)
+	}
+	// In JSON mode the result print is suppressed so the root error handler
+	// emits exactly one JSON document, not two concatenated ones.
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("JSON --fail-on-empty should not print a result doc before the error, got %q", out)
+	}
+
+	// Text mode still prints the human-readable result before the error.
+	outText, errText := runReviewRangeCmd(t, "--repo", dir, "--fail-on-empty")
+	if errText == nil {
+		t.Fatal("expected error in text mode too")
+	}
+	if !strings.Contains(outText, "EMPTY: TRUE") {
+		t.Errorf("text mode should still print the result, got %q", outText)
 	}
 }
 
