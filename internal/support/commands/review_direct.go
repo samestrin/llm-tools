@@ -79,6 +79,11 @@ func runReviewDirect(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read diff file: %w", err)
 	}
+	if strings.TrimSpace(string(diffContent)) == "" {
+		return fmt.Errorf("diff file %s is empty — nothing to review. "+
+			"If the branch is already merged, diagnose with `llm-support review_range --repo <repo>` "+
+			"and regenerate the diff from <merge-sha>^..<merge-sha>", rdDiffFile)
+	}
 
 	// Load registry
 	registry, err := multireview.LoadRegistry(rdRegistryDir)

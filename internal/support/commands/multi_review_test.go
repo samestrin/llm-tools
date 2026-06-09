@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/samestrin/llm-tools/internal/support/multireview"
@@ -1155,5 +1156,55 @@ func TestMultiReview_SmallDiffNoWarning(t *testing.T) {
 	}
 	if strings.Contains(capturedTaskMessage, "--stat") {
 		t.Errorf("task message should not include --stat hint for small diff. Got:\n%s", capturedTaskMessage)
+	}
+}
+
+func TestMultiReview_EmptyRemoteDiffHardFails(t *testing.T) {
+	repo := initFixtureRepoMR(t)
+	outDir := filepath.Join(t.TempDir(), "out")
+
+	withMockShipBundle(t)
+
+	origDiff := preComputeDiffFn
+	preComputeDiffFn = func(ctx context.Context, p multireview.PreComputeDiffParams) (multireview.PreComputeDiffResult, error) {
+		return multireview.PreComputeDiffResult{
+			DiffPath:  p.RemoteWorkdir + "/diff.txt",
+			SizeBytes: 0,
+			LineCount: 0,
+			Empty:     true,
+		}, nil
+	}
+	t.Cleanup(func() { preComputeDiffFn = origDiff })
+
+	var invoked int32
+	withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+		atomic.AddInt32(&invoked, 1)
+		return mockResultFor(p.AgentName, "LOW|x:1|p|f|c"), nil
+	})
+
+	cmd := newMultiReviewCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "bruce,greta",
+		"--repo", repo,
+		"--openclaw-host", "user@example.lan",
+		"--output-dir", outDir,
+		"--base", "v0.1.0",
+		"--timeout-seconds", "30",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected hard fail on empty remote diff")
+	}
+	if !strings.Contains(err.Error(), "empty") {
+		t.Errorf("error %q should mention empty diff", err.Error())
+	}
+	if !strings.Contains(err.Error(), "review_range") {
+		t.Errorf("error %q should steer to review_range", err.Error())
+	}
+	if n := atomic.LoadInt32(&invoked); n != 0 {
+		t.Errorf("reviewers invoked %d times on empty diff, want 0", n)
 	}
 }

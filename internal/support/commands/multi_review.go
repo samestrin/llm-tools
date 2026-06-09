@@ -233,6 +233,11 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("pre-compute diff on %s: %w", mrOpenclawHost, err)
 	}
+	if diffRes.Empty {
+		return fmt.Errorf("pre-computed diff for %s..%s is empty — nothing to review (branch already merged?). "+
+			"Verify the range with `llm-support review_range --repo %s` and re-run with the suggested refs",
+			mrBaseRef, mrHeadRef, mrRepo)
+	}
 
 	// 3. Build per-agent template variables and resolve the prompt
 	//    directory once. The actual task message is resolved per agent

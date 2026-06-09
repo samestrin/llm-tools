@@ -277,3 +277,36 @@ func TestReviewDirectCmd_DefaultRegistry(t *testing.T) {
 		t.Error("registry-dir should have a default value")
 	}
 }
+
+func TestReviewDirectCmd_EmptyDiffFile(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{"zero byte", ""},
+		{"whitespace only", "   \n\t\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			diffFile := filepath.Join(t.TempDir(), "diff.txt")
+			if err := os.WriteFile(diffFile, []byte(tc.content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			cmd := newReviewDirectCmd()
+			cmd.SetArgs([]string{
+				"--reviewers", "alice",
+				"--diff-file", diffFile,
+				"--output-dir", t.TempDir(),
+			})
+			cmd.SetOut(new(bytes.Buffer))
+			cmd.SetErr(new(bytes.Buffer))
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("expected error for empty diff file")
+			}
+			if !bytes.Contains([]byte(err.Error()), []byte("empty")) {
+				t.Errorf("error %q should mention empty diff", err.Error())
+			}
+		})
+	}
+}
