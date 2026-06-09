@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samestrin/llm-tools/internal/support/gitrange"
 	"github.com/samestrin/llm-tools/internal/support/multireview"
 	"github.com/spf13/cobra"
 )
@@ -18,6 +19,10 @@ var (
 	rdReviewers       string
 	rdSerialReviewers string
 	rdDiffFile        string
+	rdRepo            string
+	rdBase            string
+	rdHead            string
+	rdMergeCommit     string
 	rdOutputDir       string
 	rdTimeoutSeconds  int
 	rdRegistryDir     string
@@ -36,21 +41,38 @@ Agent configuration is loaded from a global registry at ~/.config/llm-tools/agen
 (or --registry-dir). Each agent has a provider (openai, anthropic, google), model,
 and system prompt loaded from <agent>.md files.
 
+The diff can be supplied pre-computed (--diff-file) or computed self-serve
+from a local repository (--repo with optional --base/--head/--merge-commit;
+the resolved diff is written to <output-dir>/diff.txt). Self-serve range
+resolution matches 'llm-support review_range': --merge-commit reviews
+sha^..sha (already-merged branches), explicit refs are used as given, and
+with neither the range is the merge-base of HEAD against the default branch.
+An empty diff is a hard error — nothing to review.
+
 Output layout matches multi_review for compatibility:
   <output-dir>/raw/<agent>/{review.md,status.json}
   <output-dir>/multi-review-summary.json
 
-Example:
+Examples:
   llm-support review_direct \
     --reviewers "bruce,greta,otto" \
     --diff-file /path/to/diff.txt \
     --output-dir code-review/multi-agent/ \
-    --timeout-seconds 900`,
+    --timeout-seconds 900
+
+  llm-support review_direct \
+    --reviewers "bruce,greta" \
+    --repo . --merge-commit 9e013e7 \
+    --output-dir code-review/multi-agent/`,
 		RunE: runReviewDirect,
 	}
 	cmd.Flags().StringVar(&rdReviewers, "reviewers", "", "Comma-separated reviewer agent names (required)")
 	cmd.Flags().StringVar(&rdSerialReviewers, "serial-reviewers", "", "Comma-separated subset that runs serially after the parallel lane")
-	cmd.Flags().StringVar(&rdDiffFile, "diff-file", "", "Path to diff file to review (required)")
+	cmd.Flags().StringVar(&rdDiffFile, "diff-file", "", "Path to a pre-computed diff file (mutually exclusive with --base/--head/--merge-commit)")
+	cmd.Flags().StringVar(&rdRepo, "repo", ".", "Repository path for self-serve diff computation")
+	cmd.Flags().StringVar(&rdBase, "base", "", "Base ref for self-serve diff (default: merge-base against the default branch)")
+	cmd.Flags().StringVar(&rdHead, "head", "", "Head ref for self-serve diff (default HEAD)")
+	cmd.Flags().StringVar(&rdMergeCommit, "merge-commit", "", "Merge/squash commit SHA; reviews sha^..sha (for already-merged branches)")
 	cmd.Flags().StringVar(&rdOutputDir, "output-dir", "", "Where per-reviewer artifacts land (required)")
 	cmd.Flags().IntVar(&rdTimeoutSeconds, "timeout-seconds", 900, "Total wall-clock budget for the entire fan-out")
 	cmd.Flags().StringVar(&rdRegistryDir, "registry-dir", multireview.DefaultRegistryDir(), "Directory containing registry.yaml and agent prompts")
@@ -67,22 +89,60 @@ func runReviewDirect(cmd *cobra.Command, _ []string) error {
 	if rdReviewers == "" {
 		return fmt.Errorf("--reviewers required")
 	}
-	if rdDiffFile == "" {
-		return fmt.Errorf("--diff-file required")
-	}
 	if rdOutputDir == "" {
 		return fmt.Errorf("--output-dir required")
 	}
-
-	// Read diff file
-	diffContent, err := os.ReadFile(rdDiffFile)
-	if err != nil {
-		return fmt.Errorf("failed to read diff file: %w", err)
+	if rdDiffFile != "" && (rdBase != "" || rdHead != "" || rdMergeCommit != "") {
+		return fmt.Errorf("--diff-file is mutually exclusive with --base/--head/--merge-commit")
 	}
-	if strings.TrimSpace(string(diffContent)) == "" {
-		return fmt.Errorf("diff file %s is empty — nothing to review. "+
-			"If the branch is already merged, diagnose with `llm-support review_range --repo <repo>` "+
-			"and regenerate the diff from <merge-sha>^..<merge-sha>", rdDiffFile)
+
+	// Create output directory early — self-serve mode writes diff.txt into it.
+	if err := os.MkdirAll(rdOutputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output dir: %w", err)
+	}
+
+	// Acquire the diff: pre-computed file, or self-serve via local git.
+	var diffContent []byte
+	if rdDiffFile != "" {
+		var err error
+		diffContent, err = os.ReadFile(rdDiffFile)
+		if err != nil {
+			return fmt.Errorf("failed to read diff file: %w", err)
+		}
+		if strings.TrimSpace(string(diffContent)) == "" {
+			return fmt.Errorf("diff file %s is empty — nothing to review. "+
+				"If the branch is already merged, diagnose with `llm-support review_range --repo <repo>` "+
+				"or re-run review_direct with --merge-commit <sha>", rdDiffFile)
+		}
+	} else {
+		rangeRes, err := gitrange.Resolve(gitrange.Params{
+			RepoPath:    rdRepo,
+			BaseRef:     rdBase,
+			HeadRef:     rdHead,
+			MergeCommit: rdMergeCommit,
+		})
+		if err != nil {
+			return err
+		}
+		if rangeRes.Empty {
+			return fmt.Errorf("empty diff for %s..%s (detection: %s) — nothing to review. %s",
+				rangeRes.Base[:7], rangeRes.Head[:7], rangeRes.Detection, rangeRes.Message)
+		}
+		diffText, err := gitrange.Diff(rdRepo, rangeRes.Base, rangeRes.Head)
+		if err != nil {
+			return fmt.Errorf("failed to compute diff: %w", err)
+		}
+		if strings.TrimSpace(diffText) == "" {
+			return fmt.Errorf("diff for %s..%s is empty (commits without content changes) — nothing to review",
+				rangeRes.Base[:7], rangeRes.Head[:7])
+		}
+		diffContent = []byte(diffText)
+		diffPath := filepath.Join(rdOutputDir, "diff.txt")
+		if err := os.WriteFile(diffPath, diffContent, 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", diffPath, err)
+		}
+		fmt.Printf("diff: %s (%d bytes, %s..%s via %s)\n",
+			diffPath, len(diffContent), rangeRes.Base[:7], rangeRes.Head[:7], rangeRes.Detection)
 	}
 
 	// Load registry
@@ -104,11 +164,6 @@ func runReviewDirect(cmd *cobra.Command, _ []string) error {
 	taskMessage := rdTaskMessage
 	if taskMessage == "" {
 		taskMessage = buildReviewTaskMessage(string(diffContent))
-	}
-
-	// Create output directory
-	if err := os.MkdirAll(rdOutputDir, 0755); err != nil {
-		return fmt.Errorf("failed to create output dir: %w", err)
 	}
 
 	// Run fan-out

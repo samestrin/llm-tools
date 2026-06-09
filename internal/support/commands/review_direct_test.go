@@ -98,11 +98,6 @@ func TestReviewDirectCmd_MissingFlags(t *testing.T) {
 			wantErr: "--reviewers required",
 		},
 		{
-			name:    "missing diff-file",
-			args:    []string{"--reviewers", "alice", "--output-dir", "/tmp/y"},
-			wantErr: "--diff-file required",
-		},
-		{
 			name:    "missing output-dir",
 			args:    []string{"--reviewers", "alice", "--diff-file", "/tmp/x"},
 			wantErr: "--output-dir required",
@@ -308,5 +303,150 @@ func TestReviewDirectCmd_EmptyDiffFile(t *testing.T) {
 				t.Errorf("error %q should mention empty diff", err.Error())
 			}
 		})
+	}
+}
+
+// newDirectTestEnv builds a mock LLM server + agent registry for self-serve
+// diff tests. Returns the registry dir; the server is closed on cleanup.
+func newDirectTestEnv(t *testing.T) string {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{
+				Message: llmapi.Message{Content: "Review: LGTM\n\nTD_STREAM\nMEDIUM|main.go:42|Issue|Fix|error"},
+			}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(server.Close)
+
+	registryDir := t.TempDir()
+	registryYAML := `
+providers:
+  test:
+    api_key_env: TEST_API_KEY
+    base_url: ` + server.URL + `
+
+agents:
+  alice:
+    provider: test
+    model: test-model
+    timeout_secs: 60
+`
+	os.WriteFile(filepath.Join(registryDir, "registry.yaml"), []byte(registryYAML), 0644)
+	os.WriteFile(filepath.Join(registryDir, "alice.md"), []byte("You are a code reviewer."), 0644)
+	os.Setenv("TEST_API_KEY", "test-key")
+	t.Cleanup(func() { os.Unsetenv("TEST_API_KEY") })
+	return registryDir
+}
+
+func TestReviewDirectCmd_SelfServeDiff(t *testing.T) {
+	repo := initRangeFixtureRepo(t) // on feature branch, 2 commits ahead of main
+	registryDir := newDirectTestEnv(t)
+	outputDir := filepath.Join(t.TempDir(), "out")
+
+	cmd := newReviewDirectCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "alice",
+		"--repo", repo,
+		"--output-dir", outputDir,
+		"--registry-dir", registryDir,
+		"--timeout-seconds", "60",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	diffPath := filepath.Join(outputDir, "diff.txt")
+	data, err := os.ReadFile(diffPath)
+	if err != nil {
+		t.Fatalf("self-serve mode should write %s: %v", diffPath, err)
+	}
+	if !bytes.Contains(data, []byte("c.txt")) || !bytes.Contains(data, []byte("d.txt")) {
+		t.Errorf("diff.txt should contain feature-branch changes:\n%s", data)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "raw", "alice", "review.md")); err != nil {
+		t.Errorf("review artifacts missing: %v", err)
+	}
+}
+
+func TestReviewDirectCmd_SelfServeMergeCommit(t *testing.T) {
+	repo := initRangeFixtureRepo(t)
+	gitInDir(t, repo, "checkout", "-q", "main")
+	gitInDir(t, repo, "merge", "--squash", "-q", "feature")
+	gitInDir(t, repo, "commit", "-q", "-m", "squash feature")
+	sha := gitInDir(t, repo, "rev-parse", "HEAD")
+
+	registryDir := newDirectTestEnv(t)
+	outputDir := filepath.Join(t.TempDir(), "out")
+
+	cmd := newReviewDirectCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "alice",
+		"--repo", repo,
+		"--merge-commit", sha,
+		"--output-dir", outputDir,
+		"--registry-dir", registryDir,
+		"--timeout-seconds", "60",
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outputDir, "diff.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("c.txt")) {
+		t.Errorf("merge-commit diff should contain squashed changes:\n%s", data)
+	}
+}
+
+func TestReviewDirectCmd_DiffFileMutuallyExclusive(t *testing.T) {
+	for _, extra := range [][]string{
+		{"--base", "main"},
+		{"--head", "feature"},
+		{"--merge-commit", "abc1234"},
+	} {
+		cmd := newReviewDirectCmd()
+		args := append([]string{
+			"--reviewers", "alice",
+			"--diff-file", "/tmp/x.txt",
+			"--output-dir", "/tmp/y",
+		}, extra...)
+		cmd.SetArgs(args)
+		cmd.SetOut(new(bytes.Buffer))
+		cmd.SetErr(new(bytes.Buffer))
+		err := cmd.Execute()
+		if err == nil {
+			t.Errorf("%v: expected mutual-exclusion error", extra)
+		} else if !bytes.Contains([]byte(err.Error()), []byte("mutually exclusive")) {
+			t.Errorf("%v: error %q should say mutually exclusive", extra, err.Error())
+		}
+	}
+}
+
+func TestReviewDirectCmd_SelfServeEmptyRange(t *testing.T) {
+	repo := initRangeFixtureRepo(t)
+	gitInDir(t, repo, "checkout", "-q", "main") // HEAD == main → empty range
+
+	cmd := newReviewDirectCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "alice",
+		"--repo", repo,
+		"--output-dir", filepath.Join(t.TempDir(), "out"),
+	})
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for empty self-serve range")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("empty")) {
+		t.Errorf("error %q should mention empty", err.Error())
 	}
 }
