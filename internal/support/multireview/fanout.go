@@ -43,11 +43,14 @@ type FanoutResult struct {
 
 // AgentStatus is written to status.json for each agent.
 type AgentStatus struct {
-	AgentName  string `json:"agent_name"`
-	Model      string `json:"model"`
-	Status     string `json:"status"`
-	DurationMS int64  `json:"duration_ms"`
-	Error      string `json:"error,omitempty"`
+	AgentName     string `json:"agent_name"`
+	Model         string `json:"model"`
+	Status        string `json:"status"`
+	DurationMS    int64  `json:"duration_ms"`
+	Error         string `json:"error,omitempty"`
+	FallbackUsed  bool   `json:"fallback_used,omitempty"`
+	FallbackFrom  string `json:"fallback_from,omitempty"`
+	OriginalError string `json:"original_error,omitempty"`
 }
 
 // Fanout invokes multiple agents and collects their results.
@@ -80,46 +83,9 @@ func Fanout(ctx context.Context, p FanoutParams) (FanoutResult, error) {
 
 	var mu sync.Mutex
 
-	// Helper to invoke a single agent
+	// Helper to invoke a single agent (with fallback support)
 	invokeAgent := func(agentName string) InvokeDirectResult {
-		agent, err := p.Registry.GetAgent(agentName)
-		if err != nil {
-			return InvokeDirectResult{
-				AgentName: agentName,
-				Status:    "failed",
-				Error:     fmt.Errorf("agent not found: %w", err),
-			}
-		}
-
-		apiConfig, err := p.Registry.ResolveProvider(agent.Provider)
-		if err != nil {
-			return InvokeDirectResult{
-				AgentName: agentName,
-				Model:     agent.Model,
-				Status:    "failed",
-				Error:     fmt.Errorf("provider error: %w", err),
-			}
-		}
-
-		timeout := time.Duration(agent.TimeoutSecs) * time.Second
-		if timeout == 0 {
-			timeout = 10 * time.Minute // default
-		}
-
-		res := InvokeDirect(ctx, InvokeDirectParams{
-			AgentName:   agentName,
-			AgentConfig: agent,
-			APIConfig:   apiConfig,
-			TaskMessage: p.TaskMessage,
-			Timeout:     timeout,
-		})
-
-		// Write output files
-		if p.OutputDir != "" {
-			writeAgentOutput(p.OutputDir, res)
-		}
-
-		return res
+		return invokeAgentWithFallback(ctx, p, agentName, "")
 	}
 
 	// Run parallel agents concurrently
@@ -194,13 +160,18 @@ func writeAgentOutput(outputDir string, res InvokeDirectResult) error {
 
 	// Write status.json
 	status := AgentStatus{
-		AgentName:  res.AgentName,
-		Model:      res.Model,
-		Status:     res.Status,
-		DurationMS: res.DurationMS,
+		AgentName:    res.AgentName,
+		Model:        res.Model,
+		Status:       res.Status,
+		DurationMS:   res.DurationMS,
+		FallbackUsed: res.FallbackUsed,
+		FallbackFrom: res.FallbackFrom,
 	}
 	if res.Error != nil {
 		status.Error = res.Error.Error()
+	}
+	if res.OriginalError != nil {
+		status.OriginalError = res.OriginalError.Error()
 	}
 
 	statusJSON, err := json.MarshalIndent(status, "", "  ")
@@ -210,4 +181,84 @@ func writeAgentOutput(outputDir string, res InvokeDirectResult) error {
 
 	statusPath := filepath.Join(agentDir, "status.json")
 	return os.WriteFile(statusPath, statusJSON, 0644)
+}
+
+// invokeAgentWithFallback invokes an agent and tries its fallback if configured.
+// The originalAgent parameter tracks the original agent name when recursing into fallback.
+func invokeAgentWithFallback(ctx context.Context, p FanoutParams, agentName, originalAgent string) InvokeDirectResult {
+	agent, err := p.Registry.GetAgent(agentName)
+	if err != nil {
+		return InvokeDirectResult{
+			AgentName: agentName,
+			Status:    "failed",
+			Error:     fmt.Errorf("agent not found: %w", err),
+		}
+	}
+
+	apiConfig, err := p.Registry.ResolveProvider(agent.Provider)
+	if err != nil {
+		// Provider resolution failed - try fallback if available
+		if agent.Fallback != "" {
+			original := agentName
+			if originalAgent != "" {
+				original = originalAgent
+			}
+			res := invokeAgentWithFallback(ctx, p, agent.Fallback, original)
+			if res.Status == "ok" {
+				res.FallbackUsed = true
+				res.FallbackFrom = original
+				res.OriginalError = fmt.Errorf("provider error: %w", err)
+			}
+			return res
+		}
+		return InvokeDirectResult{
+			AgentName: agentName,
+			Model:     agent.Model,
+			Status:    "failed",
+			Error:     fmt.Errorf("provider error: %w", err),
+		}
+	}
+
+	timeout := time.Duration(agent.TimeoutSecs) * time.Second
+	if timeout == 0 {
+		timeout = 10 * time.Minute // default
+	}
+
+	res := InvokeDirect(ctx, InvokeDirectParams{
+		AgentName:   agentName,
+		AgentConfig: agent,
+		APIConfig:   apiConfig,
+		TaskMessage: p.TaskMessage,
+		Timeout:     timeout,
+	})
+
+	// If primary failed and has a fallback configured, try the fallback
+	if res.Status != "ok" && agent.Fallback != "" {
+		originalError := res.Error
+		original := agentName
+		if originalAgent != "" {
+			original = originalAgent
+		}
+
+		fallbackRes := invokeAgentWithFallback(ctx, p, agent.Fallback, original)
+		if fallbackRes.Status == "ok" {
+			fallbackRes.FallbackUsed = true
+			fallbackRes.FallbackFrom = original
+			fallbackRes.OriginalError = originalError
+			// Write output for the successful fallback
+			if p.OutputDir != "" {
+				writeAgentOutput(p.OutputDir, fallbackRes)
+			}
+			return fallbackRes
+		}
+		// Fallback also failed - return original error but mention fallback was tried
+		res.Error = fmt.Errorf("%w (fallback %s also failed: %v)", res.Error, agent.Fallback, fallbackRes.Error)
+	}
+
+	// Write output files for primary agent result
+	if p.OutputDir != "" {
+		writeAgentOutput(p.OutputDir, res)
+	}
+
+	return res
 }

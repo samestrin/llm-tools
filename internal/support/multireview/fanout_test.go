@@ -514,3 +514,414 @@ func TestFanout_EmptyAgents(t *testing.T) {
 	}
 	_ = result
 }
+
+// Fallback tests
+
+func TestFanout_FallbackTriggered(t *testing.T) {
+	os.Setenv("PRIMARY_API_KEY", "primary-key")
+	os.Setenv("FALLBACK_API_KEY", "fallback-key")
+	defer os.Unsetenv("PRIMARY_API_KEY")
+	defer os.Unsetenv("FALLBACK_API_KEY")
+
+	// Primary server always fails
+	primaryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer primaryServer.Close()
+
+	// Fallback server always succeeds
+	fallbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{
+				Message: llmapi.Message{Content: "Review from fallback: LGTM"},
+			}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer fallbackServer.Close()
+
+	registry := &Registry{
+		Providers: map[string]ProviderConfig{
+			"primary-provider": {
+				Name:      "primary-provider",
+				APIKeyEnv: "PRIMARY_API_KEY",
+				BaseURL:   primaryServer.URL,
+			},
+			"fallback-provider": {
+				Name:      "fallback-provider",
+				APIKeyEnv: "FALLBACK_API_KEY",
+				BaseURL:   fallbackServer.URL,
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"primary-agent": {
+				Name:        "primary-agent",
+				Provider:    "primary-provider",
+				Model:       "primary-model",
+				Temperature: 0.3,
+				TimeoutSecs: 2, // Short timeout to speed up test
+				Fallback:    "fallback-agent",
+			},
+			"fallback-agent": {
+				Name:        "fallback-agent",
+				Provider:    "fallback-provider",
+				Model:       "fallback-model",
+				Temperature: 0.3,
+			},
+		},
+	}
+	tempDir := t.TempDir()
+
+	result, err := Fanout(context.Background(), FanoutParams{
+		Registry:       registry,
+		ParallelAgents: []string{"primary-agent"},
+		TaskMessage:    "Review this",
+		GlobalTimeout:  30 * time.Second,
+		OutputDir:      tempDir,
+	})
+
+	if err != nil {
+		t.Fatalf("Fanout error: %v", err)
+	}
+
+	// Should succeed via fallback
+	if result.SuccessCount != 1 {
+		t.Errorf("SuccessCount = %d, want 1", result.SuccessCount)
+	}
+
+	// Check fallback was used
+	if len(result.Results) != 1 {
+		t.Fatalf("len(Results) = %d, want 1", len(result.Results))
+	}
+	res := result.Results[0]
+	if !res.FallbackUsed {
+		t.Error("FallbackUsed = false, want true")
+	}
+	if res.FallbackFrom != "primary-agent" {
+		t.Errorf("FallbackFrom = %q, want primary-agent", res.FallbackFrom)
+	}
+	if res.AgentName != "fallback-agent" {
+		t.Errorf("AgentName = %q, want fallback-agent", res.AgentName)
+	}
+	if res.OriginalError == nil {
+		t.Error("OriginalError should be set")
+	}
+	if res.Status != "ok" {
+		t.Errorf("Status = %q, want ok", res.Status)
+	}
+}
+
+func TestFanout_FallbackNotTriggeredOnSuccess(t *testing.T) {
+	os.Setenv("TEST_API_KEY", "test-key")
+	defer os.Unsetenv("TEST_API_KEY")
+
+	var requestCount int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requestCount, 1)
+		resp := llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{
+				Message: llmapi.Message{Content: "Review: LGTM"},
+			}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	registry := &Registry{
+		Providers: map[string]ProviderConfig{
+			"test-provider": {
+				Name:      "test-provider",
+				APIKeyEnv: "TEST_API_KEY",
+				BaseURL:   server.URL,
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"primary-agent": {
+				Name:        "primary-agent",
+				Provider:    "test-provider",
+				Model:       "primary-model",
+				Temperature: 0.3,
+				Fallback:    "fallback-agent",
+			},
+			"fallback-agent": {
+				Name:        "fallback-agent",
+				Provider:    "test-provider",
+				Model:       "fallback-model",
+				Temperature: 0.3,
+			},
+		},
+	}
+	tempDir := t.TempDir()
+
+	result, err := Fanout(context.Background(), FanoutParams{
+		Registry:       registry,
+		ParallelAgents: []string{"primary-agent"},
+		TaskMessage:    "Review this",
+		GlobalTimeout:  30 * time.Second,
+		OutputDir:      tempDir,
+	})
+
+	if err != nil {
+		t.Fatalf("Fanout error: %v", err)
+	}
+
+	// Should succeed with primary (only 1 request)
+	if atomic.LoadInt32(&requestCount) != 1 {
+		t.Errorf("requestCount = %d, want 1 (fallback should not be called)", requestCount)
+	}
+
+	res := result.Results[0]
+	if res.FallbackUsed {
+		t.Error("FallbackUsed = true, want false (primary succeeded)")
+	}
+	if res.AgentName != "primary-agent" {
+		t.Errorf("AgentName = %q, want primary-agent", res.AgentName)
+	}
+}
+
+func TestFanout_FallbackAlsoFails(t *testing.T) {
+	os.Setenv("TEST_API_KEY", "test-key")
+	defer os.Unsetenv("TEST_API_KEY")
+
+	// All requests fail
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	registry := &Registry{
+		Providers: map[string]ProviderConfig{
+			"test-provider": {
+				Name:      "test-provider",
+				APIKeyEnv: "TEST_API_KEY",
+				BaseURL:   server.URL,
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"primary-agent": {
+				Name:        "primary-agent",
+				Provider:    "test-provider",
+				Model:       "primary-model",
+				Temperature: 0.3,
+				Fallback:    "fallback-agent",
+			},
+			"fallback-agent": {
+				Name:        "fallback-agent",
+				Provider:    "test-provider",
+				Model:       "fallback-model",
+				Temperature: 0.3,
+			},
+		},
+	}
+	tempDir := t.TempDir()
+
+	result, err := Fanout(context.Background(), FanoutParams{
+		Registry:       registry,
+		ParallelAgents: []string{"primary-agent"},
+		TaskMessage:    "Review this",
+		GlobalTimeout:  30 * time.Second,
+		OutputDir:      tempDir,
+	})
+
+	// Should fail (all agents failed)
+	if err == nil {
+		t.Error("expected error when all agents fail")
+	}
+
+	if result.FailedCount != 1 {
+		t.Errorf("FailedCount = %d, want 1", result.FailedCount)
+	}
+
+	// Error should mention fallback was tried
+	res := result.Results[0]
+	if res.Error == nil {
+		t.Error("expected error in result")
+	} else if !strings.Contains(res.Error.Error(), "fallback") {
+		t.Errorf("error should mention fallback: %v", res.Error)
+	}
+}
+
+func TestFanout_ChainedFallback(t *testing.T) {
+	os.Setenv("PRIMARY_KEY", "key1")
+	os.Setenv("SECONDARY_KEY", "key2")
+	os.Setenv("TERTIARY_KEY", "key3")
+	defer os.Unsetenv("PRIMARY_KEY")
+	defer os.Unsetenv("SECONDARY_KEY")
+	defer os.Unsetenv("TERTIARY_KEY")
+
+	// Primary and secondary servers fail
+	primaryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer primaryServer.Close()
+
+	secondaryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer secondaryServer.Close()
+
+	// Tertiary server succeeds
+	tertiaryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{
+				Message: llmapi.Message{Content: "Review from tertiary: LGTM"},
+			}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer tertiaryServer.Close()
+
+	// Chain: primary -> secondary -> tertiary
+	registry := &Registry{
+		Providers: map[string]ProviderConfig{
+			"primary-provider": {
+				Name:      "primary-provider",
+				APIKeyEnv: "PRIMARY_KEY",
+				BaseURL:   primaryServer.URL,
+			},
+			"secondary-provider": {
+				Name:      "secondary-provider",
+				APIKeyEnv: "SECONDARY_KEY",
+				BaseURL:   secondaryServer.URL,
+			},
+			"tertiary-provider": {
+				Name:      "tertiary-provider",
+				APIKeyEnv: "TERTIARY_KEY",
+				BaseURL:   tertiaryServer.URL,
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"primary": {
+				Name:        "primary",
+				Provider:    "primary-provider",
+				Model:       "model-1",
+				Temperature: 0.3,
+				TimeoutSecs: 2,
+				Fallback:    "secondary",
+			},
+			"secondary": {
+				Name:        "secondary",
+				Provider:    "secondary-provider",
+				Model:       "model-2",
+				Temperature: 0.3,
+				TimeoutSecs: 2,
+				Fallback:    "tertiary",
+			},
+			"tertiary": {
+				Name:        "tertiary",
+				Provider:    "tertiary-provider",
+				Model:       "model-3",
+				Temperature: 0.3,
+			},
+		},
+	}
+	tempDir := t.TempDir()
+
+	result, err := Fanout(context.Background(), FanoutParams{
+		Registry:       registry,
+		ParallelAgents: []string{"primary"},
+		TaskMessage:    "Review this",
+		GlobalTimeout:  30 * time.Second,
+		OutputDir:      tempDir,
+	})
+
+	if err != nil {
+		t.Fatalf("Fanout error: %v", err)
+	}
+
+	// Should succeed via chained fallback
+	if result.SuccessCount != 1 {
+		t.Errorf("SuccessCount = %d, want 1", result.SuccessCount)
+	}
+
+	res := result.Results[0]
+	if !res.FallbackUsed {
+		t.Error("FallbackUsed = false, want true")
+	}
+	// FallbackFrom should be the original agent, not the intermediate
+	if res.FallbackFrom != "primary" {
+		t.Errorf("FallbackFrom = %q, want primary", res.FallbackFrom)
+	}
+	if res.AgentName != "tertiary" {
+		t.Errorf("AgentName = %q, want tertiary", res.AgentName)
+	}
+}
+
+func TestFanout_FallbackProviderError(t *testing.T) {
+	// Primary agent has missing provider env var, should fallback
+	os.Setenv("FALLBACK_API_KEY", "fallback-key")
+	defer os.Unsetenv("FALLBACK_API_KEY")
+	// Note: PRIMARY_API_KEY is NOT set
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{
+				Message: llmapi.Message{Content: "Review from fallback: LGTM"},
+			}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	registry := &Registry{
+		Providers: map[string]ProviderConfig{
+			"primary-provider": {
+				Name:      "primary-provider",
+				APIKeyEnv: "PRIMARY_API_KEY", // Not set!
+				BaseURL:   server.URL,
+			},
+			"fallback-provider": {
+				Name:      "fallback-provider",
+				APIKeyEnv: "FALLBACK_API_KEY",
+				BaseURL:   server.URL,
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"primary-agent": {
+				Name:        "primary-agent",
+				Provider:    "primary-provider",
+				Model:       "primary-model",
+				Temperature: 0.3,
+				Fallback:    "fallback-agent",
+			},
+			"fallback-agent": {
+				Name:        "fallback-agent",
+				Provider:    "fallback-provider",
+				Model:       "fallback-model",
+				Temperature: 0.3,
+			},
+		},
+	}
+	tempDir := t.TempDir()
+
+	result, err := Fanout(context.Background(), FanoutParams{
+		Registry:       registry,
+		ParallelAgents: []string{"primary-agent"},
+		TaskMessage:    "Review this",
+		GlobalTimeout:  30 * time.Second,
+		OutputDir:      tempDir,
+	})
+
+	if err != nil {
+		t.Fatalf("Fanout error: %v", err)
+	}
+
+	// Should succeed via fallback (primary provider env var missing)
+	if result.SuccessCount != 1 {
+		t.Errorf("SuccessCount = %d, want 1", result.SuccessCount)
+	}
+
+	res := result.Results[0]
+	if !res.FallbackUsed {
+		t.Error("FallbackUsed = false, want true")
+	}
+	if res.AgentName != "fallback-agent" {
+		t.Errorf("AgentName = %q, want fallback-agent", res.AgentName)
+	}
+	if res.OriginalError == nil {
+		t.Error("OriginalError should be set")
+	} else if !strings.Contains(res.OriginalError.Error(), "provider") {
+		t.Errorf("OriginalError should mention provider: %v", res.OriginalError)
+	}
+}
