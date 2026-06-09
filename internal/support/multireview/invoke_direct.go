@@ -36,6 +36,12 @@ type InvokeDirectResult struct {
 	ReviewProse string
 	// Error captures any failure.
 	Error error
+	// FallbackUsed indicates a fallback agent was used after primary failed.
+	FallbackUsed bool
+	// FallbackFrom is the original agent name that failed (when FallbackUsed=true).
+	FallbackFrom string
+	// OriginalError is the error from the primary agent (when FallbackUsed=true).
+	OriginalError error
 }
 
 // InvokeDirect calls an LLM provider directly without SSH/Docker.

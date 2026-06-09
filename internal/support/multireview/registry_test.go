@@ -307,3 +307,53 @@ agents:
 		t.Error("agent.Temperature should have default, got 0.0")
 	}
 }
+
+func TestLoadRegistry_AgentFallback(t *testing.T) {
+	dir := t.TempDir()
+
+	// Agent with fallback configured
+	registryYAML := `
+providers:
+  openrouter:
+    api_key_env: OPENROUTER_API_KEY
+    base_url: https://openrouter.ai/api/v1
+  ollama:
+    api_key_env: OLLAMA_API_KEY
+    base_url: http://localhost:11434/v1
+
+agents:
+  dax:
+    provider: openrouter
+    model: deepseek/deepseek-r1
+    fallback: dax-local
+  dax-local:
+    provider: ollama
+    model: deepseek-r1:14b
+`
+	if err := os.WriteFile(filepath.Join(dir, "registry.yaml"), []byte(registryYAML), 0o644); err != nil {
+		t.Fatalf("write registry.yaml: %v", err)
+	}
+
+	reg, err := LoadRegistry(dir)
+	if err != nil {
+		t.Fatalf("LoadRegistry() error = %v", err)
+	}
+
+	// Check dax has fallback
+	dax, ok := reg.Agents["dax"]
+	if !ok {
+		t.Fatal("missing agent: dax")
+	}
+	if dax.Fallback != "dax-local" {
+		t.Errorf("dax.Fallback = %q, want dax-local", dax.Fallback)
+	}
+
+	// Check dax-local has no fallback
+	daxLocal, ok := reg.Agents["dax-local"]
+	if !ok {
+		t.Fatal("missing agent: dax-local")
+	}
+	if daxLocal.Fallback != "" {
+		t.Errorf("dax-local.Fallback = %q, want empty", daxLocal.Fallback)
+	}
+}

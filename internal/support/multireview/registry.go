@@ -25,6 +25,7 @@ type AgentConfig struct {
 	TimeoutSecs  int     `yaml:"timeout_secs"` // Per-agent timeout (default: 600)
 	RateLimited  bool    `yaml:"rate_limited"` // If true, runs in serial lane
 	Temperature  float64 `yaml:"temperature"`  // Generation temperature (default: 0.7)
+	Fallback     string  `yaml:"fallback"`     // Fallback agent name if this agent fails
 }
 
 // Registry holds all provider and agent configurations.
@@ -46,6 +47,7 @@ type agentFileEntry struct {
 	TimeoutSecs int     `yaml:"timeout_secs"`
 	RateLimited bool    `yaml:"rate_limited"`
 	Temperature float64 `yaml:"temperature"`
+	Fallback    string  `yaml:"fallback"`
 }
 
 // DefaultRegistryDir returns the standard location for agent configurations.
@@ -129,6 +131,7 @@ func LoadRegistry(dir string) (*Registry, error) {
 			TimeoutSecs: a.TimeoutSecs,
 			RateLimited: a.RateLimited,
 			Temperature: a.Temperature,
+			Fallback:    a.Fallback,
 		}
 
 		// Apply defaults
