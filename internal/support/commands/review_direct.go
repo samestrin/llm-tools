@@ -27,6 +27,7 @@ var (
 	rdTimeoutSeconds  int
 	rdRegistryDir     string
 	rdTaskMessage     string
+	rdConfig          string
 )
 
 func newReviewDirectCmd() *cobra.Command {
@@ -77,6 +78,7 @@ Examples:
 	cmd.Flags().IntVar(&rdTimeoutSeconds, "timeout-seconds", 900, "Total wall-clock budget for the entire fan-out")
 	cmd.Flags().StringVar(&rdRegistryDir, "registry-dir", multireview.DefaultRegistryDir(), "Directory containing registry.yaml and agent prompts")
 	cmd.Flags().StringVar(&rdTaskMessage, "task-message", "", "Override the task message sent to each reviewer")
+	cmd.Flags().StringVar(&rdConfig, "config", "", "Optional config.yaml; review.direct.* keys supply defaults for unset flags")
 	return cmd
 }
 
@@ -85,6 +87,14 @@ func init() {
 }
 
 func runReviewDirect(cmd *cobra.Command, _ []string) error {
+	// Merge config defaults (explicit flags win) before validation so config
+	// alone can satisfy required flags.
+	if rdConfig != "" {
+		if err := applyReviewDirectConfig(cmd, rdConfig); err != nil {
+			return err
+		}
+	}
+
 	// Flag validation
 	if rdReviewers == "" {
 		return fmt.Errorf("--reviewers required")

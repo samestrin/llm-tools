@@ -47,6 +47,7 @@ var (
 	mrTaskMessage      string
 	mrSkipCleanup      bool
 	mrSprintPlan       string
+	mrConfig           string
 )
 
 // ReviewerStatus is one entry in the multi-review summary report.
@@ -131,6 +132,7 @@ Failure semantics:
 	cmd.Flags().StringVar(&mrTaskMessage, "task-message", "", "Override the task message sent to each reviewer; default is auto-built from --base/--head/--repo")
 	cmd.Flags().BoolVar(&mrSkipCleanup, "skip-cleanup", false, "Do not remove the remote workdir after running")
 	cmd.Flags().StringVar(&mrSprintPlan, "sprint-plan", "", "Path to sprint-plan.md or epic file; content is injected into reviewer prompts to scope findings")
+	cmd.Flags().StringVar(&mrConfig, "config", "", "Optional config.yaml; review.multi_agent.* keys supply defaults for unset flags")
 	return cmd
 }
 
@@ -139,6 +141,14 @@ func init() {
 }
 
 func runMultiReview(cmd *cobra.Command, _ []string) error {
+	// Merge config defaults (explicit flags win) before validation so config
+	// alone can satisfy required flags.
+	if mrConfig != "" {
+		if err := applyMultiAgentConfig(cmd, mrConfig); err != nil {
+			return err
+		}
+	}
+
 	// Flag validation
 	if mrReviewers == "" {
 		return fmt.Errorf("--reviewers required")
