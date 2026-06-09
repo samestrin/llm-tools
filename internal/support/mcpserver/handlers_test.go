@@ -1611,3 +1611,44 @@ func TestBuildGroupTDArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildReviewRangeArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "empty",
+			args: map[string]interface{}{},
+			want: []string{"review_range"},
+		},
+		{
+			name: "all params",
+			args: map[string]interface{}{
+				"repo":          "/path/to/repo",
+				"base":          "main",
+				"head":          "feature",
+				"fail_on_empty": true,
+			},
+			want: []string{"review_range", "--repo", "/path/to/repo", "--base", "main", "--head", "feature", "--fail-on-empty"},
+		},
+		{
+			name: "merge commit",
+			args: map[string]interface{}{
+				"repo":         "/repo",
+				"merge_commit": "9e013e7",
+			},
+			want: []string{"review_range", "--repo", "/repo", "--merge-commit", "9e013e7"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildReviewRangeArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildReviewRangeArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -1650,5 +1650,36 @@ func GetToolDefinitions() []ToolDefinition {
 						"required": ["file"]
 					}`),
 		},
+
+		// 60. Review range - deterministic git review-range resolution
+		{
+			Name:        ToolPrefix + "review_range",
+			Description: "Deterministically resolve a git review range (base/head SHAs, commit and file counts) and detect empty ranges (already-merged branches). Use before review_direct/multi_review fan-outs.",
+			InputSchema: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"repo": {
+								"type": "string",
+								"description": "Repository path (default: .)"
+							},
+							"base": {
+								"type": "string",
+								"description": "Explicit base ref"
+							},
+							"head": {
+								"type": "string",
+								"description": "Explicit head ref (default: HEAD)"
+							},
+							"merge_commit": {
+								"type": "string",
+								"description": "Merge/squash commit SHA; resolves to sha^..sha (mutually exclusive with base/head)"
+							},
+							"fail_on_empty": {
+								"type": "boolean",
+								"description": "Return an error when the resolved range is empty"
+							}
+						}
+					}`),
+		},
 	}
 }
