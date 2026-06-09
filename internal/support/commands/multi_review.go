@@ -44,6 +44,7 @@ var (
 	mrGatewayContainer string
 	mrTaskMessage      string
 	mrSkipCleanup      bool
+	mrSprintPlan       string
 )
 
 // ReviewerStatus is one entry in the multi-review summary report.
@@ -121,6 +122,7 @@ Failure semantics:
 	cmd.Flags().StringVar(&mrGatewayContainer, "gateway-container", "openclaw-gateway", "Docker container running openclaw")
 	cmd.Flags().StringVar(&mrTaskMessage, "task-message", "", "Override the task message sent to each reviewer; default is auto-built from --base/--head/--repo")
 	cmd.Flags().BoolVar(&mrSkipCleanup, "skip-cleanup", false, "Do not remove the remote workdir after running")
+	cmd.Flags().StringVar(&mrSprintPlan, "sprint-plan", "", "Path to sprint-plan.md or epic file; content is injected into reviewer prompts to scope findings")
 	return cmd
 }
 
@@ -240,15 +242,30 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 	if headForVars == "" {
 		headForVars = "HEAD"
 	}
+
+	// Read sprint plan content if provided
+	var sprintPlanContent string
+	if mrSprintPlan != "" {
+		if data, err := os.ReadFile(mrSprintPlan); err == nil {
+			sprintPlanContent = string(data)
+		} else if !os.IsNotExist(err) {
+			// File exists but can't be read — warn but continue
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not read --sprint-plan %s: %v\n", mrSprintPlan, err)
+		}
+	}
+
 	promptVarsBase := multireview.PromptVars{
-		DiffPath:   diffRes.DiffPath,
-		DiffBytes:  diffRes.SizeBytes,
-		DiffLines:  diffRes.LineCount,
-		DiffMB:     float64(diffRes.SizeBytes) / 1_000_000,
-		LargeDiff:  diffRes.SizeBytes > 1_000_000,
-		BaseRef:    mrBaseRef,
-		HeadRef:    headForVars,
-		RemoteRepo: shipRes.RemoteRepoPath,
+		DiffPath:          diffRes.DiffPath,
+		DiffBytes:         diffRes.SizeBytes,
+		DiffLines:         diffRes.LineCount,
+		DiffMB:            float64(diffRes.SizeBytes) / 1_000_000,
+		LargeDiff:         diffRes.SizeBytes > 1_000_000,
+		BaseRef:           mrBaseRef,
+		HeadRef:           headForVars,
+		RemoteRepo:        shipRes.RemoteRepoPath,
+		SprintPlanPath:    mrSprintPlan,
+		SprintPlanContent: sprintPlanContent,
+		HasSprintPlan:     sprintPlanContent != "",
 		// AgentName is filled per-call in invokeOne.
 	}
 
@@ -267,7 +284,7 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 			return loaded
 		}
 		// Empty (no files found) OR I/O error: fall back to hardcoded.
-		return buildDefaultTaskMessage(shipRes.RemoteRepoPath, repoName, mrBaseRef, mrHeadRef, diffRes)
+		return buildDefaultTaskMessage(shipRes.RemoteRepoPath, repoName, mrBaseRef, mrHeadRef, diffRes, sprintPlanContent)
 	}
 
 	// 4. Invoke reviewers. Parallel lane first, then serial.
@@ -400,7 +417,7 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func buildDefaultTaskMessage(remoteRepo, repoName, base, head string, diff multireview.PreComputeDiffResult) string {
+func buildDefaultTaskMessage(remoteRepo, repoName, base, head string, diff multireview.PreComputeDiffResult, sprintPlan string) string {
 	if head == "" {
 		head = "HEAD"
 	}
@@ -457,6 +474,29 @@ Where SEVERITY is HIGH/MEDIUM/LOW (map blocking->HIGH, significant->MEDIUM, mino
 
 IMPORTANT: If any field (PROBLEM, FIX, etc.) needs to contain a literal pipe character, replace it with a forward slash (/). The pipe is the column separator and unescaped pipes will corrupt the row.
 `)
+
+	// Add sprint plan scoping instructions if provided
+	if sprintPlan != "" {
+		b.WriteString(`
+SCOPE CONSTRAINT (from sprint-plan.md):
+
+The following sprint plan defines what is IN SCOPE for this review. Only flag
+issues in files/areas directly related to the work items below. Do NOT flag
+issues in unrelated code that happens to appear in the diff (e.g., unrelated
+refactoring, formatting changes, or dependencies pulled in by the changes).
+
+--- BEGIN SPRINT PLAN ---
+`)
+		b.WriteString(sprintPlan)
+		b.WriteString(`
+--- END SPRINT PLAN ---
+
+Apply this scope: if a finding is in a file not mentioned in the sprint plan's
+tasks/stories, or addresses concerns outside the sprint's stated goals, mark it
+as OUT-OF-SCOPE in your review (do not include it in TD_STREAM).
+`)
+	}
+
 	return b.String()
 }
 
