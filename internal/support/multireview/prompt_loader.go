@@ -51,6 +51,19 @@ type PromptVars struct {
 	// AgentName is the reviewer name (bruce/greta/kai/mira/dax/otto).
 	// Available to templates for self-reference.
 	AgentName string
+
+	// SprintPlanPath is the local path to sprint-plan.md or epic file,
+	// if provided via --sprint-plan. Empty when not provided.
+	SprintPlanPath string
+
+	// SprintPlanContent is the full text content of the sprint plan.
+	// Reviewers use this to scope findings to work items in the sprint.
+	// Empty when --sprint-plan not provided.
+	SprintPlanContent string
+
+	// HasSprintPlan is true when SprintPlanContent is non-empty.
+	// Templates branch on this via {{if .HasSprintPlan}}...{{end}}.
+	HasSprintPlan bool
 }
 
 // ResolvePromptDir returns the directory the loader reads per-agent
