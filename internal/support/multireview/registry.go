@@ -153,6 +153,27 @@ func LoadRegistry(dir string) (*Registry, error) {
 		reg.Agents[name] = agent
 	}
 
+	// Fail fast on broken fallback configuration — discovering a typo'd
+	// fallback name mid-run, after the primary agent has already burned its
+	// timeout budget, costs minutes; failing at load costs nothing. Walk each
+	// agent's full fallback chain so cycles (which would recurse forever at
+	// invoke time) are rejected too.
+	for name, agent := range reg.Agents {
+		visited := map[string]bool{name: true}
+		current := agent
+		for current.Fallback != "" {
+			next, ok := reg.Agents[current.Fallback]
+			if !ok {
+				return nil, fmt.Errorf("agent %q: fallback %q is not defined in registry.yaml (agents must reference an existing agent name)", current.Name, current.Fallback)
+			}
+			if visited[current.Fallback] {
+				return nil, fmt.Errorf("agent %q: fallback chain contains a cycle through %q", name, current.Fallback)
+			}
+			visited[current.Fallback] = true
+			current = next
+		}
+	}
+
 	return reg, nil
 }
 

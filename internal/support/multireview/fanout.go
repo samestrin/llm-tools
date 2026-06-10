@@ -191,7 +191,7 @@ func invokeAgentWithFallback(ctx context.Context, p FanoutParams, agentName, ori
 		return InvokeDirectResult{
 			AgentName: agentName,
 			Status:    "failed",
-			Error:     fmt.Errorf("agent not found: %w", err),
+			Error:     err, // GetAgent's message already carries the "agent not found" prefix
 		}
 	}
 

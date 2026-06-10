@@ -925,3 +925,22 @@ func TestFanout_FallbackProviderError(t *testing.T) {
 		t.Errorf("OriginalError should mention provider: %v", res.OriginalError)
 	}
 }
+
+func TestInvokeAgentWithFallback_MissingAgentErrorNotDoubleWrapped(t *testing.T) {
+	reg := &Registry{
+		Providers: map[string]ProviderConfig{},
+		Agents:    map[string]AgentConfig{},
+	}
+
+	res := invokeAgentWithFallback(context.Background(), FanoutParams{Registry: reg}, "ghost", "")
+	if res.Status != "failed" {
+		t.Fatalf("Status = %q, want failed", res.Status)
+	}
+	if res.Error == nil {
+		t.Fatal("expected error for missing agent")
+	}
+	msg := res.Error.Error()
+	if got := strings.Count(msg, "agent not found"); got != 1 {
+		t.Errorf("error %q contains %d 'agent not found' prefixes, want exactly 1", msg, got)
+	}
+}
