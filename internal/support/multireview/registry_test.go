@@ -3,6 +3,7 @@ package multireview
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -355,5 +356,105 @@ agents:
 	}
 	if daxLocal.Fallback != "" {
 		t.Errorf("dax-local.Fallback = %q, want empty", daxLocal.Fallback)
+	}
+}
+
+func TestLoadRegistry_DanglingFallbackRejected(t *testing.T) {
+	dir := t.TempDir()
+
+	// bob2 declares a fallback that is not defined (real-world typo:
+	// the defined backup was named bob2-backup).
+	registryYAML := `
+providers:
+  litellm:
+    api_key_env: LITELLM_API_KEY
+    base_url: http://localhost:4000/v1
+
+agents:
+  bob2:
+    provider: litellm
+    model: bob2-model
+    fallback: bob-backup
+  bob2-backup:
+    provider: litellm
+    model: backup-model
+`
+	if err := os.WriteFile(filepath.Join(dir, "registry.yaml"), []byte(registryYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadRegistry(dir)
+	if err == nil {
+		t.Fatal("expected error for dangling fallback reference")
+	}
+	msg := err.Error()
+	for _, want := range []string{"bob2", "bob-backup", "fallback"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q should mention %q", msg, want)
+		}
+	}
+}
+
+func TestLoadRegistry_FallbackCycleRejected(t *testing.T) {
+	dir := t.TempDir()
+
+	// a -> b -> a: both failing would recurse forever in the fallback chain.
+	registryYAML := `
+providers:
+  litellm:
+    api_key_env: LITELLM_API_KEY
+    base_url: http://localhost:4000/v1
+
+agents:
+  alpha:
+    provider: litellm
+    model: m1
+    fallback: beta
+  beta:
+    provider: litellm
+    model: m2
+    fallback: alpha
+`
+	if err := os.WriteFile(filepath.Join(dir, "registry.yaml"), []byte(registryYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadRegistry(dir)
+	if err == nil {
+		t.Fatal("expected error for fallback cycle")
+	}
+	if !strings.Contains(err.Error(), "cycle") {
+		t.Errorf("error %q should mention cycle", err.Error())
+	}
+}
+
+func TestLoadRegistry_ValidFallbackAccepted(t *testing.T) {
+	dir := t.TempDir()
+
+	registryYAML := `
+providers:
+  litellm:
+    api_key_env: LITELLM_API_KEY
+    base_url: http://localhost:4000/v1
+
+agents:
+  mira:
+    provider: litellm
+    model: mira-model
+    fallback: mira-backup
+  mira-backup:
+    provider: litellm
+    model: backup-model
+`
+	if err := os.WriteFile(filepath.Join(dir, "registry.yaml"), []byte(registryYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg, err := LoadRegistry(dir)
+	if err != nil {
+		t.Fatalf("valid fallback should load: %v", err)
+	}
+	if reg.Agents["mira"].Fallback != "mira-backup" {
+		t.Errorf("Fallback = %q, want mira-backup", reg.Agents["mira"].Fallback)
 	}
 }
