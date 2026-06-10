@@ -54,6 +54,7 @@ All servers are native Go binaries with no runtime dependencies.
 | `llm_support_git_context` | Gather git information for LLM context |
 | `llm_support_git_changes` | Count and list working tree changes |
 | `llm_support_repo_root` | Find git repository root path |
+| `llm_support_review_range` | Resolve a git review range (base/head SHAs) and detect empty ranges |
 
 **LLM Integration Tools:**
 | Tool | Description |

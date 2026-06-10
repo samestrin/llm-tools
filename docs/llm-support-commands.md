@@ -59,6 +59,8 @@ Complete documentation for all 40+ llm-support commands.
   - [route-td](#route-td)
   - [format-td-table](#format-td-table)
   - [group-td](#group-td)
+  - [review_range](#review_range)
+  - [review_direct](#review_direct)
   - [multi_review](#multi_review)
 
 ---
@@ -2116,6 +2118,137 @@ These columns are emitted only when at least one input row carries a non-empty v
 
 ---
 
+### review_range
+
+Deterministically resolve a git review range (base/head SHAs, commit and file counts) and detect empty ranges — typically a branch that is already merged into the default branch.
+
+> **MCP-exposed as `llm_support_review_range`.** Fast and read-only; use it before `review_direct`/`multi_review` to pre-flight the range.
+
+```bash
+llm-support review_range [flags]
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--repo` | `.` | Repository path |
+| `--base` | (auto) | Explicit base ref |
+| `--head` | `HEAD` | Explicit head ref |
+| `--merge-commit` | (empty) | Merge/squash commit SHA; resolves to `sha^..sha`. Works for true merge commits AND single-parent squash commits. Mutually exclusive with `--base`/`--head`. |
+| `--fail-on-empty` | `false` | Exit non-zero when the resolved range is empty (for shell `&&` chaining) |
+| `--json` / `--min` | `false` | JSON / minimal output |
+
+**Resolution modes (in priority order):**
+
+1. `--merge-commit <sha>` → `sha^..sha` — the escape hatch when the work is already merged (e.g. reviewing a squash-merged epic from the default branch).
+2. `--base [--head]` → explicit refs, rev-parsed to SHAs.
+3. Neither → merge-base of HEAD against the default branch, detected via `origin/HEAD`, then `origin/main`, `origin/master`, `main`, `master` (remote-tracking refs first — a stale local `main` would over-widen the range).
+
+Note: explicit `--base`/`--head` uses two-dot semantics (`git diff base..head`) — on diverged branches the diff includes base-side changes as deletions while `commit_count` counts only head-side commits. For branch review, prefer the merge-base or `--merge-commit` modes, where base is always an ancestor of head.
+
+**Output (JSON):**
+
+```json
+{
+  "base": "<40-char sha>",
+  "head": "<40-char sha>",
+  "base_ref": "main",
+  "commit_count": 2,
+  "files_changed": 16,
+  "empty": false,
+  "detection": "merge-base"
+}
+```
+
+When `empty` is true, a `message` field explains the likely cause (branch already merged, or head behind base) and steers to `--merge-commit`. An empty range still exits 0 — detection succeeded; pass `--fail-on-empty` to make it exit 1. Genuine resolution errors (bad ref, not a repository, shallow clone, undeterminable default branch) always exit 1, so "empty" and "broken" stay distinguishable.
+
+**Examples:**
+
+```bash
+# Pre-flight the current branch
+llm-support review_range --repo .
+
+# Resolve the range for an already-merged squash commit
+llm-support review_range --repo . --merge-commit 9e013e7
+
+# Shell chaining: only fan out when there is something to review
+llm-support review_range --repo . --fail-on-empty && llm-support review_direct ...
+```
+
+---
+
+### review_direct
+
+Direct LLM provider multi-agent code review — fans out to reviewer agents via their OpenAI-compatible APIs. No SSH, Docker, or openclaw infrastructure required.
+
+> **CLI-only — not exposed via MCP.** Long-running (minutes); invoke from a shell or slash-command `Bash` block, in the background.
+
+```bash
+llm-support review_direct [flags]
+```
+
+**Required flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--reviewers` | Comma-separated reviewer agent names. May come from `--config` instead. |
+| `--output-dir` | Where per-reviewer artifacts land |
+
+**Diff source (pick one):**
+
+| Flag | Description |
+|------|-------------|
+| `--diff-file` | Pre-computed unified diff file. Zero-byte/whitespace-only files are a hard error. |
+| `--repo` (+ optional `--base`/`--head`/`--merge-commit`) | Self-serve: the range is resolved exactly like [review_range](#review_range), the diff is computed locally, and a copy is written to `<output-dir>/diff.txt`. An empty range is a hard error before any provider call. |
+
+`--diff-file` is mutually exclusive with `--base`/`--head`/`--merge-commit`.
+
+**Optional flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--config` | (empty) | Optional `config.yaml`; `review.direct.*` keys (`agents`, `serial_agents`, `timeout_seconds`) supply defaults for unset flags. Explicit flags always win. |
+| `--serial-reviewers` | (empty) | Subset that runs serially after the parallel lane |
+| `--timeout-seconds` | `900` | Total wall-clock budget for the fan-out |
+| `--registry-dir` | `~/.config/llm-tools/agents/` | Agent/provider registry (registry.yaml + per-agent prompts) |
+| `--task-message` | (auto) | Override the task message sent to each reviewer |
+
+**Output layout under `--output-dir`** (matches `multi_review` so `/reconcile-code-review` auto-discovers it):
+
+```
+<output-dir>/
+  diff.txt                    # self-serve mode only
+  raw/<agent>/{review.md,status.json}
+  td-stream.txt               # merged findings across reviewers
+  multi-review-summary.json   # per-reviewer status + counts + partial flag
+```
+
+**Examples:**
+
+```bash
+# Pre-computed diff (granular control)
+llm-support review_direct \
+  --reviewers "bruce,greta,otto" \
+  --diff-file /path/to/diff.txt \
+  --output-dir code-review/multi-agent/ \
+  --timeout-seconds 900
+
+# Self-serve: roster + timeouts from config, range auto-resolved
+llm-support review_direct \
+  --config .planning/.config/config.yaml \
+  --repo . \
+  --output-dir code-review/multi-agent/
+
+# Review an already-merged epic via its squash commit
+llm-support review_direct \
+  --config .planning/.config/config.yaml \
+  --repo . --merge-commit 9e013e7 \
+  --output-dir .planning/epics/code-reviews/143.1_auth/multi-agent/
+```
+
+---
+
 ### multi_review
 
 Fan out a code review across multiple openclaw reviewer agents on a remote host, collect each reviewer's TD findings, and merge them with per-row attribution.
@@ -2130,16 +2263,18 @@ llm-support multi_review [flags]
 
 | Flag | Description |
 |------|-------------|
-| `--reviewers` | Comma-separated reviewer agent names (e.g. `bruce,greta,kai,mira,dax,otto`) |
+| `--reviewers` | Comma-separated reviewer agent names (e.g. `bruce,greta,kai,mira,dax,otto`). May come from `--config` instead. |
 | `--repo` | Local repo path to bundle and ship |
-| `--openclaw-host` | SSH target running `openclaw-gateway` (e.g. `user@nucleus.lan`) |
+| `--openclaw-host` | SSH target running `openclaw-gateway` (e.g. `user@nucleus.lan`). May come from `--config` instead. |
 | `--output-dir` | Where per-reviewer artifacts and merged stream land |
-| `--base` | Base ref for the diff range. **REQUIRED** — we pre-compute `git diff <base>..<head>` on the remote so reviewers only need to `cat` the resulting file. Working-tree mode is intentionally unsupported. |
 
 **Optional flags:**
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--base` | (auto) | Base ref for the diff range — we pre-compute `git diff <base>..<head>` on the remote so reviewers only need to `cat` the resulting file. When omitted, the range is auto-resolved locally (see [review_range](#review_range)) and resolved SHAs are sent to the remote. Working-tree mode is intentionally unsupported. |
+| `--merge-commit` | (empty) | Merge/squash commit SHA; reviews `sha^..sha`. The escape hatch for branches already merged into the default branch. Mutually exclusive with `--base`/`--head`. |
+| `--config` | (empty) | Optional `config.yaml`; `review.multi_agent.*` keys (`reviewers`, `serial_reviewers`, `openclaw_host`, `timeout_seconds`, `per_reviewer_timeout_seconds`) supply defaults for unset flags. Explicit flags always win. |
 | `--serial-reviewers` | (empty) | Subset that runs sequentially after the parallel lane (shared rate limits) |
 | `--head` | `HEAD` | Head ref |
 | `--timeout-seconds` | `1200` | Total wall-clock budget for the entire fan-out |
@@ -2186,7 +2321,8 @@ The task message tells each reviewer to `cat <diffPath>` and review the contents
 
 | Scenario | Behavior |
 |----------|----------|
-| `--base` empty | Validation error before any remote calls |
+| Auto-resolved range is empty (branch already merged) | Hard-stop BEFORE the bundle ships; error steers to `--merge-commit` |
+| Remote pre-computed diff is empty | Hard-stop before reviewers are invoked; error steers to `review_range` |
 | Container mkdir / `docker cp` / container clone fails | Hard-stop with error naming the failure step |
 | Bundle/ship fails (SSH down, scp error) | Hard-stop with error naming the host |
 | Diff pre-compute fails (bad ref, etc.) | Hard-stop before reviewers are invoked; surfaces git stderr |

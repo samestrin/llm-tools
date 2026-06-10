@@ -178,6 +178,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildPartitionWorkArgs(args), nil
 	case "repo_root":
 		return buildRepoRootArgs(args), nil
+	case "review_range":
+		return buildReviewRangeArgs(args), nil
 	case "extract_relevant":
 		return buildExtractRelevantArgs(args), nil
 	case "extract_links":
@@ -634,6 +636,23 @@ func buildRepoRootArgs(args map[string]interface{}) []string {
 	}
 	if getBool(args, "validate") {
 		cmdArgs = append(cmdArgs, "--validate")
+	}
+	return cmdArgs
+}
+
+func buildReviewRangeArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"review_range"}
+	if repo, ok := args["repo"].(string); ok && repo != "" {
+		cmdArgs = append(cmdArgs, "--repo", repo)
+	}
+	if base, ok := args["base"].(string); ok && base != "" {
+		cmdArgs = append(cmdArgs, "--base", base)
+	}
+	if head, ok := args["head"].(string); ok && head != "" {
+		cmdArgs = append(cmdArgs, "--head", head)
+	}
+	if mc, ok := args["merge_commit"].(string); ok && mc != "" {
+		cmdArgs = append(cmdArgs, "--merge-commit", mc)
 	}
 	return cmdArgs
 }

@@ -11,7 +11,7 @@ import (
 
 // ProviderConfig defines credentials and endpoint for an LLM provider.
 type ProviderConfig struct {
-	Name      string `yaml:"-"`          // Set during loading
+	Name      string `yaml:"-"`           // Set during loading
 	APIKeyEnv string `yaml:"api_key_env"` // Environment variable name for API key
 	BaseURL   string `yaml:"base_url"`    // API endpoint URL
 }
