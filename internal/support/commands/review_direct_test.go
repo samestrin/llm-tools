@@ -3,10 +3,13 @@ package commands
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/samestrin/llm-tools/pkg/llmapi"
@@ -467,5 +470,162 @@ func TestReviewDirectCmd_ExplicitlyEmptyDiffFileRejected(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(err.Error()), []byte("--diff-file")) {
 		t.Errorf("error %q should mention --diff-file", err.Error())
+	}
+}
+
+// sprintPlanTestEnv stands up a mock provider that captures request bodies,
+// a single-agent registry, and a diff file. Returns the registry dir, diff
+// path, and a mutex-guarded getter for the captured bodies (call it after
+// cmd.Execute returns).
+func sprintPlanTestEnv(t *testing.T) (registryDir, diffFile string, captured func() string) {
+	t.Helper()
+	var buf bytes.Buffer
+	var mu sync.Mutex
+	captured = func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return buf.String()
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		buf.Write(body)
+		mu.Unlock()
+		resp := llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{
+				Message: llmapi.Message{Content: "Review: OK"},
+			}},
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	t.Cleanup(server.Close)
+
+	registryDir = t.TempDir()
+	registryYAML := `
+providers:
+  test:
+    api_key_env: TEST_API_KEY
+    base_url: ` + server.URL + `
+
+agents:
+  alice:
+    provider: test
+    model: test-model
+    timeout_secs: 60
+`
+	os.WriteFile(filepath.Join(registryDir, "registry.yaml"), []byte(registryYAML), 0644)
+	os.WriteFile(filepath.Join(registryDir, "alice.md"), []byte("You are a code reviewer."), 0644)
+	t.Setenv("TEST_API_KEY", "test-key")
+
+	diffFile = filepath.Join(t.TempDir(), "diff.txt")
+	os.WriteFile(diffFile, []byte("+func foo() {}\n"), 0644)
+	return registryDir, diffFile, captured
+}
+
+func runReviewDirectForSprintPlan(t *testing.T, registryDir, diffFile string, extraArgs ...string) error {
+	t.Helper()
+	cmd := newReviewDirectCmd()
+	args := []string{
+		"--reviewers", "alice",
+		"--diff-file", diffFile,
+		"--output-dir", t.TempDir(),
+		"--registry-dir", registryDir,
+		"--timeout-seconds", "60",
+	}
+	args = append(args, extraArgs...)
+	cmd.SetArgs(args)
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	return cmd.Execute()
+}
+
+func TestBuildReviewTaskMessage_NoPlanByteIdentity(t *testing.T) {
+	// Pins the pre-refactor output: without a sprint plan the task message
+	// must keep the exact "example line, blank line, diff" shape.
+	msg := buildReviewTaskMessage("DIFF", "")
+	wantTail := "HIGH|src/auth.go:42|Missing input validation|Add length check|security|5|user input passed directly to query|bruce\n\nDiff to review:\nDIFF"
+	if !strings.HasSuffix(msg, wantTail) {
+		t.Errorf("task message tail changed:\n...%q\nwant suffix:\n%q", msg[len(msg)-min(len(msg), 200):], wantTail)
+	}
+	if strings.Contains(msg, "SCOPE CONSTRAINT") {
+		t.Error("unexpected scope block without sprint plan")
+	}
+}
+
+func TestReviewDirectCmd_SprintPlanScopesTaskMessage(t *testing.T) {
+	registryDir, diffFile, captured := sprintPlanTestEnv(t)
+
+	planContent := "## Sprint 9.0 widget work\n- Task: add widget"
+	planFile := filepath.Join(t.TempDir(), "sprint-plan.md")
+	os.WriteFile(planFile, []byte(planContent), 0644)
+
+	if err := runReviewDirectForSprintPlan(t, registryDir, diffFile,
+		"--sprint-plan", planFile); err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	body := captured()
+	if !strings.Contains(body, "SCOPE CONSTRAINT") {
+		t.Error("request body missing SCOPE CONSTRAINT block")
+	}
+	if !strings.Contains(body, "Sprint 9.0 widget work") {
+		t.Error("request body missing sprint plan content")
+	}
+	// The scope block must precede the embedded diff: instructions before
+	// (potentially huge) diff content.
+	scopeIdx := strings.Index(body, "SCOPE CONSTRAINT")
+	diffIdx := strings.Index(body, "Diff to review:")
+	if diffIdx == -1 {
+		t.Fatal("request body missing 'Diff to review:' section")
+	}
+	if scopeIdx > diffIdx {
+		t.Errorf("scope block at %d must come before diff section at %d", scopeIdx, diffIdx)
+	}
+}
+
+func TestReviewDirectCmd_NoSprintPlanNoScopeBlock(t *testing.T) {
+	registryDir, diffFile, captured := sprintPlanTestEnv(t)
+
+	if err := runReviewDirectForSprintPlan(t, registryDir, diffFile); err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if strings.Contains(captured(), "SCOPE CONSTRAINT") {
+		t.Error("unexpected SCOPE CONSTRAINT block without --sprint-plan")
+	}
+}
+
+func TestReviewDirectCmd_SprintPlanMissingFile(t *testing.T) {
+	registryDir, diffFile, captured := sprintPlanTestEnv(t)
+
+	err := runReviewDirectForSprintPlan(t, registryDir, diffFile,
+		"--sprint-plan", filepath.Join(t.TempDir(), "does-not-exist.md"))
+	if err != nil {
+		t.Fatalf("missing sprint plan file must not fail the review: %v", err)
+	}
+	if strings.Contains(captured(), "SCOPE CONSTRAINT") {
+		t.Error("unexpected SCOPE CONSTRAINT block for missing sprint plan file")
+	}
+}
+
+func TestReviewDirectCmd_TaskMessageOverrideSuppressesScope(t *testing.T) {
+	registryDir, diffFile, captured := sprintPlanTestEnv(t)
+
+	planFile := filepath.Join(t.TempDir(), "sprint-plan.md")
+	os.WriteFile(planFile, []byte("## Sprint 9.0"), 0644)
+
+	if err := runReviewDirectForSprintPlan(t, registryDir, diffFile,
+		"--sprint-plan", planFile,
+		"--task-message", "custom review instructions"); err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+
+	body := captured()
+	if !strings.Contains(body, "custom review instructions") {
+		t.Error("request body missing --task-message override")
+	}
+	// --task-message is a full override, matching multi_review: the scope
+	// block is NOT appended to it.
+	if strings.Contains(body, "SCOPE CONSTRAINT") {
+		t.Error("--task-message override must suppress the scope block")
 	}
 }

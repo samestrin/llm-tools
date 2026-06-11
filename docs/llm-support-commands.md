@@ -2212,7 +2212,8 @@ llm-support review_direct [flags]
 | `--serial-reviewers` | (empty) | Subset that runs serially after the parallel lane |
 | `--timeout-seconds` | `900` | Total wall-clock budget for the fan-out |
 | `--registry-dir` | `~/.config/llm-tools/agents/` | Agent/provider registry (registry.yaml + per-agent prompts) |
-| `--task-message` | (auto) | Override the task message sent to each reviewer |
+| `--task-message` | (auto) | Override the task message sent to each reviewer. Full override — suppresses the `--sprint-plan` scope block. |
+| `--sprint-plan` | (empty) | Path to `sprint-plan.md` or an epic file; its content is injected into reviewer prompts as a SCOPE CONSTRAINT block (placed before the embedded diff) so findings stay scoped to the sprint's work items. A missing or blank file is silently ignored — reviewers fall back to diff-touched-line scoping. |
 
 **Output layout under `--output-dir`** (matches `multi_review` so `/reconcile-code-review` auto-discovers it):
 
@@ -2280,7 +2281,8 @@ llm-support multi_review [flags]
 | `--timeout-seconds` | `1200` | Total wall-clock budget for the entire fan-out |
 | `--per-reviewer-timeout-seconds` | `1200` | Per-reviewer soft timeout. Bumped from 600s after production observation that real sprints with reasoning-model reviewers can legitimately need 10-20 minutes. |
 | `--gateway-container` | `openclaw-gateway` | Docker container running openclaw |
-| `--task-message` | (auto) | Override the auto-built task message. Bypasses the pre-compute helper instructions — you take responsibility for telling reviewers where the diff is. |
+| `--task-message` | (auto) | Override the auto-built task message. Bypasses the pre-compute helper instructions — you take responsibility for telling reviewers where the diff is. Full override — also suppresses the `--sprint-plan` scope block. |
+| `--sprint-plan` | (empty) | Path to `sprint-plan.md` or an epic file; its content is injected into reviewer prompts as a SCOPE CONSTRAINT block so findings stay scoped to the sprint's work items. A missing or blank file is silently ignored — reviewers fall back to diff-touched-line scoping. |
 | `--skip-cleanup` | `false` | Do not remove the remote workdir after running |
 
 **Container-routed filesystem ops:**
