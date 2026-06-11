@@ -489,3 +489,27 @@ func TestInvokeDirect_LargeResponse(t *testing.T) {
 		t.Errorf("ReviewProse length = %d, expected > 100000", len(result.ReviewProse))
 	}
 }
+
+func TestNewDirectClient_NoHTTPClientTimeout(t *testing.T) {
+	client := newDirectClient(InvokeDirectParams{
+		AgentName: "budget-agent",
+		AgentConfig: AgentConfig{
+			Name:        "budget-agent",
+			Model:       "gpt-4o",
+			Temperature: 0.3,
+		},
+		APIConfig: &llmapi.APIConfig{
+			APIKey:  "test-key",
+			BaseURL: "http://example.invalid",
+			Model:   "gpt-4o",
+		},
+		Timeout: 5 * time.Second,
+	})
+
+	// The per-agent budget governs via the context deadline; a non-zero
+	// http.Client.Timeout would silently cap every attempt below the budget
+	// (the 120s default killed all 12 agents in the observed fan-out).
+	if client.HTTPClient.Timeout != 0 {
+		t.Errorf("HTTPClient.Timeout = %v, want 0 (per-agent context deadline governs)", client.HTTPClient.Timeout)
+	}
+}
