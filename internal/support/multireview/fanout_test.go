@@ -1096,3 +1096,105 @@ func TestFanout_AllSkippedChain_StatusSkipped(t *testing.T) {
 		t.Errorf("Error = %v, want skip cause naming the window", res.Error)
 	}
 }
+
+func TestFanout_StatusTaxonomy_DistinguishedInResultsAndStatusJSON(t *testing.T) {
+	os.Setenv("TAXONOMY_API_KEY", "test-key")
+	defer os.Unsetenv("TAXONOMY_API_KEY")
+
+	okServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{Message: llmapi.Message{Content: "Review: fine"}}},
+		})
+	}))
+	defer okServer.Close()
+
+	failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]string{"message": "Invalid API key"},
+		})
+	}))
+	defer failServer.Close()
+
+	registry := &Registry{
+		Providers: map[string]ProviderConfig{
+			"ok-provider":   {Name: "ok-provider", APIKeyEnv: "TAXONOMY_API_KEY", BaseURL: okServer.URL},
+			"fail-provider": {Name: "fail-provider", APIKeyEnv: "TAXONOMY_API_KEY", BaseURL: failServer.URL},
+		},
+		Agents: map[string]AgentConfig{
+			"ok-agent": {
+				Name: "ok-agent", Provider: "ok-provider", Model: "m", Temperature: 0.3,
+			},
+			"fail-agent": {
+				Name: "fail-agent", Provider: "fail-provider", Model: "m", Temperature: 0.3,
+			},
+			"skip-agent": {
+				Name: "skip-agent", Provider: "ok-provider", Model: "m", Temperature: 0.3,
+				ContextWindow: 1000,
+			},
+		},
+	}
+
+	outputDir := t.TempDir()
+	result, err := Fanout(context.Background(), FanoutParams{
+		Registry:       registry,
+		ParallelAgents: []string{"ok-agent", "fail-agent", "skip-agent"},
+		TaskMessage:    strings.Repeat("x", 8000),
+		GlobalTimeout:  30 * time.Second,
+		OutputDir:      outputDir,
+	})
+
+	if err != nil {
+		t.Fatalf("Fanout error: %v (partial success must not error)", err)
+	}
+
+	// AC5: the three failure modes carry distinct statuses with
+	// cause-naming error strings, all the way into status.json (the same
+	// strings buildDirectReviewSummary copies verbatim into the summary).
+	wantStatus := map[string]string{
+		"ok-agent":   "ok",
+		"fail-agent": "failed",
+		"skip-agent": "skipped",
+	}
+	wantErrSubstring := map[string]string{
+		"fail-agent": "Invalid API key",
+		"skip-agent": "skipped:",
+	}
+
+	if len(result.Results) != 3 {
+		t.Fatalf("len(Results) = %d, want 3", len(result.Results))
+	}
+	for _, res := range result.Results {
+		want, ok := wantStatus[res.AgentName]
+		if !ok {
+			t.Errorf("unexpected agent %q in results", res.AgentName)
+			continue
+		}
+		if res.Status != want {
+			t.Errorf("%s: Status = %q, want %q", res.AgentName, res.Status, want)
+		}
+		if sub := wantErrSubstring[res.AgentName]; sub != "" {
+			if res.Error == nil || !strings.Contains(res.Error.Error(), sub) {
+				t.Errorf("%s: Error = %v, want substring %q", res.AgentName, res.Error, sub)
+			}
+		}
+
+		statusPath := filepath.Join(outputDir, "raw", res.AgentName, "status.json")
+		data, readErr := os.ReadFile(statusPath)
+		if readErr != nil {
+			t.Errorf("%s: read status.json: %v", res.AgentName, readErr)
+			continue
+		}
+		var status AgentStatus
+		if jsonErr := json.Unmarshal(data, &status); jsonErr != nil {
+			t.Errorf("%s: parse status.json: %v", res.AgentName, jsonErr)
+			continue
+		}
+		if status.Status != want {
+			t.Errorf("%s: status.json status = %q, want %q", res.AgentName, status.Status, want)
+		}
+		if sub := wantErrSubstring[res.AgentName]; sub != "" && !strings.Contains(status.Error, sub) {
+			t.Errorf("%s: status.json error = %q, want substring %q", res.AgentName, status.Error, sub)
+		}
+	}
+}
