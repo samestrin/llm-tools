@@ -223,3 +223,56 @@ func TestLLMClient_Stream_RetryableStatusBeforeContent(t *testing.T) {
 		t.Errorf("server invoked %d times, want >= 2 (503 before content is retryable)", got)
 	}
 }
+
+func TestLLMClient_Stream_DoneWithoutContent_Errors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher := sseHandler(t, w)
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	client := NewLLMClient("test-key", server.URL, "test-model")
+	_, err := client.CompleteMessagesStream(t.Context(), []Message{{Role: "user", Content: "hi"}}, 5*time.Second)
+
+	if err == nil {
+		t.Fatal("expected error for [DONE] with zero content (silently-empty review must fail loudly)")
+	}
+	if !strings.Contains(err.Error(), "no content") {
+		t.Errorf("error = %v, want \"no content in stream\"", err)
+	}
+}
+
+func TestLLMClient_Stream_JSONFallback_SlowBodyIsLive(t *testing.T) {
+	// A gateway that ignores stream:true and drip-feeds the JSON body: the
+	// total download (~450ms) exceeds the idle window (200ms), but bytes
+	// keep arriving — byte-level liveness must keep the watchdog at bay.
+	payload, _ := json.Marshal(ChatResponse{
+		Choices: []Choice{{Message: Message{Content: "slow but steady"}}},
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		for i := 0; i < len(payload); i += 16 {
+			end := i + 16
+			if end > len(payload) {
+				end = len(payload)
+			}
+			w.Write(payload[i:end])
+			flusher.Flush()
+			time.Sleep(50 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+
+	client := NewLLMClient("test-key", server.URL, "test-model")
+	result, err := client.CompleteMessagesStream(t.Context(), []Message{{Role: "user", Content: "hi"}}, 200*time.Millisecond)
+
+	if err != nil {
+		t.Fatalf("CompleteMessagesStream failed: %v (actively-arriving bytes were mislabeled as idle)", err)
+	}
+	if result != "slow but steady" {
+		t.Errorf("result = %q, want \"slow but steady\"", result)
+	}
+}

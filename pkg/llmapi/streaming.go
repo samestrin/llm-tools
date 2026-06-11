@@ -33,6 +33,23 @@ type streamChunk struct {
 	} `json:"choices"`
 }
 
+// watchdogReader re-arms the idle watchdog on every successful read so
+// liveness is byte-level (any received bytes, not just complete lines or
+// content tokens).
+type watchdogReader struct {
+	r        io.Reader
+	watchdog *time.Timer
+	idle     time.Duration
+}
+
+func (wr *watchdogReader) Read(p []byte) (int, error) {
+	n, err := wr.r.Read(p)
+	if n > 0 {
+		wr.watchdog.Reset(wr.idle)
+	}
+	return n, err
+}
+
 // CompleteMessagesStream sends a streaming chat completion request and
 // assembles the response content from SSE chunks.
 //
@@ -145,10 +162,15 @@ func (c *LLMClient) doStreamRequest(ctx context.Context, req ChatRequest, idleTi
 		return "", false, newAPIError(resp.StatusCode, body)
 	}
 
+	// Liveness is byte-level: every received chunk of the body re-arms the
+	// watchdog, so a slow but steadily-arriving response is never mislabeled
+	// as an idle timeout.
+	body := &watchdogReader{r: resp.Body, watchdog: watchdog, idle: idleTimeout}
+
 	// Some OpenAI-compatible gateways ignore stream:true and reply with a
 	// plain JSON completion; fall back to non-streaming parsing for those.
 	if !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(body)
 		if err != nil {
 			return "", true, wrapIdle(fmt.Errorf("failed to read response: %w", err))
 		}
@@ -163,13 +185,10 @@ func (c *LLMClient) doStreamRequest(ctx context.Context, req ChatRequest, idleTi
 	}
 
 	var sb strings.Builder
-	scanner := bufio.NewScanner(resp.Body)
+	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxStreamLineSize)
 
 	for scanner.Scan() {
-		// Any bytes count as liveness: empty keep-alive lines and SSE
-		// comments re-arm the watchdog just like content chunks.
-		watchdog.Reset(idleTimeout)
 		receivedAny = true
 
 		line := strings.TrimSpace(scanner.Text())
@@ -182,6 +201,11 @@ func (c *LLMClient) doStreamRequest(ctx context.Context, req ChatRequest, idleTi
 		}
 		data = strings.TrimSpace(data)
 		if data == "[DONE]" {
+			// A terminated stream with zero content is a silently-empty
+			// review; fail loudly like the stream-closed-early path.
+			if sb.Len() == 0 {
+				return "", true, errors.New("no content in stream")
+			}
 			return sb.String(), true, nil
 		}
 
