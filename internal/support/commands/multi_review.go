@@ -298,15 +298,7 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Read sprint plan content if provided
-	var sprintPlanContent string
-	if mrSprintPlan != "" {
-		if data, err := os.ReadFile(mrSprintPlan); err == nil {
-			sprintPlanContent = string(data)
-		} else if !os.IsNotExist(err) {
-			// File exists but can't be read — warn but continue
-			fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not read --sprint-plan %s: %v\n", mrSprintPlan, err)
-		}
-	}
+	sprintPlanContent := readSprintPlan(mrSprintPlan, cmd.ErrOrStderr())
 
 	promptVarsBase := multireview.PromptVars{
 		DiffPath:          diffRes.DiffPath,
@@ -530,26 +522,7 @@ IMPORTANT: If any field (PROBLEM, FIX, etc.) needs to contain a literal pipe cha
 `)
 
 	// Add sprint plan scoping instructions if provided
-	if sprintPlan != "" {
-		b.WriteString(`
-SCOPE CONSTRAINT (from sprint-plan.md):
-
-The following sprint plan defines what is IN SCOPE for this review. Only flag
-issues in files/areas directly related to the work items below. Do NOT flag
-issues in unrelated code that happens to appear in the diff (e.g., unrelated
-refactoring, formatting changes, or dependencies pulled in by the changes).
-
---- BEGIN SPRINT PLAN ---
-`)
-		b.WriteString(sprintPlan)
-		b.WriteString(`
---- END SPRINT PLAN ---
-
-Apply this scope: if a finding is in a file not mentioned in the sprint plan's
-tasks/stories, or addresses concerns outside the sprint's stated goals, mark it
-as OUT-OF-SCOPE in your review (do not include it in TD_STREAM).
-`)
-	}
+	b.WriteString(sprintPlanScopeBlock(sprintPlan))
 
 	return b.String()
 }
