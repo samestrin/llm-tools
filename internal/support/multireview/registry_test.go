@@ -458,3 +458,41 @@ agents:
 		t.Errorf("Fallback = %q, want mira-backup", reg.Agents["mira"].Fallback)
 	}
 }
+
+func TestLoadRegistry_AgentIdleTimeoutDefaults(t *testing.T) {
+	dir := t.TempDir()
+
+	registryYAML := `
+providers:
+  openai:
+    api_key_env: OPENAI_API_KEY
+    base_url: https://api.openai.com/v1
+
+agents:
+  custom-idle:
+    provider: openai
+    model: gpt-4o
+    idle_timeout_secs: 300
+  default-idle:
+    provider: openai
+    model: gpt-4o
+`
+	if err := os.WriteFile(filepath.Join(dir, "registry.yaml"), []byte(registryYAML), 0o644); err != nil {
+		t.Fatalf("write registry.yaml: %v", err)
+	}
+
+	reg, err := LoadRegistry(dir)
+	if err != nil {
+		t.Fatalf("LoadRegistry failed: %v", err)
+	}
+
+	custom, _ := reg.GetAgent("custom-idle")
+	if custom.IdleTimeoutSecs != 300 {
+		t.Errorf("custom-idle IdleTimeoutSecs = %d, want 300", custom.IdleTimeoutSecs)
+	}
+
+	def, _ := reg.GetAgent("default-idle")
+	if def.IdleTimeoutSecs != 120 {
+		t.Errorf("default-idle IdleTimeoutSecs = %d, want 120 (default)", def.IdleTimeoutSecs)
+	}
+}

@@ -513,3 +513,143 @@ func TestNewDirectClient_NoHTTPClientTimeout(t *testing.T) {
 		t.Errorf("HTTPClient.Timeout = %v, want 0 (per-agent context deadline governs)", client.HTTPClient.Timeout)
 	}
 }
+
+func TestInvokeDirect_UsesStreaming(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llmapi.ChatRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		if !req.Stream {
+			t.Error("expected stream: true in review request body")
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		for _, part := range []string{"Review: ", "streamed ", "findings"} {
+			b, _ := json.Marshal(map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{"delta": map[string]string{"content": part}},
+				},
+			})
+			w.Write([]byte("data: " + string(b) + "\n\n"))
+			flusher.Flush()
+		}
+		w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	result := InvokeDirect(context.Background(), InvokeDirectParams{
+		AgentName: "stream-agent",
+		AgentConfig: AgentConfig{
+			Name:  "stream-agent",
+			Model: "gpt-4o",
+		},
+		APIConfig: &llmapi.APIConfig{
+			APIKey:  "test-key",
+			BaseURL: server.URL,
+			Model:   "gpt-4o",
+		},
+		TaskMessage: "Review this diff",
+		Timeout:     10 * time.Second,
+		IdleTimeout: 2 * time.Second,
+	})
+
+	if result.Status != "ok" {
+		t.Fatalf("Status = %q (error: %v), want ok", result.Status, result.Error)
+	}
+	if result.ReviewProse != "Review: streamed findings" {
+		t.Errorf("ReviewProse = %q, want assembled stream content", result.ReviewProse)
+	}
+}
+
+func TestInvokeDirect_StreamOutlastsIdleWindow(t *testing.T) {
+	// Scaled AC3 scenario: the generation takes longer than the idle window
+	// in total, but chunks keep arriving — the agent must complete within
+	// its per-agent budget instead of being killed by a whole-response cap.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		for i := 0; i < 8; i++ {
+			time.Sleep(50 * time.Millisecond)
+			b, _ := json.Marshal(map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{"delta": map[string]string{"content": "x"}},
+				},
+			})
+			w.Write([]byte("data: " + string(b) + "\n\n"))
+			flusher.Flush()
+		}
+		w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	result := InvokeDirect(context.Background(), InvokeDirectParams{
+		AgentName: "slow-stream-agent",
+		AgentConfig: AgentConfig{
+			Name:  "slow-stream-agent",
+			Model: "gpt-4o",
+		},
+		APIConfig: &llmapi.APIConfig{
+			APIKey:  "test-key",
+			BaseURL: server.URL,
+			Model:   "gpt-4o",
+		},
+		TaskMessage: "Review",
+		Timeout:     5 * time.Second,
+		IdleTimeout: 200 * time.Millisecond, // total stream ~400ms > idle window
+	})
+
+	if result.Status != "ok" {
+		t.Fatalf("Status = %q (error: %v), want ok", result.Status, result.Error)
+	}
+	if result.ReviewProse != "xxxxxxxx" {
+		t.Errorf("ReviewProse = %q, want 8 x's", result.ReviewProse)
+	}
+}
+
+func TestInvokeDirect_StalledStream_TimesOutByIdle(t *testing.T) {
+	done := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		b, _ := json.Marshal(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{"delta": map[string]string{"content": "stuck"}},
+			},
+		})
+		w.Write([]byte("data: " + string(b) + "\n\n"))
+		flusher.Flush()
+		<-done // stall forever
+	}))
+	defer server.Close()
+	defer close(done)
+
+	start := time.Now()
+	result := InvokeDirect(context.Background(), InvokeDirectParams{
+		AgentName: "stalled-agent",
+		AgentConfig: AgentConfig{
+			Name:  "stalled-agent",
+			Model: "gpt-4o",
+		},
+		APIConfig: &llmapi.APIConfig{
+			APIKey:  "test-key",
+			BaseURL: server.URL,
+			Model:   "gpt-4o",
+		},
+		TaskMessage: "Review",
+		Timeout:     30 * time.Second,
+		IdleTimeout: 150 * time.Millisecond,
+	})
+	elapsed := time.Since(start)
+
+	if result.Status != "timeout" {
+		t.Errorf("Status = %q, want timeout (idle stall)", result.Status)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("stalled stream took %v to fail, want ~150ms", elapsed)
+	}
+}
