@@ -53,9 +53,9 @@ An empty diff is a hard error — nothing to review.
 
 With --sprint-plan, the file's content is injected into reviewer prompts as
 a scope constraint so findings stay within the sprint's work items (matching
-multi_review). A missing file is ignored — reviewers fall back to
-diff-touched-line scoping. --task-message overrides the entire task message,
-including the scope block.
+multi_review). A missing or whitespace-only file is ignored and an unreadable
+file warns — in both cases reviewers fall back to diff-touched-line scoping.
+--task-message overrides the entire task message, including the scope block.
 
 Output layout matches multi_review for compatibility:
   <output-dir>/raw/<agent>/{review.md,status.json}

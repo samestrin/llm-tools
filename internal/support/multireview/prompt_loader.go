@@ -53,12 +53,14 @@ type PromptVars struct {
 	AgentName string
 
 	// SprintPlanPath is the local path to sprint-plan.md or epic file,
-	// if provided via --sprint-plan. Empty when not provided.
+	// as provided via --sprint-plan. Set only when SprintPlanContent is
+	// non-empty, so path and content never disagree in templates.
 	SprintPlanPath string
 
 	// SprintPlanContent is the full text content of the sprint plan.
 	// Reviewers use this to scope findings to work items in the sprint.
-	// Empty when --sprint-plan not provided.
+	// Empty when --sprint-plan was not provided, or when the file is
+	// missing, unreadable, or whitespace-only (treated as no plan).
 	SprintPlanContent string
 
 	// HasSprintPlan is true when SprintPlanContent is non-empty.

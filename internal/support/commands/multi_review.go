@@ -129,7 +129,7 @@ Failure semantics:
 	cmd.Flags().IntVar(&mrTimeoutSeconds, "timeout-seconds", 1200, "Total wall-clock budget for the entire fan-out")
 	cmd.Flags().IntVar(&mrPerReviewerTO, "per-reviewer-timeout-seconds", 1200, "Per-reviewer soft timeout (default 1200s — observed 600s default timing out for real sprints)")
 	cmd.Flags().StringVar(&mrGatewayContainer, "gateway-container", "openclaw-gateway", "Docker container running openclaw")
-	cmd.Flags().StringVar(&mrTaskMessage, "task-message", "", "Override the task message sent to each reviewer; default is auto-built from --base/--head/--repo")
+	cmd.Flags().StringVar(&mrTaskMessage, "task-message", "", "Override the task message sent to each reviewer; default is auto-built from --base/--head/--repo (suppresses --sprint-plan scoping)")
 	cmd.Flags().BoolVar(&mrSkipCleanup, "skip-cleanup", false, "Do not remove the remote workdir after running")
 	cmd.Flags().StringVar(&mrSprintPlan, "sprint-plan", "", "Path to sprint-plan.md or epic file; content is injected into reviewer prompts to scope findings")
 	cmd.Flags().StringVar(&mrConfig, "config", "", "Optional config.yaml; review.multi_agent.* keys supply defaults for unset flags")
@@ -297,8 +297,15 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 		headForVars = "HEAD"
 	}
 
-	// Read sprint plan content if provided
+	// Read sprint plan content if provided. The path var is set only when
+	// content survived the read, so templates branching on SprintPlanPath
+	// instead of HasSprintPlan can't reference a plan that was treated as
+	// absent (missing, unreadable, or whitespace-only file).
 	sprintPlanContent := readSprintPlan(mrSprintPlan, cmd.ErrOrStderr())
+	sprintPlanPath := mrSprintPlan
+	if sprintPlanContent == "" {
+		sprintPlanPath = ""
+	}
 
 	promptVarsBase := multireview.PromptVars{
 		DiffPath:          diffRes.DiffPath,
@@ -309,7 +316,7 @@ func runMultiReview(cmd *cobra.Command, _ []string) error {
 		BaseRef:           mrBaseRef,
 		HeadRef:           headForVars,
 		RemoteRepo:        shipRes.RemoteRepoPath,
-		SprintPlanPath:    mrSprintPlan,
+		SprintPlanPath:    sprintPlanPath,
 		SprintPlanContent: sprintPlanContent,
 		HasSprintPlan:     sprintPlanContent != "",
 		// AgentName is filled per-call in invokeOne.

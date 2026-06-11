@@ -1406,3 +1406,64 @@ func TestMultiReview_MergeCommitUnreachableFromBundleRefs(t *testing.T) {
 		t.Errorf("error %q should explain the commit is not bundle-reachable", err.Error())
 	}
 }
+
+func TestMultiReview_SprintPlanInTaskMessage(t *testing.T) {
+	// Guards the shared-helper wiring on multi_review's own path: the scope
+	// block must reach the reviewer task message when a plan is provided, and
+	// a whitespace-only plan must behave as no plan. Isolate from any locally
+	// synced per-agent templates — this asserts the BUILTIN message.
+	t.Setenv("LLM_TOOLS_MULTI_REVIEW_PROMPTS", t.TempDir())
+
+	cases := []struct {
+		name        string
+		planContent string
+		wantScope   bool
+	}{
+		{"real plan scopes message", "## Sprint 9.0 widget work\n- Task: add widget", true},
+		{"whitespace-only plan is no plan", " \n\t\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := initFixtureRepoMR(t)
+			outDir := filepath.Join(t.TempDir(), "out")
+			planFile := filepath.Join(t.TempDir(), "sprint-plan.md")
+			if err := os.WriteFile(planFile, []byte(tc.planContent), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			withMockShipBundle(t)
+			withMockPreComputeDiff(t)
+
+			var capturedTaskMessage string
+			withMockInvoker(t, func(ctx context.Context, p multireview.InvokeReviewerParams) (multireview.InvokeReviewerResult, error) {
+				capturedTaskMessage = p.TaskMessage
+				return mockResultFor(p.AgentName, "LOW|f:1|p|x|c"), nil
+			})
+
+			cmd := newMultiReviewCmd()
+			cmd.SetArgs([]string{
+				"--reviewers", "bruce",
+				"--repo", repo,
+				"--openclaw-host", "user@example.lan",
+				"--output-dir", outDir,
+				"--base", "v1",
+				"--timeout-seconds", "30",
+				"--sprint-plan", planFile,
+			})
+			cmd.SetOut(new(bytes.Buffer))
+			cmd.SetErr(new(bytes.Buffer))
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("execute: %v", err)
+			}
+
+			hasScope := strings.Contains(capturedTaskMessage, "SCOPE CONSTRAINT")
+			if hasScope != tc.wantScope {
+				t.Errorf("scope block present = %v, want %v. Task message:\n%s",
+					hasScope, tc.wantScope, capturedTaskMessage)
+			}
+			if tc.wantScope && !strings.Contains(capturedTaskMessage, "Sprint 9.0 widget work") {
+				t.Error("task message missing sprint plan content")
+			}
+		})
+	}
+}
