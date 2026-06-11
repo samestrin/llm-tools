@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -139,5 +140,79 @@ func TestNewLLMClient(t *testing.T) {
 	}
 	if client.HTTPClient == nil {
 		t.Error("expected HTTPClient to be initialized")
+	}
+}
+
+func TestLLMClient_Timeout_NotRetried(t *testing.T) {
+	var mu sync.Mutex
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		callCount++
+		mu.Unlock()
+		time.Sleep(300 * time.Millisecond) // hang past the per-attempt timeout
+		json.NewEncoder(w).Encode(ChatResponse{Choices: []Choice{{Message: Message{Content: "late"}}}})
+	}))
+	defer server.Close()
+
+	client := NewLLMClient("test-key", server.URL, "test-model")
+	client.HTTPClient.Timeout = 50 * time.Millisecond
+	client.RetryDelay = 10 * time.Millisecond
+
+	_, err := client.Complete("Test prompt", 5*time.Second)
+
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	mu.Lock()
+	got := callCount
+	mu.Unlock()
+	// A timed-out request re-sends the full prompt and forces the backend to
+	// repeat the entire prefill — retrying it is deterministic waste.
+	if got != 1 {
+		t.Errorf("server invoked %d times, want exactly 1 (timeouts must not be retried)", got)
+	}
+}
+
+func TestLLMClient_TransientNetworkError_StillRetried(t *testing.T) {
+	var mu sync.Mutex
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		callCount++
+		n := callCount
+		mu.Unlock()
+		if n < 2 {
+			// Abort the connection without a response: the client sees a
+			// non-timeout network error (connection reset), which must
+			// remain retryable.
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Fatal("server does not support hijacking")
+			}
+			conn, _, _ := hj.Hijack()
+			conn.Close()
+			return
+		}
+		json.NewEncoder(w).Encode(ChatResponse{Choices: []Choice{{Message: Message{Content: "recovered"}}}})
+	}))
+	defer server.Close()
+
+	client := NewLLMClient("test-key", server.URL, "test-model")
+	client.RetryDelay = 10 * time.Millisecond
+
+	result, err := client.Complete("Test prompt", 5*time.Second)
+
+	if err != nil {
+		t.Fatalf("Complete failed: %v (transient network errors must stay retryable)", err)
+	}
+	if result != "recovered" {
+		t.Errorf("result = %q, want \"recovered\"", result)
+	}
+	mu.Lock()
+	got := callCount
+	mu.Unlock()
+	if got < 2 {
+		t.Errorf("server invoked %d times, want >= 2 (retry after connection reset)", got)
 	}
 }

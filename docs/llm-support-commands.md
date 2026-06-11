@@ -2222,8 +2222,20 @@ llm-support review_direct [flags]
   diff.txt                    # self-serve mode only
   raw/<agent>/{review.md,status.json}
   td-stream.txt               # merged findings across reviewers
-  multi-review-summary.json   # per-reviewer status + counts + partial flag
+  multi-review-summary.json   # per-reviewer status (ok|failed|timeout|skipped) + counts + partial flag
 ```
+
+**Registry agent fields** (`registry.yaml` under `--registry-dir`):
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `provider` / `model` | — | Provider name and model identifier |
+| `timeout_secs` | `600` | Per-agent total budget. Governs the whole request via the context deadline; requests are not capped by a fixed per-attempt HTTP timeout, and a timed-out request is never retried. |
+| `idle_timeout_secs` | `120` | Max gap between stream activity. Reviews stream (SSE), so liveness is any received bytes — including keep-alives. Raise this for slow-prefill backends that emit nothing while prefilling. |
+| `context_window` | (unset) | Model context window in tokens. When set, a prompt estimated (bytes/4) to exceed it is skipped pre-flight: status `skipped` with a cause-naming error, no request sent, and the agent's `fallback` is still tried. Unset means unguarded. |
+| `temperature` | `0.7` | Generation temperature |
+| `rate_limited` | `false` | Runs in the serial lane |
+| `fallback` | (none) | Agent to try when this one fails, times out, or is skipped |
 
 **Examples:**
 

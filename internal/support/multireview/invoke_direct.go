@@ -3,6 +3,7 @@ package multireview
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/samestrin/llm-tools/pkg/llmapi"
@@ -20,6 +21,9 @@ type InvokeDirectParams struct {
 	TaskMessage string
 	// Timeout caps the API call duration.
 	Timeout time.Duration
+	// IdleTimeout bounds the gap between stream activity; 0 uses the
+	// llmapi default (120s).
+	IdleTimeout time.Duration
 }
 
 // InvokeDirectResult captures one direct invocation's output.
@@ -28,7 +32,7 @@ type InvokeDirectResult struct {
 	AgentName string
 	// Model from the agent configuration.
 	Model string
-	// Status: "ok", "failed", or "timeout".
+	// Status: "ok", "failed", "timeout", or "skipped".
 	Status string
 	// DurationMS is the elapsed time in milliseconds.
 	DurationMS int64
@@ -53,12 +57,21 @@ func InvokeDirect(ctx context.Context, p InvokeDirectParams) InvokeDirectResult 
 		Model:     p.AgentConfig.Model,
 	}
 
+	// Pre-flight context-window guard: an over-window prompt either fails
+	// loudly (vLLM 400) or gets silently truncated into a confidently wrong
+	// review (llama.cpp), so skip before sending anything.
+	if p.AgentConfig.ContextWindow > 0 {
+		if est := estimatePromptTokens(p.AgentConfig.SystemPrompt, p.TaskMessage); est > p.AgentConfig.ContextWindow {
+			result.Status = "skipped"
+			result.Error = fmt.Errorf("skipped: prompt ~%dk tokens exceeds %dk context",
+				(est+999)/1000, p.AgentConfig.ContextWindow/1000)
+			result.DurationMS = time.Since(start).Milliseconds()
+			return result
+		}
+	}
+
 	// Create LLM client
-	client := llmapi.NewLLMClient(p.APIConfig.APIKey, p.APIConfig.BaseURL, p.AgentConfig.Model)
-	client.Temperature = p.AgentConfig.Temperature
-	// Reduce retry delays to prevent timeout exhaustion on non-retryable errors
-	client.RetryDelay = 500 * time.Millisecond
-	client.RetryBackoff = 1.5
+	client := newDirectClient(p)
 
 	// Apply timeout to context if not already set
 	if p.Timeout > 0 {
@@ -67,8 +80,16 @@ func InvokeDirect(ctx context.Context, p InvokeDirectParams) InvokeDirectResult 
 		defer cancel()
 	}
 
-	// Make the API call
-	content, err := client.CompleteWithContext(ctx, p.AgentConfig.SystemPrompt, p.TaskMessage)
+	// Make the API call. Reviews stream so litellm-style gateways return
+	// headers immediately instead of buffering the full generation; the
+	// idle timeout watches for stalls while the context caps total time.
+	var messages []llmapi.Message
+	if p.AgentConfig.SystemPrompt != "" {
+		messages = append(messages, llmapi.Message{Role: "system", Content: p.AgentConfig.SystemPrompt})
+	}
+	messages = append(messages, llmapi.Message{Role: "user", Content: p.TaskMessage})
+
+	content, err := client.CompleteMessagesStream(ctx, messages, p.IdleTimeout)
 
 	result.DurationMS = time.Since(start).Milliseconds()
 
@@ -91,6 +112,26 @@ func InvokeDirect(ctx context.Context, p InvokeDirectParams) InvokeDirectResult 
 	return result
 }
 
+// estimatePromptTokens approximates the prompt's token count with the
+// bytes/4 heuristic used by the pre-flight context-window guard.
+func estimatePromptTokens(systemPrompt, taskMessage string) int {
+	return (len(systemPrompt) + len(taskMessage)) / 4
+}
+
+// newDirectClient builds the LLM client for a direct review invocation.
+func newDirectClient(p InvokeDirectParams) *llmapi.LLMClient {
+	client := llmapi.NewLLMClient(p.APIConfig.APIKey, p.APIConfig.BaseURL, p.AgentConfig.Model)
+	client.Temperature = p.AgentConfig.Temperature
+	// Reduce retry delays to prevent timeout exhaustion on non-retryable errors
+	client.RetryDelay = 500 * time.Millisecond
+	client.RetryBackoff = 1.5
+	// The per-agent budget is enforced by the context deadline in InvokeDirect.
+	// http.Client.Timeout is per-attempt and would silently cap long review
+	// generations below the budget (the default is tuned for short calls).
+	client.HTTPClient.Timeout = 0
+	return client
+}
+
 // ToInvokeReviewerResult converts to the openclaw-compatible result format.
 func (r InvokeDirectResult) ToInvokeReviewerResult() InvokeReviewerResult {
 	return InvokeReviewerResult{
@@ -98,7 +139,7 @@ func (r InvokeDirectResult) ToInvokeReviewerResult() InvokeReviewerResult {
 		Model:       r.Model,
 		Status:      r.Status,
 		DurationMS:  r.DurationMS,
-		Aborted:     r.Status == "timeout" || r.Status == "failed",
+		Aborted:     r.Status == "timeout" || r.Status == "failed" || r.Status == "skipped",
 		ReviewProse: r.ReviewProse,
 	}
 }

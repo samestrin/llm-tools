@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-06-11
+
+Fixed the `review_direct` fan-out failure where every agent — cloud and local alike — died at ~482s with `Client.Timeout exceeded while awaiting headers` on large diffs (12/12 agents failing). Three layers shipped: correct timeout propagation, streaming with stall detection, and a per-agent context-window guard.
+
+### Fixed
+
+#### llm-support
+
+- **`review_direct` agents are no longer killed by a hardcoded 120-second per-attempt HTTP timeout** — the per-agent `timeout_secs` budget now governs the whole request via the context deadline, so long review generations run to completion within their configured budget.
+- **Timed-out LLM API requests are no longer retried** — a timeout is deterministic for a given prompt, and each retry re-sent the full prompt (forcing the backend to repeat the entire prefill). Timeouts now fail fast across all `pkg/llmapi` consumers; transient network errors (connection refused/reset, DNS) remain retryable.
+
+### Added
+
+#### llm-support
+
+- **SSE streaming for `review_direct` reviewer calls** — headers arrive immediately instead of after the full generation, replacing the whole-response timeout with a stall detector. Liveness is byte-level: any received bytes (keep-alives included) count. Gateways that ignore `stream: true` fall back to plain-JSON parsing transparently.
+- **`idle_timeout_secs` per-agent registry field** — maximum gap between stream activity (default 120s); raise it for slow-prefill backends that emit nothing while prefilling.
+- **`context_window` per-agent registry field with pre-flight guard** — agents whose estimated prompt tokens (bytes/4) exceed their window are skipped in milliseconds with status `skipped` and a cause-naming error instead of timing out (vLLM) or silently reviewing a truncated diff (llama.cpp). The agent's `fallback` is still tried, so a larger-window backup can pick up the review. Agents without the field behave as before.
+- **`skipped` reviewer status** — `multi-review-summary.json` and per-agent `status.json` now distinguish `ok` / `failed` / `timeout` / `skipped`, with error strings naming the actual cause.
+- **Registry agent field documentation** — `docs/llm-support-commands.md` now documents `timeout_secs`, `idle_timeout_secs`, `context_window`, and the fallback semantics for `review_direct`.
+
+*Shipped via /execute-epic (epic 1.0)*
+
 ## [Unreleased]
 
 ### Fixed

@@ -489,3 +489,289 @@ func TestInvokeDirect_LargeResponse(t *testing.T) {
 		t.Errorf("ReviewProse length = %d, expected > 100000", len(result.ReviewProse))
 	}
 }
+
+func TestNewDirectClient_NoHTTPClientTimeout(t *testing.T) {
+	client := newDirectClient(InvokeDirectParams{
+		AgentName: "budget-agent",
+		AgentConfig: AgentConfig{
+			Name:        "budget-agent",
+			Model:       "gpt-4o",
+			Temperature: 0.3,
+		},
+		APIConfig: &llmapi.APIConfig{
+			APIKey:  "test-key",
+			BaseURL: "http://example.invalid",
+			Model:   "gpt-4o",
+		},
+		Timeout: 5 * time.Second,
+	})
+
+	// The per-agent budget governs via the context deadline; a non-zero
+	// http.Client.Timeout would silently cap every attempt below the budget
+	// (the 120s default killed all 12 agents in the observed fan-out).
+	if client.HTTPClient.Timeout != 0 {
+		t.Errorf("HTTPClient.Timeout = %v, want 0 (per-agent context deadline governs)", client.HTTPClient.Timeout)
+	}
+}
+
+func TestInvokeDirect_UsesStreaming(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llmapi.ChatRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		if !req.Stream {
+			t.Error("expected stream: true in review request body")
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		for _, part := range []string{"Review: ", "streamed ", "findings"} {
+			b, _ := json.Marshal(map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{"delta": map[string]string{"content": part}},
+				},
+			})
+			w.Write([]byte("data: " + string(b) + "\n\n"))
+			flusher.Flush()
+		}
+		w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	result := InvokeDirect(context.Background(), InvokeDirectParams{
+		AgentName: "stream-agent",
+		AgentConfig: AgentConfig{
+			Name:  "stream-agent",
+			Model: "gpt-4o",
+		},
+		APIConfig: &llmapi.APIConfig{
+			APIKey:  "test-key",
+			BaseURL: server.URL,
+			Model:   "gpt-4o",
+		},
+		TaskMessage: "Review this diff",
+		Timeout:     10 * time.Second,
+		IdleTimeout: 2 * time.Second,
+	})
+
+	if result.Status != "ok" {
+		t.Fatalf("Status = %q (error: %v), want ok", result.Status, result.Error)
+	}
+	if result.ReviewProse != "Review: streamed findings" {
+		t.Errorf("ReviewProse = %q, want assembled stream content", result.ReviewProse)
+	}
+}
+
+func TestInvokeDirect_StreamOutlastsIdleWindow(t *testing.T) {
+	// Scaled AC3 scenario: the generation takes longer than the idle window
+	// in total, but chunks keep arriving — the agent must complete within
+	// its per-agent budget instead of being killed by a whole-response cap.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		for i := 0; i < 8; i++ {
+			time.Sleep(50 * time.Millisecond)
+			b, _ := json.Marshal(map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{"delta": map[string]string{"content": "x"}},
+				},
+			})
+			w.Write([]byte("data: " + string(b) + "\n\n"))
+			flusher.Flush()
+		}
+		w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	result := InvokeDirect(context.Background(), InvokeDirectParams{
+		AgentName: "slow-stream-agent",
+		AgentConfig: AgentConfig{
+			Name:  "slow-stream-agent",
+			Model: "gpt-4o",
+		},
+		APIConfig: &llmapi.APIConfig{
+			APIKey:  "test-key",
+			BaseURL: server.URL,
+			Model:   "gpt-4o",
+		},
+		TaskMessage: "Review",
+		Timeout:     5 * time.Second,
+		IdleTimeout: 200 * time.Millisecond, // total stream ~400ms > idle window
+	})
+
+	if result.Status != "ok" {
+		t.Fatalf("Status = %q (error: %v), want ok", result.Status, result.Error)
+	}
+	if result.ReviewProse != "xxxxxxxx" {
+		t.Errorf("ReviewProse = %q, want 8 x's", result.ReviewProse)
+	}
+}
+
+func TestInvokeDirect_StalledStream_TimesOutByIdle(t *testing.T) {
+	done := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher := w.(http.Flusher)
+		b, _ := json.Marshal(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{"delta": map[string]string{"content": "stuck"}},
+			},
+		})
+		w.Write([]byte("data: " + string(b) + "\n\n"))
+		flusher.Flush()
+		<-done // stall forever
+	}))
+	defer server.Close()
+	defer close(done)
+
+	start := time.Now()
+	result := InvokeDirect(context.Background(), InvokeDirectParams{
+		AgentName: "stalled-agent",
+		AgentConfig: AgentConfig{
+			Name:  "stalled-agent",
+			Model: "gpt-4o",
+		},
+		APIConfig: &llmapi.APIConfig{
+			APIKey:  "test-key",
+			BaseURL: server.URL,
+			Model:   "gpt-4o",
+		},
+		TaskMessage: "Review",
+		Timeout:     30 * time.Second,
+		IdleTimeout: 150 * time.Millisecond,
+	})
+	elapsed := time.Since(start)
+
+	if result.Status != "timeout" {
+		t.Errorf("Status = %q, want timeout (idle stall)", result.Status)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("stalled stream took %v to fail, want ~150ms", elapsed)
+	}
+}
+
+func TestInvokeDirect_ContextWindowExceeded_Skipped(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		json.NewEncoder(w).Encode(llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{Message: llmapi.Message{Content: "should never run"}}},
+		})
+	}))
+	defer server.Close()
+
+	start := time.Now()
+	result := InvokeDirect(context.Background(), InvokeDirectParams{
+		AgentName: "small-window-agent",
+		AgentConfig: AgentConfig{
+			Name:          "small-window-agent",
+			Model:         "local-model",
+			ContextWindow: 1000, // ~1k tokens
+		},
+		APIConfig: &llmapi.APIConfig{
+			APIKey:  "test-key",
+			BaseURL: server.URL,
+			Model:   "local-model",
+		},
+		TaskMessage: strings.Repeat("x", 8000), // ~2k tokens by bytes/4
+		Timeout:     10 * time.Second,
+	})
+	elapsed := time.Since(start)
+
+	if result.Status != "skipped" {
+		t.Fatalf("Status = %q (error: %v), want skipped", result.Status, result.Error)
+	}
+	if result.Error == nil {
+		t.Fatal("Error = nil, want cause-naming skip error")
+	}
+	msg := result.Error.Error()
+	if !strings.Contains(msg, "skipped:") || !strings.Contains(msg, "exceeds") {
+		t.Errorf("Error = %q, want \"skipped: prompt ~Nk tokens exceeds Mk context\" shape", msg)
+	}
+	if callCount != 0 {
+		t.Errorf("server invoked %d times, want 0 (no prompt may be sent for an over-window agent)", callCount)
+	}
+	if elapsed > time.Second {
+		t.Errorf("skip took %v, want milliseconds (fail fast)", elapsed)
+	}
+}
+
+func TestInvokeDirect_ContextWindowFits_Proceeds(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{Message: llmapi.Message{Content: "Review: fits"}}},
+		})
+	}))
+	defer server.Close()
+
+	result := InvokeDirect(context.Background(), InvokeDirectParams{
+		AgentName: "big-window-agent",
+		AgentConfig: AgentConfig{
+			Name:          "big-window-agent",
+			Model:         "cloud-model",
+			ContextWindow: 200000,
+		},
+		APIConfig: &llmapi.APIConfig{
+			APIKey:  "test-key",
+			BaseURL: server.URL,
+			Model:   "cloud-model",
+		},
+		TaskMessage: strings.Repeat("x", 8000),
+		Timeout:     10 * time.Second,
+	})
+
+	if result.Status != "ok" {
+		t.Errorf("Status = %q (error: %v), want ok", result.Status, result.Error)
+	}
+}
+
+func TestInvokeDirect_NoContextWindow_BehavesAsToday(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		json.NewEncoder(w).Encode(llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{Message: llmapi.Message{Content: "Review: unguarded"}}},
+		})
+	}))
+	defer server.Close()
+
+	result := InvokeDirect(context.Background(), InvokeDirectParams{
+		AgentName: "unguarded-agent",
+		AgentConfig: AgentConfig{
+			Name:  "unguarded-agent",
+			Model: "cloud-model",
+			// ContextWindow deliberately unset
+		},
+		APIConfig: &llmapi.APIConfig{
+			APIKey:  "test-key",
+			BaseURL: server.URL,
+			Model:   "cloud-model",
+		},
+		TaskMessage: strings.Repeat("x", 800000), // huge prompt, no guard
+		Timeout:     10 * time.Second,
+	})
+
+	if result.Status != "ok" {
+		t.Errorf("Status = %q (error: %v), want ok (agents without context_window behave as today)", result.Status, result.Error)
+	}
+	if callCount == 0 {
+		t.Error("server never invoked; unguarded agent must send the request")
+	}
+}
+
+func TestInvokeDirect_ToInvokeReviewerResult_Skipped(t *testing.T) {
+	result := InvokeDirectResult{
+		AgentName: "test",
+		Status:    "skipped",
+	}
+
+	converted := result.ToInvokeReviewerResult()
+
+	if !converted.Aborted {
+		t.Error("Aborted = false, want true for skipped status")
+	}
+}

@@ -944,3 +944,257 @@ func TestInvokeAgentWithFallback_MissingAgentErrorNotDoubleWrapped(t *testing.T)
 		t.Errorf("error %q contains %d 'agent not found' prefixes, want exactly 1", msg, got)
 	}
 }
+
+func TestFanout_SkippedPrimary_FallbackTried(t *testing.T) {
+	os.Setenv("PRIMARY_API_KEY", "primary-key")
+	os.Setenv("FALLBACK_API_KEY", "fallback-key")
+	defer os.Unsetenv("PRIMARY_API_KEY")
+	defer os.Unsetenv("FALLBACK_API_KEY")
+
+	primaryCalls := 0
+	primaryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		primaryCalls++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer primaryServer.Close()
+
+	fallbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{
+				Message: llmapi.Message{Content: "Review from large-window fallback"},
+			}},
+		})
+	}))
+	defer fallbackServer.Close()
+
+	registry := &Registry{
+		Providers: map[string]ProviderConfig{
+			"primary-provider": {
+				Name:      "primary-provider",
+				APIKeyEnv: "PRIMARY_API_KEY",
+				BaseURL:   primaryServer.URL,
+			},
+			"fallback-provider": {
+				Name:      "fallback-provider",
+				APIKeyEnv: "FALLBACK_API_KEY",
+				BaseURL:   fallbackServer.URL,
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"local-agent": {
+				Name:          "local-agent",
+				Provider:      "primary-provider",
+				Model:         "local-model",
+				Temperature:   0.3,
+				ContextWindow: 1000, // too small for the prompt
+				Fallback:      "cloud-agent",
+			},
+			"cloud-agent": {
+				Name:        "cloud-agent",
+				Provider:    "fallback-provider",
+				Model:       "cloud-model",
+				Temperature: 0.3,
+				// no context_window: unguarded
+			},
+		},
+	}
+
+	result, err := Fanout(context.Background(), FanoutParams{
+		Registry:       registry,
+		ParallelAgents: []string{"local-agent"},
+		TaskMessage:    strings.Repeat("x", 8000), // ~2k tokens
+		GlobalTimeout:  30 * time.Second,
+		OutputDir:      t.TempDir(),
+	})
+
+	if err != nil {
+		t.Fatalf("Fanout error: %v", err)
+	}
+	if result.SuccessCount != 1 {
+		t.Errorf("SuccessCount = %d, want 1 (fallback succeeds)", result.SuccessCount)
+	}
+	if primaryCalls != 0 {
+		t.Errorf("primary server invoked %d times, want 0 (skipped agent must not send the prompt)", primaryCalls)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("len(Results) = %d, want 1", len(result.Results))
+	}
+	res := result.Results[0]
+	if !res.FallbackUsed {
+		t.Error("FallbackUsed = false, want true (skipped primary triggers fallback)")
+	}
+	if res.OriginalError == nil || !strings.Contains(res.OriginalError.Error(), "skipped:") {
+		t.Errorf("OriginalError = %v, want the primary's skip cause", res.OriginalError)
+	}
+}
+
+func TestFanout_AllSkippedChain_StatusSkipped(t *testing.T) {
+	os.Setenv("LOCAL_API_KEY", "local-key")
+	defer os.Unsetenv("LOCAL_API_KEY")
+
+	serverCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverCalls++
+		json.NewEncoder(w).Encode(llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{Message: llmapi.Message{Content: "never"}}},
+		})
+	}))
+	defer server.Close()
+
+	registry := &Registry{
+		Providers: map[string]ProviderConfig{
+			"local-provider": {
+				Name:      "local-provider",
+				APIKeyEnv: "LOCAL_API_KEY",
+				BaseURL:   server.URL,
+			},
+		},
+		Agents: map[string]AgentConfig{
+			"small-primary": {
+				Name:          "small-primary",
+				Provider:      "local-provider",
+				Model:         "local-a",
+				Temperature:   0.3,
+				ContextWindow: 1000,
+				Fallback:      "small-backup",
+			},
+			"small-backup": {
+				Name:          "small-backup",
+				Provider:      "local-provider",
+				Model:         "local-b",
+				Temperature:   0.3,
+				ContextWindow: 1500, // also too small
+			},
+		},
+	}
+
+	result, err := Fanout(context.Background(), FanoutParams{
+		Registry:       registry,
+		ParallelAgents: []string{"small-primary"},
+		TaskMessage:    strings.Repeat("x", 8000), // ~2k tokens, over both windows
+		GlobalTimeout:  30 * time.Second,
+		OutputDir:      t.TempDir(),
+	})
+
+	if err == nil {
+		t.Error("Fanout err = nil, want \"all agents failed\" when the only chain is fully skipped")
+	}
+	if result.SuccessCount != 0 {
+		t.Errorf("SuccessCount = %d, want 0", result.SuccessCount)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("len(Results) = %d, want 1", len(result.Results))
+	}
+	res := result.Results[0]
+	if res.Status != "skipped" {
+		t.Errorf("Status = %q, want skipped (all-skipped chain stays skipped, not failed/timeout)", res.Status)
+	}
+	if serverCalls != 0 {
+		t.Errorf("server invoked %d times, want 0", serverCalls)
+	}
+	if res.Error == nil || !strings.Contains(res.Error.Error(), "skipped:") {
+		t.Errorf("Error = %v, want skip cause naming the window", res.Error)
+	}
+}
+
+func TestFanout_StatusTaxonomy_DistinguishedInResultsAndStatusJSON(t *testing.T) {
+	os.Setenv("TAXONOMY_API_KEY", "test-key")
+	defer os.Unsetenv("TAXONOMY_API_KEY")
+
+	okServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(llmapi.ChatResponse{
+			Choices: []llmapi.Choice{{Message: llmapi.Message{Content: "Review: fine"}}},
+		})
+	}))
+	defer okServer.Close()
+
+	failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]string{"message": "Invalid API key"},
+		})
+	}))
+	defer failServer.Close()
+
+	registry := &Registry{
+		Providers: map[string]ProviderConfig{
+			"ok-provider":   {Name: "ok-provider", APIKeyEnv: "TAXONOMY_API_KEY", BaseURL: okServer.URL},
+			"fail-provider": {Name: "fail-provider", APIKeyEnv: "TAXONOMY_API_KEY", BaseURL: failServer.URL},
+		},
+		Agents: map[string]AgentConfig{
+			"ok-agent": {
+				Name: "ok-agent", Provider: "ok-provider", Model: "m", Temperature: 0.3,
+			},
+			"fail-agent": {
+				Name: "fail-agent", Provider: "fail-provider", Model: "m", Temperature: 0.3,
+			},
+			"skip-agent": {
+				Name: "skip-agent", Provider: "ok-provider", Model: "m", Temperature: 0.3,
+				ContextWindow: 1000,
+			},
+		},
+	}
+
+	outputDir := t.TempDir()
+	result, err := Fanout(context.Background(), FanoutParams{
+		Registry:       registry,
+		ParallelAgents: []string{"ok-agent", "fail-agent", "skip-agent"},
+		TaskMessage:    strings.Repeat("x", 8000),
+		GlobalTimeout:  30 * time.Second,
+		OutputDir:      outputDir,
+	})
+
+	if err != nil {
+		t.Fatalf("Fanout error: %v (partial success must not error)", err)
+	}
+
+	// AC5: the three failure modes carry distinct statuses with
+	// cause-naming error strings, all the way into status.json (the same
+	// strings buildDirectReviewSummary copies verbatim into the summary).
+	wantStatus := map[string]string{
+		"ok-agent":   "ok",
+		"fail-agent": "failed",
+		"skip-agent": "skipped",
+	}
+	wantErrSubstring := map[string]string{
+		"fail-agent": "Invalid API key",
+		"skip-agent": "skipped:",
+	}
+
+	if len(result.Results) != 3 {
+		t.Fatalf("len(Results) = %d, want 3", len(result.Results))
+	}
+	for _, res := range result.Results {
+		want, ok := wantStatus[res.AgentName]
+		if !ok {
+			t.Errorf("unexpected agent %q in results", res.AgentName)
+			continue
+		}
+		if res.Status != want {
+			t.Errorf("%s: Status = %q, want %q", res.AgentName, res.Status, want)
+		}
+		if sub := wantErrSubstring[res.AgentName]; sub != "" {
+			if res.Error == nil || !strings.Contains(res.Error.Error(), sub) {
+				t.Errorf("%s: Error = %v, want substring %q", res.AgentName, res.Error, sub)
+			}
+		}
+
+		statusPath := filepath.Join(outputDir, "raw", res.AgentName, "status.json")
+		data, readErr := os.ReadFile(statusPath)
+		if readErr != nil {
+			t.Errorf("%s: read status.json: %v", res.AgentName, readErr)
+			continue
+		}
+		var status AgentStatus
+		if jsonErr := json.Unmarshal(data, &status); jsonErr != nil {
+			t.Errorf("%s: parse status.json: %v", res.AgentName, jsonErr)
+			continue
+		}
+		if status.Status != want {
+			t.Errorf("%s: status.json status = %q, want %q", res.AgentName, status.Status, want)
+		}
+		if sub := wantErrSubstring[res.AgentName]; sub != "" && !strings.Contains(status.Error, sub) {
+			t.Errorf("%s: status.json error = %q, want substring %q", res.AgentName, status.Error, sub)
+		}
+	}
+}
