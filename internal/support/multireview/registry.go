@@ -18,14 +18,16 @@ type ProviderConfig struct {
 
 // AgentConfig defines a single reviewer agent.
 type AgentConfig struct {
-	Name         string  `yaml:"-"`            // Set during loading
-	Provider     string  `yaml:"provider"`     // Provider name from ProviderConfig
-	Model        string  `yaml:"model"`        // Model identifier
-	SystemPrompt string  `yaml:"-"`            // Loaded from <agent>.md
-	TimeoutSecs  int     `yaml:"timeout_secs"` // Per-agent timeout (default: 600)
-	RateLimited  bool    `yaml:"rate_limited"` // If true, runs in serial lane
-	Temperature  float64 `yaml:"temperature"`  // Generation temperature (default: 0.7)
-	Fallback     string  `yaml:"fallback"`     // Fallback agent name if this agent fails
+	Name            string  `yaml:"-"`                 // Set during loading
+	Provider        string  `yaml:"provider"`          // Provider name from ProviderConfig
+	Model           string  `yaml:"model"`             // Model identifier
+	SystemPrompt    string  `yaml:"-"`                 // Loaded from <agent>.md
+	TimeoutSecs     int     `yaml:"timeout_secs"`      // Per-agent timeout (default: 600)
+	IdleTimeoutSecs int     `yaml:"idle_timeout_secs"` // Max gap between stream activity (default: 120)
+	ContextWindow   int     `yaml:"context_window"`    // Model context window in tokens; 0 = unguarded
+	RateLimited     bool    `yaml:"rate_limited"`      // If true, runs in serial lane
+	Temperature     float64 `yaml:"temperature"`       // Generation temperature (default: 0.7)
+	Fallback        string  `yaml:"fallback"`          // Fallback agent name if this agent fails
 }
 
 // Registry holds all provider and agent configurations.
@@ -42,12 +44,14 @@ type registryFile struct {
 
 // agentFileEntry is the YAML structure for an agent entry.
 type agentFileEntry struct {
-	Provider    string  `yaml:"provider"`
-	Model       string  `yaml:"model"`
-	TimeoutSecs int     `yaml:"timeout_secs"`
-	RateLimited bool    `yaml:"rate_limited"`
-	Temperature float64 `yaml:"temperature"`
-	Fallback    string  `yaml:"fallback"`
+	Provider        string  `yaml:"provider"`
+	Model           string  `yaml:"model"`
+	TimeoutSecs     int     `yaml:"timeout_secs"`
+	IdleTimeoutSecs int     `yaml:"idle_timeout_secs"`
+	ContextWindow   int     `yaml:"context_window"`
+	RateLimited     bool    `yaml:"rate_limited"`
+	Temperature     float64 `yaml:"temperature"`
+	Fallback        string  `yaml:"fallback"`
 }
 
 // DefaultRegistryDir returns the standard location for agent configurations.
@@ -125,18 +129,23 @@ func LoadRegistry(dir string) (*Registry, error) {
 	// Convert agents, loading system prompts
 	for name, a := range rf.Agents {
 		agent := AgentConfig{
-			Name:        name,
-			Provider:    a.Provider,
-			Model:       a.Model,
-			TimeoutSecs: a.TimeoutSecs,
-			RateLimited: a.RateLimited,
-			Temperature: a.Temperature,
-			Fallback:    a.Fallback,
+			Name:            name,
+			Provider:        a.Provider,
+			Model:           a.Model,
+			TimeoutSecs:     a.TimeoutSecs,
+			IdleTimeoutSecs: a.IdleTimeoutSecs,
+			ContextWindow:   a.ContextWindow,
+			RateLimited:     a.RateLimited,
+			Temperature:     a.Temperature,
+			Fallback:        a.Fallback,
 		}
 
 		// Apply defaults
 		if agent.TimeoutSecs == 0 {
 			agent.TimeoutSecs = 600 // 10 minutes
+		}
+		if agent.IdleTimeoutSecs == 0 {
+			agent.IdleTimeoutSecs = 120
 		}
 		if agent.Temperature == 0.0 {
 			agent.Temperature = 0.7

@@ -230,6 +230,7 @@ func invokeAgentWithFallback(ctx context.Context, p FanoutParams, agentName, ori
 		APIConfig:   apiConfig,
 		TaskMessage: p.TaskMessage,
 		Timeout:     timeout,
+		IdleTimeout: time.Duration(agent.IdleTimeoutSecs) * time.Second,
 	})
 
 	// If primary failed and has a fallback configured, try the fallback
