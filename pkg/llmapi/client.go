@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"time"
 )
@@ -159,11 +160,29 @@ func (c *LLMClient) doRequestWithRetry(ctx context.Context, req ChatRequest) (st
 			continue
 		}
 
-		// Network errors are retryable
+		// A timed-out attempt is never retried: for a given prompt the timeout
+		// is deterministic, and re-sending forces the backend to repeat the
+		// entire prefill for zero benefit.
+		if isTimeoutErr(err) {
+			return "", err
+		}
+
+		// Other network errors (connection refused/reset, DNS) are retryable
 		lastErr = err
 	}
 
 	return "", fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// isTimeoutErr reports whether err is a timeout or cancellation: the
+// context deadline, an explicit cancel, or a net.Error timeout (which is
+// how http.Client.Timeout surfaces).
+func isTimeoutErr(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 // isRetryable returns true if the HTTP status code indicates a retryable error.
