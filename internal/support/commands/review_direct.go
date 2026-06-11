@@ -28,6 +28,7 @@ var (
 	rdRegistryDir     string
 	rdTaskMessage     string
 	rdConfig          string
+	rdSprintPlan      string
 )
 
 func newReviewDirectCmd() *cobra.Command {
@@ -49,6 +50,12 @@ resolution matches 'llm-support review_range': --merge-commit reviews
 sha^..sha (already-merged branches), explicit refs are used as given, and
 with neither the range is the merge-base of HEAD against the default branch.
 An empty diff is a hard error — nothing to review.
+
+With --sprint-plan, the file's content is injected into reviewer prompts as
+a scope constraint so findings stay within the sprint's work items (matching
+multi_review). A missing file is ignored — reviewers fall back to
+diff-touched-line scoping. --task-message overrides the entire task message,
+including the scope block.
 
 Output layout matches multi_review for compatibility:
   <output-dir>/raw/<agent>/{review.md,status.json}
@@ -77,8 +84,9 @@ Examples:
 	cmd.Flags().StringVar(&rdOutputDir, "output-dir", "", "Where per-reviewer artifacts land (required)")
 	cmd.Flags().IntVar(&rdTimeoutSeconds, "timeout-seconds", 900, "Total wall-clock budget for the entire fan-out")
 	cmd.Flags().StringVar(&rdRegistryDir, "registry-dir", multireview.DefaultRegistryDir(), "Directory containing registry.yaml and agent prompts")
-	cmd.Flags().StringVar(&rdTaskMessage, "task-message", "", "Override the task message sent to each reviewer")
+	cmd.Flags().StringVar(&rdTaskMessage, "task-message", "", "Override the task message sent to each reviewer (suppresses --sprint-plan scoping)")
 	cmd.Flags().StringVar(&rdConfig, "config", "", "Optional config.yaml; review.direct.* keys supply defaults for unset flags")
+	cmd.Flags().StringVar(&rdSprintPlan, "sprint-plan", "", "Path to sprint-plan.md or epic file; content is injected into reviewer prompts to scope findings")
 	return cmd
 }
 
@@ -177,10 +185,12 @@ func runReviewDirect(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("--reviewers must list at least one agent")
 	}
 
-	// Build task message
+	// Build task message. --task-message is a full override (matching
+	// multi_review): the sprint-plan scope block is not appended to it.
 	taskMessage := rdTaskMessage
 	if taskMessage == "" {
-		taskMessage = buildReviewTaskMessage(string(diffContent))
+		sprintPlanContent := readSprintPlan(rdSprintPlan, cmd.ErrOrStderr())
+		taskMessage = buildReviewTaskMessage(string(diffContent), sprintPlanContent)
 	}
 
 	// Run fan-out
@@ -220,8 +230,9 @@ func runReviewDirect(cmd *cobra.Command, _ []string) error {
 	return err // Returns nil on partial success, error if all fail
 }
 
-func buildReviewTaskMessage(diffContent string) string {
-	return fmt.Sprintf(`Review the following diff and identify any issues.
+func buildReviewTaskMessage(diffContent, sprintPlan string) string {
+	var b strings.Builder
+	b.WriteString(`Review the following diff and identify any issues.
 
 Output your findings in TD_STREAM format:
 SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY|EST_MINUTES|EVIDENCE|REVIEWER
@@ -238,9 +249,13 @@ Where:
 
 Example:
 HIGH|src/auth.go:42|Missing input validation|Add length check|security|5|user input passed directly to query|bruce
-
-Diff to review:
-%s`, diffContent)
+`)
+	// Scope instructions go BEFORE the embedded diff — the diff can be huge
+	// and instructions buried after it are easy for models to miss.
+	b.WriteString(sprintPlanScopeBlock(sprintPlan))
+	b.WriteString("\nDiff to review:\n")
+	b.WriteString(diffContent)
+	return b.String()
 }
 
 func buildDirectReviewSummary(result multireview.FanoutResult, allReviewers []string) MultiReviewSummary {
