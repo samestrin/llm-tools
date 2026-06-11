@@ -24,6 +24,7 @@ type AgentConfig struct {
 	SystemPrompt    string  `yaml:"-"`                 // Loaded from <agent>.md
 	TimeoutSecs     int     `yaml:"timeout_secs"`      // Per-agent timeout (default: 600)
 	IdleTimeoutSecs int     `yaml:"idle_timeout_secs"` // Max gap between stream activity (default: 120)
+	ContextWindow   int     `yaml:"context_window"`    // Model context window in tokens; 0 = unguarded
 	RateLimited     bool    `yaml:"rate_limited"`      // If true, runs in serial lane
 	Temperature     float64 `yaml:"temperature"`       // Generation temperature (default: 0.7)
 	Fallback        string  `yaml:"fallback"`          // Fallback agent name if this agent fails
@@ -47,6 +48,7 @@ type agentFileEntry struct {
 	Model           string  `yaml:"model"`
 	TimeoutSecs     int     `yaml:"timeout_secs"`
 	IdleTimeoutSecs int     `yaml:"idle_timeout_secs"`
+	ContextWindow   int     `yaml:"context_window"`
 	RateLimited     bool    `yaml:"rate_limited"`
 	Temperature     float64 `yaml:"temperature"`
 	Fallback        string  `yaml:"fallback"`
@@ -132,6 +134,7 @@ func LoadRegistry(dir string) (*Registry, error) {
 			Model:           a.Model,
 			TimeoutSecs:     a.TimeoutSecs,
 			IdleTimeoutSecs: a.IdleTimeoutSecs,
+			ContextWindow:   a.ContextWindow,
 			RateLimited:     a.RateLimited,
 			Temperature:     a.Temperature,
 			Fallback:        a.Fallback,

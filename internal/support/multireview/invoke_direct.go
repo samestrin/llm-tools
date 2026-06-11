@@ -3,6 +3,7 @@ package multireview
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/samestrin/llm-tools/pkg/llmapi"
@@ -31,7 +32,7 @@ type InvokeDirectResult struct {
 	AgentName string
 	// Model from the agent configuration.
 	Model string
-	// Status: "ok", "failed", or "timeout".
+	// Status: "ok", "failed", "timeout", or "skipped".
 	Status string
 	// DurationMS is the elapsed time in milliseconds.
 	DurationMS int64
@@ -54,6 +55,19 @@ func InvokeDirect(ctx context.Context, p InvokeDirectParams) InvokeDirectResult 
 	result := InvokeDirectResult{
 		AgentName: p.AgentName,
 		Model:     p.AgentConfig.Model,
+	}
+
+	// Pre-flight context-window guard: an over-window prompt either fails
+	// loudly (vLLM 400) or gets silently truncated into a confidently wrong
+	// review (llama.cpp), so skip before sending anything.
+	if p.AgentConfig.ContextWindow > 0 {
+		if est := estimatePromptTokens(p.AgentConfig.SystemPrompt, p.TaskMessage); est > p.AgentConfig.ContextWindow {
+			result.Status = "skipped"
+			result.Error = fmt.Errorf("skipped: prompt ~%dk tokens exceeds %dk context",
+				(est+999)/1000, p.AgentConfig.ContextWindow/1000)
+			result.DurationMS = time.Since(start).Milliseconds()
+			return result
+		}
 	}
 
 	// Create LLM client
@@ -98,6 +112,12 @@ func InvokeDirect(ctx context.Context, p InvokeDirectParams) InvokeDirectResult 
 	return result
 }
 
+// estimatePromptTokens approximates the prompt's token count with the
+// bytes/4 heuristic used by the pre-flight context-window guard.
+func estimatePromptTokens(systemPrompt, taskMessage string) int {
+	return (len(systemPrompt) + len(taskMessage)) / 4
+}
+
 // newDirectClient builds the LLM client for a direct review invocation.
 func newDirectClient(p InvokeDirectParams) *llmapi.LLMClient {
 	client := llmapi.NewLLMClient(p.APIConfig.APIKey, p.APIConfig.BaseURL, p.AgentConfig.Model)
@@ -119,7 +139,7 @@ func (r InvokeDirectResult) ToInvokeReviewerResult() InvokeReviewerResult {
 		Model:       r.Model,
 		Status:      r.Status,
 		DurationMS:  r.DurationMS,
-		Aborted:     r.Status == "timeout" || r.Status == "failed",
+		Aborted:     r.Status == "timeout" || r.Status == "failed" || r.Status == "skipped",
 		ReviewProse: r.ReviewProse,
 	}
 }
