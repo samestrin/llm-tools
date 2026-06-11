@@ -533,6 +533,19 @@ func runReviewDirectForSprintPlan(t *testing.T, registryDir, diffFile string, ex
 	return cmd.Execute()
 }
 
+func TestBuildReviewTaskMessage_NoPlanByteIdentity(t *testing.T) {
+	// Pins the pre-refactor output: without a sprint plan the task message
+	// must keep the exact "example line, blank line, diff" shape.
+	msg := buildReviewTaskMessage("DIFF", "")
+	wantTail := "HIGH|src/auth.go:42|Missing input validation|Add length check|security|5|user input passed directly to query|bruce\n\nDiff to review:\nDIFF"
+	if !strings.HasSuffix(msg, wantTail) {
+		t.Errorf("task message tail changed:\n...%q\nwant suffix:\n%q", msg[len(msg)-min(len(msg), 200):], wantTail)
+	}
+	if strings.Contains(msg, "SCOPE CONSTRAINT") {
+		t.Error("unexpected scope block without sprint plan")
+	}
+}
+
 func TestReviewDirectCmd_SprintPlanScopesTaskMessage(t *testing.T) {
 	registryDir, diffFile, captured := sprintPlanTestEnv(t)
 

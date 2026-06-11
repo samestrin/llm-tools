@@ -16,6 +16,25 @@ func TestSprintPlanScopeBlock_Empty(t *testing.T) {
 	}
 }
 
+func TestSprintPlanScopeBlock_WhitespaceOnly(t *testing.T) {
+	// A whitespace-only plan must not inject a scope block: with zero work
+	// items "in scope", a compliant reviewer would suppress ALL findings.
+	if got := sprintPlanScopeBlock(" \n\t\n"); got != "" {
+		t.Errorf("sprintPlanScopeBlock(whitespace) = %q, want empty string", got)
+	}
+}
+
+func TestReadSprintPlan_WhitespaceOnlyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sprint-plan.md")
+	if err := os.WriteFile(path, []byte("\n  \n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	var warnings bytes.Buffer
+	if got := readSprintPlan(path, &warnings); got != "" {
+		t.Errorf("readSprintPlan on whitespace-only file = %q, want empty", got)
+	}
+}
+
 func TestSprintPlanScopeBlock_Content(t *testing.T) {
 	plan := "## Sprint 9.0\n- Task: add widget"
 	got := sprintPlanScopeBlock(plan)
