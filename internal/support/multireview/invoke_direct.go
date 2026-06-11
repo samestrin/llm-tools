@@ -54,11 +54,7 @@ func InvokeDirect(ctx context.Context, p InvokeDirectParams) InvokeDirectResult 
 	}
 
 	// Create LLM client
-	client := llmapi.NewLLMClient(p.APIConfig.APIKey, p.APIConfig.BaseURL, p.AgentConfig.Model)
-	client.Temperature = p.AgentConfig.Temperature
-	// Reduce retry delays to prevent timeout exhaustion on non-retryable errors
-	client.RetryDelay = 500 * time.Millisecond
-	client.RetryBackoff = 1.5
+	client := newDirectClient(p)
 
 	// Apply timeout to context if not already set
 	if p.Timeout > 0 {
@@ -89,6 +85,20 @@ func InvokeDirect(ctx context.Context, p InvokeDirectParams) InvokeDirectResult 
 	result.Status = "ok"
 	result.ReviewProse = content
 	return result
+}
+
+// newDirectClient builds the LLM client for a direct review invocation.
+func newDirectClient(p InvokeDirectParams) *llmapi.LLMClient {
+	client := llmapi.NewLLMClient(p.APIConfig.APIKey, p.APIConfig.BaseURL, p.AgentConfig.Model)
+	client.Temperature = p.AgentConfig.Temperature
+	// Reduce retry delays to prevent timeout exhaustion on non-retryable errors
+	client.RetryDelay = 500 * time.Millisecond
+	client.RetryBackoff = 1.5
+	// The per-agent budget is enforced by the context deadline in InvokeDirect.
+	// http.Client.Timeout is per-attempt and would silently cap long review
+	// generations below the budget (the default is tuned for short calls).
+	client.HTTPClient.Timeout = 0
+	return client
 }
 
 // ToInvokeReviewerResult converts to the openclaw-compatible result format.
