@@ -185,11 +185,14 @@ func runReviewDirect(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("--reviewers must list at least one agent")
 	}
 
+	// Read the sprint plan unconditionally (matching multi_review) so an
+	// unreadable file warns even when --task-message overrides the message.
+	sprintPlanContent := readSprintPlan(rdSprintPlan, cmd.ErrOrStderr())
+
 	// Build task message. --task-message is a full override (matching
 	// multi_review): the sprint-plan scope block is not appended to it.
 	taskMessage := rdTaskMessage
 	if taskMessage == "" {
-		sprintPlanContent := readSprintPlan(rdSprintPlan, cmd.ErrOrStderr())
 		taskMessage = buildReviewTaskMessage(string(diffContent), sprintPlanContent)
 	}
 

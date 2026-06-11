@@ -473,17 +473,23 @@ func TestReviewDirectCmd_ExplicitlyEmptyDiffFileRejected(t *testing.T) {
 	}
 }
 
-// sprintPlanTestEnv stands up a mock provider that captures the request body,
+// sprintPlanTestEnv stands up a mock provider that captures request bodies,
 // a single-agent registry, and a diff file. Returns the registry dir, diff
-// path, and a pointer to the captured body (valid after cmd.Execute returns).
-func sprintPlanTestEnv(t *testing.T) (registryDir, diffFile string, captured *bytes.Buffer) {
+// path, and a mutex-guarded getter for the captured bodies (call it after
+// cmd.Execute returns).
+func sprintPlanTestEnv(t *testing.T) (registryDir, diffFile string, captured func() string) {
 	t.Helper()
-	captured = new(bytes.Buffer)
+	var buf bytes.Buffer
 	var mu sync.Mutex
+	captured = func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return buf.String()
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		mu.Lock()
-		captured.Write(body)
+		buf.Write(body)
 		mu.Unlock()
 		resp := llmapi.ChatResponse{
 			Choices: []llmapi.Choice{{
@@ -558,7 +564,7 @@ func TestReviewDirectCmd_SprintPlanScopesTaskMessage(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	body := captured.String()
+	body := captured()
 	if !strings.Contains(body, "SCOPE CONSTRAINT") {
 		t.Error("request body missing SCOPE CONSTRAINT block")
 	}
@@ -583,7 +589,7 @@ func TestReviewDirectCmd_NoSprintPlanNoScopeBlock(t *testing.T) {
 	if err := runReviewDirectForSprintPlan(t, registryDir, diffFile); err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}
-	if strings.Contains(captured.String(), "SCOPE CONSTRAINT") {
+	if strings.Contains(captured(), "SCOPE CONSTRAINT") {
 		t.Error("unexpected SCOPE CONSTRAINT block without --sprint-plan")
 	}
 }
@@ -596,7 +602,7 @@ func TestReviewDirectCmd_SprintPlanMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing sprint plan file must not fail the review: %v", err)
 	}
-	if strings.Contains(captured.String(), "SCOPE CONSTRAINT") {
+	if strings.Contains(captured(), "SCOPE CONSTRAINT") {
 		t.Error("unexpected SCOPE CONSTRAINT block for missing sprint plan file")
 	}
 }
@@ -613,7 +619,7 @@ func TestReviewDirectCmd_TaskMessageOverrideSuppressesScope(t *testing.T) {
 		t.Fatalf("Execute error: %v", err)
 	}
 
-	body := captured.String()
+	body := captured()
 	if !strings.Contains(body, "custom review instructions") {
 		t.Error("request body missing --task-message override")
 	}

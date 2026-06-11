@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 // Sprint-plan scoping shared by the review fan-out commands (multi_review and
@@ -26,13 +27,18 @@ func readSprintPlan(path string, errW io.Writer) string {
 		}
 		return ""
 	}
+	// A blank plan would inject a scope block with zero in-scope items,
+	// instructing reviewers to suppress every finding. Treat it as no plan.
+	if strings.TrimSpace(string(data)) == "" {
+		return ""
+	}
 	return string(data)
 }
 
 // sprintPlanScopeBlock renders the SCOPE CONSTRAINT prompt section for a
 // sprint plan. Returns "" when no sprint plan was provided.
 func sprintPlanScopeBlock(sprintPlan string) string {
-	if sprintPlan == "" {
+	if strings.TrimSpace(sprintPlan) == "" {
 		return ""
 	}
 	return `
