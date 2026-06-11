@@ -20,6 +20,9 @@ type InvokeDirectParams struct {
 	TaskMessage string
 	// Timeout caps the API call duration.
 	Timeout time.Duration
+	// IdleTimeout bounds the gap between stream activity; 0 uses the
+	// llmapi default (120s).
+	IdleTimeout time.Duration
 }
 
 // InvokeDirectResult captures one direct invocation's output.
@@ -63,8 +66,16 @@ func InvokeDirect(ctx context.Context, p InvokeDirectParams) InvokeDirectResult 
 		defer cancel()
 	}
 
-	// Make the API call
-	content, err := client.CompleteWithContext(ctx, p.AgentConfig.SystemPrompt, p.TaskMessage)
+	// Make the API call. Reviews stream so litellm-style gateways return
+	// headers immediately instead of buffering the full generation; the
+	// idle timeout watches for stalls while the context caps total time.
+	var messages []llmapi.Message
+	if p.AgentConfig.SystemPrompt != "" {
+		messages = append(messages, llmapi.Message{Role: "system", Content: p.AgentConfig.SystemPrompt})
+	}
+	messages = append(messages, llmapi.Message{Role: "user", Content: p.TaskMessage})
+
+	content, err := client.CompleteMessagesStream(ctx, messages, p.IdleTimeout)
 
 	result.DurationMS = time.Since(start).Milliseconds()
 
