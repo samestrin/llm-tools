@@ -142,12 +142,7 @@ func (c *LLMClient) doStreamRequest(ctx context.Context, req ChatRequest, idleTi
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		if json.Unmarshal(body, apiErr) == nil && apiErr.ErrorInfo.Message != "" {
-			return "", false, fmt.Errorf("API error (%d): %s: %w", resp.StatusCode, apiErr.ErrorInfo.Message, apiErr)
-		}
-		apiErr.ErrorInfo.Message = fmt.Sprintf("status %d", resp.StatusCode)
-		return "", false, fmt.Errorf("API error: status %d: %w", resp.StatusCode, apiErr)
+		return "", false, newAPIError(resp.StatusCode, body)
 	}
 
 	// Some OpenAI-compatible gateways ignore stream:true and reply with a

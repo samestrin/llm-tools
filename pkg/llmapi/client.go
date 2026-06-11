@@ -232,12 +232,7 @@ func (c *LLMClient) doRequest(ctx context.Context, req ChatRequest) (string, err
 
 	// Check for HTTP errors
 	if resp.StatusCode != http.StatusOK {
-		apiErr := &APIError{StatusCode: resp.StatusCode}
-		if json.Unmarshal(body, apiErr) == nil && apiErr.ErrorInfo.Message != "" {
-			return "", fmt.Errorf("API error (%d): %s: %w", resp.StatusCode, apiErr.ErrorInfo.Message, apiErr)
-		}
-		apiErr.ErrorInfo.Message = fmt.Sprintf("status %d", resp.StatusCode)
-		return "", fmt.Errorf("API error: status %d: %w", resp.StatusCode, apiErr)
+		return "", newAPIError(resp.StatusCode, body)
 	}
 
 	// Parse response
@@ -252,6 +247,16 @@ func (c *LLMClient) doRequest(ctx context.Context, req ChatRequest) (string, err
 	}
 
 	return chatResp.Choices[0].Message.Content, nil
+}
+
+// newAPIError builds the wrapped error for a non-200 response body.
+func newAPIError(statusCode int, body []byte) error {
+	apiErr := &APIError{StatusCode: statusCode}
+	if json.Unmarshal(body, apiErr) == nil && apiErr.ErrorInfo.Message != "" {
+		return fmt.Errorf("API error (%d): %s: %w", statusCode, apiErr.ErrorInfo.Message, apiErr)
+	}
+	apiErr.ErrorInfo.Message = fmt.Sprintf("status %d", statusCode)
+	return fmt.Errorf("API error: status %d: %w", statusCode, apiErr)
 }
 
 // Error implements the error interface for APIError.
