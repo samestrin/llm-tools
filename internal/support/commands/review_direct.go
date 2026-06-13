@@ -264,7 +264,7 @@ func buildReviewTaskMessage(diffContent, sprintPlan string) string {
 	var b strings.Builder
 	b.WriteString(`Review the following diff and identify any issues.
 
-Output your findings in TD_STREAM format:
+Output ONLY pipe-delimited findings, one finding per line, in this exact format:
 SEVERITY|FILE:LINE|PROBLEM|FIX|CATEGORY|EST_MINUTES|EVIDENCE|REVIEWER
 
 Where:
@@ -274,8 +274,13 @@ Where:
 - FIX: How to fix it
 - CATEGORY: error-handling, security, performance, maintainability, correctness
 - EST_MINUTES: Estimated time to fix (integer)
-- EVIDENCE: Key code snippet or reason
+- EVIDENCE: A short code snippet or reason (keep it under ~20 words)
 - REVIEWER: Your agent name
+
+Output rules (strict):
+- Emit ONLY the finding lines — no prose, no preamble, no summary, no markdown, no code fences, no headings.
+- One finding per line; never wrap a finding across multiple lines.
+- If you find no issues, output nothing at all.
 
 Example:
 HIGH|src/auth.go:42|Missing input validation|Add length check|security|5|user input passed directly to query|bruce
@@ -316,22 +321,7 @@ func buildDirectReviewSummary(result multireview.FanoutResult, allReviewers []st
 }
 
 func countTDLines(prose string) int {
-	count := 0
-	inTDStream := false
-	for _, line := range strings.Split(prose, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "TD_STREAM") {
-			inTDStream = true
-			continue
-		}
-		if inTDStream && line != "" && !strings.HasPrefix(line, "#") {
-			// Count pipe-delimited lines with at least 4 pipes
-			if strings.Count(line, "|") >= 4 {
-				count++
-			}
-		}
-	}
-	return count
+	return len(multireview.ExtractTDLines(prose))
 }
 
 func mergeDirectTDStreams(outputDir string, results []multireview.InvokeDirectResult) error {
@@ -366,31 +356,38 @@ func mergeDirectTDStreams(outputDir string, results []multireview.InvokeDirectRe
 	return os.WriteFile(rootMerged, []byte(content), 0644)
 }
 
+// extractTDLines pulls pipe-delimited TD findings from a reviewer's raw output
+// and ensures each row carries the agent name in the REVIEWER column (col 8).
+//
+// Detection is severity-anchored (shared with the openclaw path via
+// multireview.ExtractTDLines): any line beginning with CRITICAL|HIGH|MEDIUM|LOW
+// immediately followed by a pipe is a finding. It does NOT require a leading
+// "TD_STREAM" sentinel — the reviewer prompt never asks for one (its example is
+// a bare row), so a sentinel gate silently dropped every compliant reviewer's
+// findings.
 func extractTDLines(prose, agentName string) []string {
-	var lines []string
-	inTDStream := false
-
-	for _, line := range strings.Split(prose, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "TD_STREAM") {
-			inTDStream = true
-			continue
-		}
-		if inTDStream && line != "" && !strings.HasPrefix(line, "#") {
-			// Validate it looks like a TD line
-			if strings.Count(line, "|") >= 4 {
-				// Ensure REVIEWER column has agent name
-				parts := strings.Split(line, "|")
-				if len(parts) >= 8 && parts[7] == "" {
-					parts[7] = agentName
-					line = strings.Join(parts, "|")
-				} else if len(parts) == 7 {
-					line = line + "|" + agentName
-				}
-				lines = append(lines, line)
+	raw := multireview.ExtractTDLines(prose)
+	lines := make([]string, 0, len(raw))
+	for _, line := range raw {
+		parts := strings.Split(line, "|")
+		if len(parts) >= 8 {
+			// Already has a REVIEWER slot. Fill it only when empty — never
+			// double-append when the reviewer already named itself (the
+			// prompt's example row ends with the agent name).
+			if parts[7] == "" {
+				parts[7] = agentName
+				line = strings.Join(parts, "|")
 			}
+		} else {
+			// 7 or fewer columns: pad up to EVIDENCE (col 7), then append the
+			// agent name as REVIEWER (col 8) — parity with the unified 8-col
+			// format produced by multireview.WriteReviewerOutput.
+			for len(parts) < 7 {
+				parts = append(parts, "")
+			}
+			line = strings.Join(parts, "|") + "|" + agentName
 		}
+		lines = append(lines, line)
 	}
-
 	return lines
 }
