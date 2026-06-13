@@ -5,6 +5,58 @@ import (
 	"testing"
 )
 
+func TestBuildTdDedupeArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "streams only",
+			args: map[string]interface{}{"streams": "a.txt,b.txt"},
+			want: []string{"td-dedupe", "--streams", "a.txt,b.txt", "--json"},
+		},
+		{
+			name: "full",
+			args: map[string]interface{}{"streams": "a.txt,b.txt", "source_tags": "claude,multi-agent", "tolerance": float64(3), "untrusted": "x"},
+			want: []string{"td-dedupe", "--streams", "a.txt,b.txt", "--source-tags", "claude,multi-agent", "--tolerance", "3", "--untrusted", "x", "--json"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := buildTdDedupeArgs(tt.args); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildTdDedupeArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildTierClassifierArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "packages only",
+			args: map[string]interface{}{"packages": "react,lodash"},
+			want: []string{"tier-classifier", "--packages", "react,lodash", "--json"},
+		},
+		{
+			name: "with config",
+			args: map[string]interface{}{"packages": "react", "config": "tiers.yaml"},
+			want: []string{"tier-classifier", "--packages", "react", "--config", "tiers.yaml", "--json"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := buildTierClassifierArgs(tt.args); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildTierClassifierArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildTDFilterArgs(t *testing.T) {
 	tests := []struct {
 		name string

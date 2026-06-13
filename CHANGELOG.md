@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-06-13
+
+### Added
+
+#### llm-support
+
+- **`td-dedupe` command + `llm_support_td_dedupe` MCP tool** — clusters technical-debt findings from multiple reviewer streams by `(file, line ±tolerance)` and merges each cluster deterministically (REVIEWERS dedup-union, SEVERITY max, CATEGORY modal, EST_MINUTES max, CONFIDENCE = HIGH for ≥2 distinct reviewers / LOW for untrusted-only, severity-disagreement annotation). Multi-item clusters are flagged `needs_review` with their members so the model only adjudicates the "same issue?" merge — the single semantic step. Normalizes legacy 5/6/8/10-column stream widths and surfaces malformed rows in `summary.skipped`. Replaces the in-model clustering/merge in `/reconcile-code-review`.
+- **`tier-classifier` command + `llm_support_tier_classifier` MCP tool** — assigns packages to documentation tiers (critical/important/pattern/utility/skip) via the deterministic Passes 1–3 from `/init-documentation`: exact `packages` config match, ordered glob `patterns` (`path.Match`), then `categories` keyword-contains. First match wins within a pass; earlier passes take precedence. Returns the assigned map, the `unassigned` list (left for the model's Pass 4 ecosystem-convention judgment), and per-pass counts. Config `patterns`/`categories` accept ordered lists or maps (most-specific-first).
+
 ## [1.2.0] - 2026-06-13
 
 ### Added

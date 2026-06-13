@@ -1655,6 +1655,36 @@ func GetToolDefinitions() []ToolDefinition {
 					}`),
 		},
 
+		// 58c. Tech debt cross-reviewer dedupe/merge
+		{
+			Name:        ToolPrefix + "td_dedupe",
+			Description: "Cluster and merge technical-debt streams from multiple reviewers by (file, line +/- tolerance). Aggregates REVIEWERS union, SEVERITY max, CATEGORY modal, EST_MINUTES max, CONFIDENCE (HIGH for 2+ distinct reviewers), and severity-disagreement; flags multi-item clusters needs_review with members for model adjudication. Deterministic replacement for in-model reconcile clustering.",
+			InputSchema: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"streams": {"type": "string", "description": "Comma-separated td-stream.txt paths"},
+							"source_tags": {"type": "string", "description": "Comma-separated source labels parallel to streams (default: parent dir name)"},
+							"tolerance": {"type": "integer", "description": "Line-proximity window for clustering (default 3)"},
+							"untrusted": {"type": "string", "description": "Comma-separated source tags whose findings alone yield CONFIDENCE LOW"}
+						},
+						"required": ["streams"]
+					}`),
+		},
+
+		// 58d. Package documentation tier classification
+		{
+			Name:        ToolPrefix + "tier_classifier",
+			Description: "Classify packages into documentation tiers (critical/important/pattern/utility/skip) via deterministic passes 1-3: explicit config map, glob patterns, keyword categories. Returns assigned map + unassigned list (for the model's Pass 4) + per-pass counts. Deterministic replacement for in-model tier assignment in /init-documentation.",
+			InputSchema: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"packages": {"type": "string", "description": "Comma-separated package names"},
+							"config": {"type": "string", "description": "Path to package-tiers.yaml (packages/patterns/categories)"}
+						},
+						"required": ["packages"]
+					}`),
+		},
+
 		// 59. Project components (monorepo support)
 		{
 			Name:        ToolPrefix + "project_components",

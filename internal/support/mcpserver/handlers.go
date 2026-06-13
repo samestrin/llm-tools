@@ -276,6 +276,10 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildTDStatsArgs(args), nil
 	case "td_filter":
 		return buildTDFilterArgs(args), nil
+	case "td_dedupe":
+		return buildTdDedupeArgs(args), nil
+	case "tier_classifier":
+		return buildTierClassifierArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1864,6 +1868,36 @@ func buildTDFilterArgs(args map[string]interface{}) []string {
 	// Full JSON (no --min): the consumer iterates complete item objects; minimal
 	// mode would omit zero/empty item fields. The filtered set is small, so the
 	// token cost is negligible.
+	cmdArgs = append(cmdArgs, "--json")
+	return cmdArgs
+}
+
+func buildTdDedupeArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"td-dedupe"}
+	if v, ok := args["streams"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--streams", v)
+	}
+	if v, ok := args["source_tags"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--source-tags", v)
+	}
+	if v, ok := args["tolerance"].(float64); ok {
+		cmdArgs = append(cmdArgs, "--tolerance", strconv.Itoa(int(v)))
+	}
+	if v, ok := args["untrusted"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--untrusted", v)
+	}
+	cmdArgs = append(cmdArgs, "--json")
+	return cmdArgs
+}
+
+func buildTierClassifierArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"tier-classifier"}
+	if v, ok := args["packages"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--packages", v)
+	}
+	if v, ok := args["config"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--config", v)
+	}
 	cmdArgs = append(cmdArgs, "--json")
 	return cmdArgs
 }
