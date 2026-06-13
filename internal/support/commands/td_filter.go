@@ -150,8 +150,10 @@ type TDFilterResult struct {
 }
 
 // tdFromSectionRe matches a dated TD section header: "### [date] From Sprint: x"
-// or "### [date] From: x". Only tables under these sections hold TD items.
-var tdFromSectionRe = regexp.MustCompile(`(?i)^###\s+.*\bFrom\b`)
+// or "### [date] From: x". The leading "[...]" bracket is required (matching
+// /resolve-td's `### [YYYY-MM-DD] From...` pattern) so a non-TD heading that
+// merely contains the word "From" is not mistaken for a TD section.
+var tdFromSectionRe = regexp.MustCompile(`(?i)^###\s+\[[^\]]*\]\s+from\b`)
 
 // filterTD parses a technical-debt README and returns the unchecked rows
 // matching opts, plus a summary. The pipeline order matches /resolve-td exactly:

@@ -264,6 +264,30 @@ func TestFilterTD_NonFromSectionTableIgnored(t *testing.T) {
 	}
 }
 
+// A heading that merely contains the word "From" but lacks the [date] bracket
+// is NOT a TD section — its table must be ignored.
+func TestFilterTD_NonDatedFromHeadingIgnored(t *testing.T) {
+	content := `### Random notes From the field
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|--|--|--|--|--|--|--|--|
+| 1 | [ ] | HIGH | noise.go:1 | p | f | bug | 5 |
+
+### [2026-06-01] From Sprint: real
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|--|--|--|--|--|--|--|--|
+| 1 | [ ] | HIGH | real.go:1 | p | f | bug | 5 |
+`
+	res, err := filterTD(content, TDFilterOpts{Mode: "all", Max: 10})
+	if err != nil {
+		t.Fatalf("filterTD: %v", err)
+	}
+	if got := fileLinesOf(res.Items); !reflect.DeepEqual(got, []string{"real.go:1"}) {
+		t.Errorf("only dated From-section rows collected; got %v", got)
+	}
+}
+
 func TestFilterTD_InvalidMode(t *testing.T) {
 	if _, err := filterTD(fixtureTDReadme, TDFilterOpts{Mode: "bogus", Max: 10}); err == nil {
 		t.Fatal("invalid mode must error")
