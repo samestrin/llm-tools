@@ -29,6 +29,7 @@ var (
 	rdTaskMessage     string
 	rdConfig          string
 	rdSprintPlan      string
+	rdExclude         string
 )
 
 func newReviewDirectCmd() *cobra.Command {
@@ -56,6 +57,12 @@ a scope constraint so findings stay within the sprint's work items (matching
 multi_review). A missing or whitespace-only file is ignored and an unreadable
 file warns — in both cases reviewers fall back to diff-touched-line scoping.
 --task-message overrides the entire task message, including the scope block.
+
+In self-serve mode, paths matching --exclude globs are dropped from the diff
+(git :(exclude) pathspecs) before reviewers see it. The default,
+.planning/**,CHANGELOG.md, removes planning/tracking artifacts that are noise
+to a reviewer. A non-empty --exclude replaces the default; --exclude='' disables
+it. Excludes do not apply to a pre-computed --diff-file.
 
 Output layout matches multi_review for compatibility:
   <output-dir>/raw/<agent>/{review.md,status.json}
@@ -87,6 +94,9 @@ Examples:
 	cmd.Flags().StringVar(&rdTaskMessage, "task-message", "", "Override the task message sent to each reviewer (suppresses --sprint-plan scoping)")
 	cmd.Flags().StringVar(&rdConfig, "config", "", "Optional config.yaml; review.direct.* keys supply defaults for unset flags")
 	cmd.Flags().StringVar(&rdSprintPlan, "sprint-plan", "", "Path to sprint-plan.md or epic file; content is injected into reviewer prompts to scope findings")
+	cmd.Flags().StringVar(&rdExclude, "exclude", strings.Join(gitrange.DefaultExcludeGlobs, ","),
+		"Comma-separated path globs dropped from the diff before review (self-serve mode only). "+
+			"Replaces the built-in default; pass --exclude='' to disable and review every file.")
 	return cmd
 }
 
@@ -153,11 +163,24 @@ func runReviewDirect(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("empty diff for %s..%s (detection: %s) — nothing to review. %s",
 				gitrange.Short(rangeRes.Base), gitrange.Short(rangeRes.Head), rangeRes.Detection, rangeRes.Message)
 		}
-		diffText, err := gitrange.Diff(rdRepo, rangeRes.Base, rangeRes.Head)
+		excludeGlobs := splitAndTrim(rdExclude)
+		diffText, err := gitrange.DiffExcluding(rdRepo, rangeRes.Base, rangeRes.Head, excludeGlobs)
 		if err != nil {
 			return fmt.Errorf("failed to compute diff: %w", err)
 		}
+		// Compute what the exclusion dropped, for the report and the empty-diff
+		// message (so an all-excluded range names the cause instead of blaming
+		// "commits without content changes").
+		excluded, exErr := gitrange.ExcludedFileNames(rdRepo, rangeRes.Base, rangeRes.Head, excludeGlobs)
+		if exErr != nil {
+			return fmt.Errorf("failed to compute excluded files: %w", exErr)
+		}
 		if strings.TrimSpace(diffText) == "" {
+			if len(excluded) > 0 {
+				return fmt.Errorf("diff for %s..%s is empty after excluding %d file(s) via [%s] — "+
+					"every changed file was excluded; loosen --exclude or pass --exclude='' to review them",
+					gitrange.Short(rangeRes.Base), gitrange.Short(rangeRes.Head), len(excluded), strings.Join(excludeGlobs, ", "))
+			}
 			return fmt.Errorf("diff for %s..%s is empty (commits without content changes) — nothing to review",
 				gitrange.Short(rangeRes.Base), gitrange.Short(rangeRes.Head))
 		}
@@ -166,8 +189,12 @@ func runReviewDirect(cmd *cobra.Command, _ []string) error {
 		if err := os.WriteFile(diffPath, diffContent, 0644); err != nil {
 			return fmt.Errorf("failed to write %s: %w", diffPath, err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "diff: %s (%d bytes, %s..%s via %s)\n",
-			diffPath, len(diffContent), gitrange.Short(rangeRes.Base), gitrange.Short(rangeRes.Head), rangeRes.Detection)
+		excludeNote := ""
+		if len(excludeGlobs) > 0 {
+			excludeNote = fmt.Sprintf("; excluded %d file(s) via [%s]", len(excluded), strings.Join(excludeGlobs, ", "))
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "diff: %s (%d bytes, %s..%s via %s%s)\n",
+			diffPath, len(diffContent), gitrange.Short(rangeRes.Base), gitrange.Short(rangeRes.Head), rangeRes.Detection, excludeNote)
 	}
 
 	// Load registry
