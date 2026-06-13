@@ -2,10 +2,105 @@ package commands
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/samestrin/llm-tools/pkg/output"
+	"github.com/spf13/cobra"
 )
+
+var (
+	tdFilterPath       string
+	tdFilterMode       string
+	tdFilterSeverity   string
+	tdFilterConfidence string
+	tdFilterGroup      string
+	tdFilterFocus      string
+	tdFilterMax        int
+	tdFilterJSON       bool
+	tdFilterMin        bool
+)
+
+func newTDFilterCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "td-filter",
+		Short: "Select technical-debt rows from a README by filter criteria",
+		Long: `Parses a technical-debt README flat table and emits ONLY the unchecked rows
+matching the given filters, plus a summary of counts and (with --group) the
+group write-scope. This is the deterministic selection step /resolve-td used to
+do in-model.
+
+Filter pipeline (matches /resolve-td): focus section -> unchecked [ ] only ->
+mode threshold -> group (+ write-scope) -> severity -> confidence -> max.
+
+  mode:        quick-wins (est < 30) | backlog (30 <= est < 2880) | all
+  severity:    comma list (low,medium,high,critical); empty = all
+  confidence:  comma list (low,medium,high); empty = all. Rows with no
+               Confidence column are excluded when this filter is set.
+  group:       Group-column value (e.g. solo,1,2,u); empty = all
+  focus:       section header substring, case-insensitive
+  max:         cap on returned items (default 10), first N in source order
+
+Output is JSON: {items:[...], summary:{...}}.`,
+		RunE: runTDFilter,
+	}
+	cmd.Flags().StringVar(&tdFilterPath, "path", "", "Path to the technical-debt README (required)")
+	cmd.Flags().StringVar(&tdFilterMode, "mode", "quick-wins", "quick-wins | backlog | all")
+	cmd.Flags().StringVar(&tdFilterSeverity, "severity", "", "Comma-separated severities to keep (empty = all)")
+	cmd.Flags().StringVar(&tdFilterConfidence, "confidence", "", "Comma-separated confidences to keep (empty = all)")
+	cmd.Flags().StringVar(&tdFilterGroup, "group", "", "Group-column value to keep (empty = all)")
+	cmd.Flags().StringVar(&tdFilterFocus, "focus", "", "Section header substring (case-insensitive)")
+	cmd.Flags().IntVar(&tdFilterMax, "max", 10, "Max items to return (first N in source order)")
+	cmd.Flags().BoolVar(&tdFilterJSON, "json", true, "Output as JSON (default true)")
+	cmd.Flags().BoolVar(&tdFilterMin, "min", false, "Minimal output format")
+	cmd.MarkFlagRequired("path")
+	return cmd
+}
+
+func runTDFilter(cmd *cobra.Command, _ []string) error {
+	content, err := os.ReadFile(tdFilterPath)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+	result, err := filterTD(string(content), TDFilterOpts{
+		Mode:       tdFilterMode,
+		Severity:   splitCSV(tdFilterSeverity),
+		Confidence: splitCSV(tdFilterConfidence),
+		Group:      strings.TrimSpace(tdFilterGroup),
+		Focus:      strings.TrimSpace(tdFilterFocus),
+		Max:        tdFilterMax,
+	})
+	if err != nil {
+		return err
+	}
+	formatter := output.New(tdFilterJSON, tdFilterMin, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(*TDFilterResult)
+		fmt.Fprintf(w, "%d/%d item(s) match (mode=%s)\n", len(r.Items), r.Summary.TotalUnchecked, r.Summary.Mode)
+	})
+}
+
+func init() {
+	RootCmd.AddCommand(newTDFilterCmd())
+}
+
+// splitCSV splits a comma-separated string, trimming blanks.
+func splitCSV(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
 
 // TDFilterRow is one unchecked technical-debt item selected from the README.
 type TDFilterRow struct {
