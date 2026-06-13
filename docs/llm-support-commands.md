@@ -2200,20 +2200,23 @@ llm-support review_direct [flags]
 | Flag | Description |
 |------|-------------|
 | `--diff-file` | Pre-computed unified diff file. Zero-byte/whitespace-only files are a hard error. |
-| `--repo` (+ optional `--base`/`--head`/`--merge-commit`) | Self-serve: the range is resolved exactly like [review_range](#review_range), the diff is computed locally, and a copy is written to `<output-dir>/diff.txt`. An empty range is a hard error before any provider call. |
+| `--repo` (+ optional `--base`/`--head`/`--merge-commit`) | Self-serve: the range is resolved exactly like [review_range](#review_range), the diff is computed locally with `--exclude` paths dropped, and a copy is written to `<output-dir>/diff.txt`. An empty range is a hard error before any provider call. |
 
 `--diff-file` is mutually exclusive with `--base`/`--head`/`--merge-commit`.
+
+**Diff exclusion (self-serve only):** the self-serve diff drops paths matching `--exclude` globs (translated to git `:(exclude)` pathspecs) before reviewers see it. The default — `.planning/**,CHANGELOG.md` — removes planning/tracking artifacts that are noise or actively misleading to a reviewer (the technical-debt README reads like reviewer output). A non-empty `--exclude` (or `review.direct.exclude_globs` in config) **replaces** the default list rather than adding to it; pass `--exclude=''` to disable exclusion and review every file. The stdout `diff:` line reports how many files were excluded and which globs were active. Excludes are inert in `--diff-file` mode (the pre-computed diff is used verbatim). If every changed file is excluded, the resulting empty diff is a hard error that names the exclusion as the cause.
 
 **Optional flags:**
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--config` | (empty) | Optional `config.yaml`; `review.direct.*` keys (`agents`, `serial_agents`, `timeout_seconds`) supply defaults for unset flags. Explicit flags always win. |
+| `--config` | (empty) | Optional `config.yaml`; `review.direct.*` keys (`agents`, `serial_agents`, `timeout_seconds`, `exclude_globs`) supply defaults for unset flags. Explicit flags always win. |
 | `--serial-reviewers` | (empty) | Subset that runs serially after the parallel lane |
 | `--timeout-seconds` | `900` | Total wall-clock budget for the fan-out |
 | `--registry-dir` | `~/.config/llm-tools/agents/` | Agent/provider registry (registry.yaml + per-agent prompts) |
 | `--task-message` | (auto) | Override the task message sent to each reviewer. Full override — suppresses the `--sprint-plan` scope block. |
 | `--sprint-plan` | (empty) | Path to `sprint-plan.md` or an epic file; its content is injected into reviewer prompts as a SCOPE CONSTRAINT block (placed before the embedded diff) so findings stay scoped to the sprint's work items. A missing or blank file is silently ignored — reviewers fall back to diff-touched-line scoping. |
+| `--exclude` | `.planning/**,CHANGELOG.md` | Comma-separated path globs dropped from the self-serve diff (git `:(exclude)` pathspecs). Replaces the default list, not added to it; `--exclude=''` disables exclusion. See *Diff exclusion* above. |
 
 **Output layout under `--output-dir`** (matches `multi_review` so `/reconcile-code-review` auto-discovers it):
 

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-06-12
+
+### Added
+
+#### llm-support
+
+- **`review_direct --exclude` glob path exclusion for self-serve diffs** — paths matching the exclude globs are dropped from the generated diff (via git `:(exclude)` pathspecs) before reviewers see it, so planning/tracking artifacts that read like reviewer output (the technical-debt README) or carry no reviewable logic (CHANGELOG churn) no longer pollute reviewer findings. The `:(top)` magic keeps the diff repo-root-anchored, so the whole repository is covered regardless of the process cwd.
+- **Built-in default excludes `.planning/**` and `CHANGELOG.md`** — applied unless overridden. A non-empty `--exclude` (or `review.direct.exclude_globs` in config) replaces the default list rather than adding to it; `--exclude=''` disables exclusion and reviews every file. Precedence is flag > config > built-in default.
+- **Exclusion reporting** — the self-serve `diff:` line reports how many files were excluded and which globs were active; when every changed file is excluded, the resulting empty diff is a hard error that names the exclusion as the cause. Excludes are inert for a pre-computed `--diff-file` (used verbatim).
+
 ## [1.0.0] - 2026-06-11
 
 Fixed the `review_direct` fan-out failure where every agent — cloud and local alike — died at ~482s with `Client.Timeout exceeded while awaiting headers` on large diffs (12/12 agents failing). Three layers shipped: correct timeout propagation, streaming with stall detection, and a per-agent context-window guard.

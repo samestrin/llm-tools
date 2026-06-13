@@ -134,6 +134,15 @@ func applyReviewDirectConfig(cmd *cobra.Command, cfgPath string) error {
 			rdTimeoutSeconds = v
 		}
 	}
+	// exclude_globs replaces the built-in default (the --exclude flag default).
+	// An empty list/string in config disables exclusion entirely.
+	if !cmd.Flags().Changed("exclude") {
+		if v, ok, err := configCSV(cfg, "review.direct.exclude_globs"); err != nil {
+			return err
+		} else if ok {
+			rdExclude = v
+		}
+	}
 	return nil
 }
 

@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -209,8 +210,89 @@ func BundleReachable(repoPath, sha string) (bool, error) {
 	return out == "", nil
 }
 
+// DefaultExcludeGlobs is the built-in set of path globs dropped from review
+// diffs unless overridden: planning/tracking artifacts that are noise (or
+// actively misleading) to a code reviewer — the technical-debt README reads
+// like reviewer output, and CHANGELOG churn carries no reviewable logic.
+var DefaultExcludeGlobs = []string{".planning/**", "CHANGELOG.md"}
+
+// excludePathspec converts exclude globs into the trailing argv git needs to
+// drop them from a diff: a positive ":(top)" pathspec (required — exclude-only
+// pathspecs match nothing) followed by one ":(top,exclude)<glob>" per glob. The
+// "top" magic makes every pathspec repo-root-relative, so the diff covers the
+// whole repository (matching a bare `git diff`) and the globs anchor at the repo
+// root regardless of the process cwd — a cwd-relative "." would wrongly scope
+// the diff to a subdirectory when repoPath is not the repo root. Returns nil for
+// an empty/nil list so the no-exclude path stays byte-identical to `git diff`.
+func excludePathspec(globs []string) []string {
+	if len(globs) == 0 {
+		return nil
+	}
+	args := make([]string, 0, len(globs)+2)
+	args = append(args, "--", ":(top)")
+	for _, g := range globs {
+		args = append(args, ":(top,exclude)"+g)
+	}
+	return args
+}
+
 // Diff returns the unified diff text for base..head. Raw output is preserved
 // (no trimming) so callers can write it verbatim to a diff file.
 func Diff(repoPath, base, head string) (string, error) {
-	return execGit(repoPath, "diff", base+".."+head)
+	return DiffExcluding(repoPath, base, head, nil)
+}
+
+// DiffExcluding returns the unified diff for base..head with any paths matching
+// the exclude globs dropped (git ":(exclude)" pathspecs). A nil/empty excludes
+// list yields output byte-identical to Diff. Globs reach git as argv elements
+// via exec.Command (no shell), so no quoting/injection concern applies.
+func DiffExcluding(repoPath, base, head string, excludes []string) (string, error) {
+	args := append([]string{"diff", base + ".." + head}, excludePathspec(excludes)...)
+	return execGit(repoPath, args...)
+}
+
+// ExcludedFileNames returns the changed files in base..head that the exclude
+// globs drop — the set difference between the full changed-file list and the
+// list after applying the same ":(exclude)" pathspecs. Using identical
+// pathspecs guarantees the report matches exactly what DiffExcluding omitted.
+// Returns an empty slice (never nil) when excludes is empty.
+func ExcludedFileNames(repoPath, base, head string, excludes []string) ([]string, error) {
+	if len(excludes) == 0 {
+		return []string{}, nil
+	}
+	all, err := changedNameSet(repoPath, base, head, nil)
+	if err != nil {
+		return nil, err
+	}
+	kept, err := changedNameSet(repoPath, base, head, excludes)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0)
+	for name := range all {
+		if !kept[name] {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// changedNameSet returns the set of changed file names in base..head, optionally
+// with exclude pathspecs applied.
+func changedNameSet(repoPath, base, head string, excludes []string) (map[string]bool, error) {
+	args := append([]string{"diff", "--name-only", base + ".." + head}, excludePathspec(excludes)...)
+	out, err := gitOut(repoPath, args...)
+	if err != nil {
+		return nil, fmt.Errorf("diff --name-only failed: %w", err)
+	}
+	set := make(map[string]bool)
+	if out != "" {
+		for _, name := range strings.Split(out, "\n") {
+			if name != "" {
+				set[name] = true
+			}
+		}
+	}
+	return set, nil
 }
