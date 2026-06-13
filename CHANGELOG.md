@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-06-13
+
+### Added
+
+#### llm-support
+
+- **`td-filter` command + `llm_support_td_filter` MCP tool** — deterministically selects unchecked rows from a technical-debt README by `/resolve-td`'s filter criteria (mode quick-wins/backlog/all, severity, confidence, group, section focus, max) and returns only the matching rows plus a summary (per-filter excluded counts, the `--group` write-scope, focus-match count, and any rows skipped for unparseable Est Minutes). Replaces the in-model table parse-and-filter step so the full README never enters the model's context. The pipeline mirrors `/resolve-td` exactly: focus → unchecked-only → mode threshold (`<30` / `30..2880` / all) → group (+ write-scope computed before `--max`) → severity → confidence → max (first N in source order). Tolerates legacy 8-column and current 11-column rows; excludes legacy rows with no Confidence column when `--confidence` is set; includes a data-loss accounting guard.
+
 ## [1.1.0] - 2026-06-12
 
 ### Added

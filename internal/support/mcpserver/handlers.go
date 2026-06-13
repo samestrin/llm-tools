@@ -274,6 +274,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildGroupTDArgs(args), nil
 	case "td_stats":
 		return buildTDStatsArgs(args), nil
+	case "td_filter":
+		return buildTDFilterArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
@@ -1843,5 +1845,25 @@ func buildTDStatsArgs(args map[string]interface{}) []string {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
 	cmdArgs = append(cmdArgs, "--json", "--min")
+	return cmdArgs
+}
+
+func buildTDFilterArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"td-filter"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
+	}
+	for _, key := range []string{"mode", "severity", "confidence", "group", "focus"} {
+		if v, ok := args[key].(string); ok && v != "" {
+			cmdArgs = append(cmdArgs, "--"+key, v)
+		}
+	}
+	if v, ok := args["max"].(float64); ok {
+		cmdArgs = append(cmdArgs, "--max", strconv.Itoa(int(v)))
+	}
+	// Full JSON (no --min): the consumer iterates complete item objects; minimal
+	// mode would omit zero/empty item fields. The filtered set is small, so the
+	// token cost is negligible.
+	cmdArgs = append(cmdArgs, "--json")
 	return cmdArgs
 }
