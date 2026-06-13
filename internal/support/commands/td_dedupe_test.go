@@ -184,6 +184,29 @@ GARBAGE|too|few`}
 	}
 }
 
+// 10-col legacy claude format puts FILE:LINE at position 3 (after ORIGIN and
+// RISK_CLASS): SEV|ORIGIN|RISK|FILE:LINE|PROB|FIX|CAT|EST|EVIDENCE|SOURCE.
+func TestDedupeTD_TenColLegacyClaude(t *testing.T) {
+	a := StreamInput{Tag: "claude", Content: `HIGH|impl|correctness|auth.go:45|Missing validation|Add zod|security|15|ev|code-review`}
+	res, err := dedupeTD([]StreamInput{a}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if len(res.Merged) != 1 {
+		t.Fatalf("want 1 row, got %d", len(res.Merged))
+	}
+	r := res.Merged[0]
+	if r.FileLine != "auth.go:45" {
+		t.Errorf("10-col file_line = %q, want auth.go:45 (position 3, not ORIGIN)", r.FileLine)
+	}
+	if r.Severity != "HIGH" || r.Category != "security" || r.EstMinutes != 15 {
+		t.Errorf("10-col mis-mapped: sev=%q cat=%q est=%v", r.Severity, r.Category, r.EstMinutes)
+	}
+	if r.Reviewers != "claude" {
+		t.Errorf("10-col reviewer should synthesize from tag; got %q", r.Reviewers)
+	}
+}
+
 func TestDedupeTD_EmptyStreams(t *testing.T) {
 	res, err := dedupeTD([]StreamInput{{Tag: "a", Content: ""}, {Tag: "b", Content: "# comment only\n"}}, DedupeOpts{Tolerance: 3})
 	if err != nil {

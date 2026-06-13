@@ -267,7 +267,21 @@ func normalizeRow(line, tag string) (tdParsedRow, bool) {
 		return tdParsedRow{}, false
 	}
 	r := tdParsedRow{Source: tag}
-	// Columns 0..4 are stable across all widths.
+	if len(f) == 10 {
+		// 10-col legacy claude has a different column order — FILE:LINE is at
+		// position 3, after ORIGIN and RISK_CLASS, and there is no reviewer
+		// column: SEV|ORIGIN|RISK_CLASS|FILE:LINE|PROBLEM|FIX|CATEGORY|EST|EVIDENCE|SOURCE.
+		r.Severity = strings.ToUpper(f[0])
+		r.FileLine = f[3]
+		r.Problem = f[4]
+		r.Fix = f[5]
+		r.Category = f[6]
+		r.EstMinutes = parseFloatOr(f[7], 0)
+		r.Evidence = f[8]
+		r.Reviewer = tag // synthesized — legacy claude rows carry no reviewer
+		return r, true
+	}
+	// 5/6/8-col widths share the leading columns: sev|file_line|problem|fix|category.
 	r.Severity = strings.ToUpper(f[0])
 	r.FileLine = f[1]
 	r.Problem = f[2]
@@ -275,7 +289,7 @@ func normalizeRow(line, tag string) (tdParsedRow, bool) {
 	r.Category = f[4]
 	switch {
 	case len(f) >= 8:
-		// 8-col (primary) / 10-col legacy: sev|fl|prob|fix|cat|est|evidence|reviewer[|...]
+		// 8-col (primary): ...|cat|est|evidence|reviewer
 		r.EstMinutes = parseFloatOr(f[5], 0)
 		r.Evidence = f[6]
 		r.Reviewer = f[7]
