@@ -8,8 +8,8 @@ import (
 func testTierConfig() TierConfig {
 	return TierConfig{
 		Explicit: map[string]string{
-			"react":             "critical",
-			"lodash":            "utility",
+			"react":              "critical",
+			"lodash":             "utility",
 			"eslint-config-base": "critical", // also matches eslint-* pattern; pass 1 must win
 		},
 		Patterns: []TierRule{
@@ -35,7 +35,7 @@ func TestClassifyTiers_AllPasses(t *testing.T) {
 		"@types/node":        {Tier: "skip", Pass: 2},
 		"eslint-plugin-x":    {Tier: "utility", Pass: 2},
 		"css-loader":         {Tier: "pattern", Pass: 2},
-		"supertest":          {Tier: "pattern", Pass: 3}, // contains "test"
+		"supertest":          {Tier: "pattern", Pass: 3},   // contains "test"
 		"fast-http":          {Tier: "important", Pass: 3}, // contains "http"
 	}
 	for pkg, exp := range want {
