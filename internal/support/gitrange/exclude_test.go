@@ -50,9 +50,42 @@ func TestExcludePathspec(t *testing.T) {
 		t.Errorf("excludePathspec([]) = %v, want nil", got)
 	}
 	got := excludePathspec([]string{"a/**", "b.md"})
-	want := []string{"--", ".", ":(exclude)a/**", ":(exclude)b.md"}
+	// Repo-root magic (:(top)) so excludes are repo-root-relative and the diff
+	// covers the whole repo regardless of the process cwd.
+	want := []string{"--", ":(top)", ":(top,exclude)a/**", ":(top,exclude)b.md"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("excludePathspec = %v, want %v", got, want)
+	}
+}
+
+// Adversarial: when repoPath is a SUBDIRECTORY of the repo, the diff must still
+// cover the whole repo (matching a bare `git diff`) minus the excludes — a
+// cwd-relative "." positive pathspec would wrongly scope it to the subtree.
+func TestDiffExcluding_FromSubdirCoversWholeRepo(t *testing.T) {
+	dir := initRepo(t, "main")
+	writeNested(t, dir, "root.go", "package p\nvar A = 1\n")
+	writeNested(t, dir, "sub/s.go", "package s\nvar B = 1\n")
+	writeNested(t, dir, ".planning/p.md", "old\n")
+	mustGit(t, dir, "commit", "-q", "-m", "base")
+	base := mustGit(t, dir, "rev-parse", "HEAD")
+	writeNested(t, dir, "root.go", "package p\nvar A = 2\n")
+	writeNested(t, dir, "sub/s.go", "package s\nvar B = 2\n")
+	writeNested(t, dir, ".planning/p.md", "new\n")
+	mustGit(t, dir, "commit", "-q", "-m", "head")
+	head := mustGit(t, dir, "rev-parse", "HEAD")
+
+	got, err := DiffExcluding(filepath.Join(dir, "sub"), base, head, DefaultExcludeGlobs)
+	if err != nil {
+		t.Fatalf("DiffExcluding from subdir: %v", err)
+	}
+	if !strings.Contains(got, "root.go") {
+		t.Errorf("subdir diff dropped repo-root file root.go (cwd-scoping bug):\n%s", got)
+	}
+	if !strings.Contains(got, "sub/s.go") {
+		t.Errorf("subdir diff dropped sub/s.go")
+	}
+	if strings.Contains(got, ".planning/") {
+		t.Errorf("subdir diff kept excluded .planning/")
 	}
 }
 

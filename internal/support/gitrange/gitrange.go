@@ -217,18 +217,21 @@ func BundleReachable(repoPath, sha string) (bool, error) {
 var DefaultExcludeGlobs = []string{".planning/**", "CHANGELOG.md"}
 
 // excludePathspec converts exclude globs into the trailing argv git needs to
-// drop them from a diff: a positive "." pathspec (required — exclude-only
-// pathspecs match nothing) followed by one ":(exclude)<glob>" per glob. Returns
-// nil for an empty/nil list so the no-exclude path stays byte-identical to a
-// bare `git diff`.
+// drop them from a diff: a positive ":(top)" pathspec (required — exclude-only
+// pathspecs match nothing) followed by one ":(top,exclude)<glob>" per glob. The
+// "top" magic makes every pathspec repo-root-relative, so the diff covers the
+// whole repository (matching a bare `git diff`) and the globs anchor at the repo
+// root regardless of the process cwd — a cwd-relative "." would wrongly scope
+// the diff to a subdirectory when repoPath is not the repo root. Returns nil for
+// an empty/nil list so the no-exclude path stays byte-identical to `git diff`.
 func excludePathspec(globs []string) []string {
 	if len(globs) == 0 {
 		return nil
 	}
 	args := make([]string, 0, len(globs)+2)
-	args = append(args, "--", ".")
+	args = append(args, "--", ":(top)")
 	for _, g := range globs {
-		args = append(args, ":(exclude)"+g)
+		args = append(args, ":(top,exclude)"+g)
 	}
 	return args
 }
