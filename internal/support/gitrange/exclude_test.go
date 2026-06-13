@@ -140,3 +140,58 @@ func TestExcludedFileNames_NoMatch(t *testing.T) {
 		t.Errorf("ExcludedFileNames(no match) = %v, want empty", got)
 	}
 }
+
+// Adversarial: paths with spaces reach git as argv (exec.Command, no shell), so
+// a spaced kept path survives and a spaced excluded path is dropped.
+func TestDiffExcluding_PathsWithSpaces(t *testing.T) {
+	dir := initRepo(t, "main")
+	writeNested(t, dir, "src dir/a b.go", "package p\n\nvar X = 1\n")
+	writeNested(t, dir, ".planning/notes file.md", "old\n")
+	mustGit(t, dir, "commit", "-q", "-m", "base")
+	base := mustGit(t, dir, "rev-parse", "HEAD")
+	writeNested(t, dir, "src dir/a b.go", "package p\n\nvar X = 2\n")
+	writeNested(t, dir, ".planning/notes file.md", "new\n")
+	mustGit(t, dir, "commit", "-q", "-m", "head")
+	head := mustGit(t, dir, "rev-parse", "HEAD")
+
+	got, err := DiffExcluding(dir, base, head, DefaultExcludeGlobs)
+	if err != nil {
+		t.Fatalf("DiffExcluding: %v", err)
+	}
+	if !strings.Contains(got, "src dir/a b.go") {
+		t.Errorf("kept spaced path dropped:\n%s", got)
+	}
+	if strings.Contains(got, ".planning/") {
+		t.Errorf("excluded spaced path survived:\n%s", got)
+	}
+}
+
+// Adversarial: when every changed file is excluded, the diff is empty (not an
+// error) and ExcludedFileNames lists them all. review_direct treats an empty
+// diff as its own hard error downstream — gitrange just reports the truth.
+func TestDiffExcluding_AllFilesExcluded(t *testing.T) {
+	dir := initRepo(t, "main")
+	writeNested(t, dir, ".planning/x.md", "old\n")
+	writeNested(t, dir, "CHANGELOG.md", "old\n")
+	mustGit(t, dir, "commit", "-q", "-m", "base")
+	base := mustGit(t, dir, "rev-parse", "HEAD")
+	writeNested(t, dir, ".planning/x.md", "new\n")
+	writeNested(t, dir, "CHANGELOG.md", "new\n")
+	mustGit(t, dir, "commit", "-q", "-m", "head")
+	head := mustGit(t, dir, "rev-parse", "HEAD")
+
+	got, err := DiffExcluding(dir, base, head, DefaultExcludeGlobs)
+	if err != nil {
+		t.Fatalf("DiffExcluding: %v", err)
+	}
+	if strings.TrimSpace(got) != "" {
+		t.Errorf("expected empty diff when all files excluded, got:\n%s", got)
+	}
+	excluded, err := ExcludedFileNames(dir, base, head, DefaultExcludeGlobs)
+	if err != nil {
+		t.Fatalf("ExcludedFileNames: %v", err)
+	}
+	if len(excluded) != 2 {
+		t.Errorf("ExcludedFileNames = %v, want 2 files", excluded)
+	}
+}
