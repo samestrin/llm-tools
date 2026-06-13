@@ -14,7 +14,7 @@ func TestBuildTDFilterArgs(t *testing.T) {
 		{
 			name: "path only",
 			args: map[string]interface{}{"path": "R.md"},
-			want: []string{"td-filter", "--path", "R.md", "--json", "--min"},
+			want: []string{"td-filter", "--path", "R.md", "--json"},
 		},
 		{
 			name: "full",
@@ -24,7 +24,7 @@ func TestBuildTDFilterArgs(t *testing.T) {
 			},
 			want: []string{"td-filter", "--path", "R.md", "--mode", "all",
 				"--severity", "high,critical", "--confidence", "high",
-				"--group", "1", "--focus", "Mobile", "--max", "5", "--json", "--min"},
+				"--group", "1", "--focus", "Mobile", "--max", "5", "--json"},
 		},
 	}
 	for _, tt := range tests {
