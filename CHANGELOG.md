@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-06-13
+
+### Fixed
+
+#### llm-support
+
+- **`review_direct` dropped every compliant reviewer's findings.** Its TD extractor (`extractTDLines`/`countTDLines`) only collected pipe rows that appeared after a literal `TD_STREAM` sentinel line — but the reviewer prompt never asks for that sentinel (its example is a bare `SEVERITY|...` row). Reviewers that obeyed the prompt (e.g. greta, otto) had their findings written to `review.md` while `td-stream.txt` was left empty and `multi-review-summary.json` reported `totalFindings: 0`, so `/reconcile-code-review` merged nothing. Extraction is now severity-anchored (shared with the openclaw path via `multireview.ExtractTDLines`): any `CRITICAL|HIGH|MEDIUM|LOW`-prefixed pipe row is a finding, no sentinel required. Also fixed a latent bug where legacy 5/6-column rows never received the REVIEWER column, and added a guard against double-appending the agent name to rows that already name their reviewer.
+
+### Changed
+
+#### llm-support
+
+- **Hardened the `review_direct` reviewer prompt** to force pipe-only output — emit only finding lines (no prose, preamble, summary, markdown, or code fences), one finding per line, and nothing at all when there are no issues. Prevents weaker models from returning long prose reviews with zero parseable findings (one reviewer previously emitted 117KB of prose).
+
 ## [1.3.0] - 2026-06-13
 
 ### Added
