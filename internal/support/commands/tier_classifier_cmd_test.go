@@ -46,6 +46,35 @@ categories:
 	}
 }
 
+// Config where patterns/categories are maps (not ordered lists) — loader must
+// still classify deterministically (most-specific match first).
+func TestTierClassifierCmd_MapFormConfig(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "package-tiers.yaml")
+	os.WriteFile(cfg, []byte(`packages:
+  react: critical
+patterns:
+  "eslint-*": utility
+categories:
+  http: important
+`), 0o644)
+	cmd := newTierClassifierCmd()
+	cmd.SetArgs([]string{"--packages", "react,eslint-plugin-x,fast-http,zzz", "--config", cfg, "--json"})
+	var out, errb bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errb)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, errb.String())
+	}
+	var res TierResult
+	json.Unmarshal(out.Bytes(), &res)
+	if res.Assigned["react"].Tier != "critical" || res.Assigned["eslint-plugin-x"].Tier != "utility" || res.Assigned["fast-http"].Tier != "important" {
+		t.Errorf("map-form config misclassified: %+v", res.Assigned)
+	}
+	if len(res.Unassigned) != 1 || res.Unassigned[0] != "zzz" {
+		t.Errorf("unassigned = %v, want [zzz]", res.Unassigned)
+	}
+}
+
 func TestTierClassifierCmd_MissingPackages(t *testing.T) {
 	cmd := newTierClassifierCmd()
 	cmd.SetArgs([]string{"--json"})

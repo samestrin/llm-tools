@@ -2,10 +2,85 @@ package commands
 
 import (
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/samestrin/llm-tools/pkg/output"
+	"github.com/spf13/cobra"
 )
+
+var (
+	ddStreams    string
+	ddSourceTags string
+	ddTolerance  int
+	ddUntrusted  string
+	ddJSON       bool
+	ddMin        bool
+)
+
+func newTdDedupeCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "td-dedupe",
+		Short: "Cluster and merge technical-debt streams from multiple reviewers",
+		Long: `Parse N td-stream.txt files, cluster findings by (file, line +/- tolerance),
+and merge each cluster deterministically: REVIEWERS union, SEVERITY max,
+CATEGORY modal, EST_MINUTES max, CONFIDENCE (HIGH for 2+ distinct reviewers),
+and a severity-disagreement annotation. Multi-item clusters are flagged
+needs_review with their members so the model can confirm or split the
+"same issue?" merge — the only step that needs judgment.
+
+Output is JSON: {merged:[...], summary:{...}}.`,
+		RunE: runTdDedupe,
+	}
+	cmd.Flags().StringVar(&ddStreams, "streams", "", "Comma-separated td-stream.txt paths (required)")
+	cmd.Flags().StringVar(&ddSourceTags, "source-tags", "", "Comma-separated source labels parallel to --streams (default: parent dir name)")
+	cmd.Flags().IntVar(&ddTolerance, "tolerance", 3, "Line-proximity window for clustering same-file findings")
+	cmd.Flags().StringVar(&ddUntrusted, "untrusted", "", "Comma-separated source tags whose findings alone yield CONFIDENCE LOW")
+	cmd.Flags().BoolVar(&ddJSON, "json", true, "Output as JSON (default true)")
+	cmd.Flags().BoolVar(&ddMin, "min", false, "Minimal output format")
+	cmd.MarkFlagRequired("streams")
+	return cmd
+}
+
+func runTdDedupe(cmd *cobra.Command, _ []string) error {
+	paths := splitCSV(ddStreams)
+	if len(paths) == 0 {
+		return fmt.Errorf("--streams required (comma-separated td-stream paths)")
+	}
+	tags := splitCSV(ddSourceTags)
+	streams := make([]StreamInput, 0, len(paths))
+	for i, p := range paths {
+		content, err := os.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("failed to read stream %s: %w", p, err)
+		}
+		tag := ""
+		if i < len(tags) {
+			tag = tags[i]
+		}
+		if tag == "" {
+			tag = filepath.Base(filepath.Dir(p)) // parent dir name
+		}
+		streams = append(streams, StreamInput{Tag: tag, Content: string(content)})
+	}
+	result, err := dedupeTD(streams, DedupeOpts{Tolerance: ddTolerance, Untrusted: splitCSV(ddUntrusted)})
+	if err != nil {
+		return err
+	}
+	formatter := output.New(ddJSON, ddMin, cmd.OutOrStdout())
+	return formatter.Print(result, func(w io.Writer, data interface{}) {
+		r := data.(*DedupeResult)
+		fmt.Fprintf(w, "%d finding(s) → %d merged (%d need review)\n", r.Summary.InputRows, r.Summary.MergedRows, r.Summary.NeedsReviewCount)
+	})
+}
+
+func init() {
+	RootCmd.AddCommand(newTdDedupeCmd())
+}
 
 // StreamInput is one source's td-stream content plus its tag (source label and
 // reviewer fallback).
@@ -59,10 +134,10 @@ type DedupeOpts struct {
 
 // DedupeSummary reports counts.
 type DedupeSummary struct {
-	InputRows       int `json:"input_rows"`
-	Sources         int `json:"sources"`
-	Clusters        int `json:"clusters"`
-	MergedRows      int `json:"merged_rows"`
+	InputRows        int `json:"input_rows"`
+	Sources          int `json:"sources"`
+	Clusters         int `json:"clusters"`
+	MergedRows       int `json:"merged_rows"`
 	NeedsReviewCount int `json:"needs_review_count"`
 }
 

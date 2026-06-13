@@ -46,6 +46,32 @@ func TestTdDedupeCmd_MissingStreams(t *testing.T) {
 	}
 }
 
+// No --source-tags → tag defaults to the parent dir name, and a legacy 6-col
+// row (no evidence column) still parses.
+func TestTdDedupeCmd_TagFallbackAndLegacyWidth(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "multi-agent")
+	os.MkdirAll(srcDir, 0o755)
+	s := filepath.Join(srcDir, "td-stream.txt")
+	os.WriteFile(s, []byte("HIGH|x.go:1|prob|fix|security|kai\n"), 0o644) // 6-col legacy: ...|cat|reviewer
+	cmd := newTdDedupeCmd()
+	cmd.SetArgs([]string{"--streams", s, "--json"})
+	var out, errb bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errb)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, errb.String())
+	}
+	var res DedupeResult
+	json.Unmarshal(out.Bytes(), &res)
+	if len(res.Merged) != 1 || res.Merged[0].Source != "multi-agent" {
+		t.Errorf("source should default to parent dir 'multi-agent'; got %+v", res.Merged)
+	}
+	if res.Merged[0].Reviewers != "kai" {
+		t.Errorf("6-col reviewer = %q, want kai", res.Merged[0].Reviewers)
+	}
+}
+
 func TestTdDedupeCmd_UnreadableStream(t *testing.T) {
 	cmd := newTdDedupeCmd()
 	cmd.SetArgs([]string{"--streams", "/no/such/stream.txt"})
