@@ -164,10 +164,7 @@ jobs:
             fi
             echo "$file: ${SIZE_MB}MB ✓"
           done
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: binaries
-          path: build/
-          retention-days: 3
+          # Binaries are not uploaded as artifacts: nothing downstream consumes
+          # them and each run persisted ~63MB, which exhausted the account-wide
+          # Actions storage quota. The build + size-check above is the actual
+          # verification. Release binaries are produced by release.yml.
