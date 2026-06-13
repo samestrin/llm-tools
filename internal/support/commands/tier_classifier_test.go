@@ -76,6 +76,30 @@ func TestClassifyTiers_EmptyConfigAllUnassigned(t *testing.T) {
 	}
 }
 
+// A package matching both a pattern (pass 2) and a category keyword (pass 3)
+// must be assigned by pass 2 (earlier pass wins).
+func TestClassifyTiers_Pass2BeatsPass3(t *testing.T) {
+	cfg := TierConfig{
+		Patterns:   []TierRule{{Match: "*-loader", Tier: "pattern"}},
+		Categories: []TierRule{{Match: "load", Tier: "important"}}, // "css-loader" contains "load"
+	}
+	res := classifyTiers([]string{"css-loader"}, cfg)
+	got := res.Assigned["css-loader"]
+	if got.Pass != 2 || got.Tier != "pattern" {
+		t.Errorf("css-loader = %+v, want pass2/pattern (pattern beats category)", got)
+	}
+}
+
+// path.Match: a glob's "*" does not cross "/", so "@types/*" matches a single
+// scoped segment but not a deeper path.
+func TestClassifyTiers_ScopedGlobSemantics(t *testing.T) {
+	cfg := TierConfig{Patterns: []TierRule{{Match: "@types/*", Tier: "skip"}}}
+	res := classifyTiers([]string{"@types/node", "@types/babel__core"}, cfg)
+	if res.Assigned["@types/node"].Tier != "skip" || res.Assigned["@types/babel__core"].Tier != "skip" {
+		t.Errorf("@types/* should match scoped type packages; got %+v", res.Assigned)
+	}
+}
+
 func TestClassifyTiers_EmptyPackages(t *testing.T) {
 	res := classifyTiers(nil, testTierConfig())
 	if len(res.Assigned) != 0 || len(res.Unassigned) != 0 {
