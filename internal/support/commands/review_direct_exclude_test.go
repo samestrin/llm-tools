@@ -189,3 +189,114 @@ review:
 		t.Errorf("flag wins over config; CHANGELOG must remain")
 	}
 }
+
+// Adversarial: an empty list in config disables exclusion (everything reviewed).
+func TestReviewDirect_ConfigEmptyListDisables(t *testing.T) {
+	dir := excludeFixtureRepo(t)
+	cfg := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(cfg, []byte("review:\n  direct:\n    exclude_globs: []\n"), 0644)
+	stdout, diff, err := runReviewDirectSelfServe(t, dir, "--config", cfg)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	for _, want := range []string{".planning/technical-debt/README.md", "CHANGELOG.md"} {
+		if !strings.Contains(diff, want) {
+			t.Errorf("empty config list should disable excludes; missing %q", want)
+		}
+	}
+	if strings.Contains(stdout, "excluded") {
+		t.Errorf("disabled excludes should print no excluded clause; got: %s", stdout)
+	}
+}
+
+// Adversarial: globs active but matching nothing → diff is full, report says 0.
+func TestReviewDirect_NoMatchReportsZero(t *testing.T) {
+	dir := excludeFixtureRepo(t)
+	stdout, diff, err := runReviewDirectSelfServe(t, dir, "--exclude", "nomatch/**")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if !strings.Contains(diff, ".planning/technical-debt/README.md") {
+		t.Errorf("non-matching glob should keep all files")
+	}
+	if !strings.Contains(stdout, "excluded 0 file(s) via [nomatch/**]") {
+		t.Errorf("report should state 0 excluded with the active globs; got: %s", stdout)
+	}
+}
+
+// Adversarial: when every changed file is excluded, the empty-diff error names
+// the exclusion as the cause rather than blaming empty commits.
+func TestReviewDirect_AllExcludedNamesCause(t *testing.T) {
+	dir := t.TempDir()
+	git := func(args ...string) { gitInDir(t, dir, args...) }
+	writeN := func(name, content string) {
+		full := filepath.Join(dir, name)
+		os.MkdirAll(filepath.Dir(full), 0o755)
+		os.WriteFile(full, []byte(content), 0o644)
+	}
+	git("init", "-q", "-b", "main")
+	git("config", "user.email", "t@e.com")
+	git("config", "user.name", "T")
+	git("config", "commit.gpgsign", "false")
+	writeN(".planning/x.md", "old\n")
+	git("add", "-A")
+	git("commit", "-q", "-m", "base")
+	writeN(".planning/x.md", "new\n")
+	git("add", "-A")
+	git("commit", "-q", "-m", "head")
+
+	_, _, err := runReviewDirectSelfServe(t, dir)
+	if err == nil {
+		t.Fatal("expected error when every file is excluded")
+	}
+	if !strings.Contains(err.Error(), "every changed file was excluded") {
+		t.Errorf("error should name exclusion as cause; got: %v", err)
+	}
+}
+
+// Adversarial: in pre-computed --diff-file mode, excludes are inert (the diff is
+// used verbatim — exclusion only applies to self-serve git diff generation).
+func TestReviewDirect_DiffFileIgnoresExcludes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(llmapi.ChatResponse{Choices: []llmapi.Choice{{Message: llmapi.Message{Content: "ok"}}}})
+	}))
+	defer server.Close()
+	registryDir := t.TempDir()
+	os.WriteFile(filepath.Join(registryDir, "registry.yaml"), []byte("providers:\n  test:\n    api_key_env: TEST_API_KEY\n    base_url: "+server.URL+"\nagents:\n  alice:\n    provider: test\n    model: m\n    timeout_secs: 60\n"), 0644)
+	os.WriteFile(filepath.Join(registryDir, "alice.md"), []byte("r"), 0644)
+	os.Setenv("TEST_API_KEY", "k")
+	defer os.Unsetenv("TEST_API_KEY")
+
+	diffFile := filepath.Join(t.TempDir(), "pre.diff")
+	os.WriteFile(diffFile, []byte("diff --git a/.planning/x.md b/.planning/x.md\n+changed\n"), 0644)
+	outputDir := t.TempDir()
+
+	cmd := newReviewDirectCmd()
+	cmd.SetArgs([]string{
+		"--reviewers", "alice", "--diff-file", diffFile, "--output-dir", outputDir,
+		"--registry-dir", registryDir, "--timeout-seconds", "60", "--exclude", ".planning/**",
+	})
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "excluded") {
+		t.Errorf("pre-computed diff mode must not apply excludes; got: %s", stdout.String())
+	}
+}
+
+// Adversarial: a non-scalar exclude_globs entry fails fast with a clear message.
+func TestReviewDirect_MalformedConfigExcludes(t *testing.T) {
+	dir := excludeFixtureRepo(t)
+	cfg := filepath.Join(t.TempDir(), "config.yaml")
+	os.WriteFile(cfg, []byte("review:\n  direct:\n    exclude_globs:\n      - nested:\n          bad: map\n"), 0644)
+	_, _, err := runReviewDirectSelfServe(t, dir, "--config", cfg)
+	if err == nil {
+		t.Fatal("expected error for non-scalar exclude_globs entry")
+	}
+	if !strings.Contains(err.Error(), "exclude_globs") {
+		t.Errorf("error should name the offending key; got: %v", err)
+	}
+}
