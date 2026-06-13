@@ -58,6 +58,12 @@ multi_review). A missing or whitespace-only file is ignored and an unreadable
 file warns — in both cases reviewers fall back to diff-touched-line scoping.
 --task-message overrides the entire task message, including the scope block.
 
+In self-serve mode, paths matching --exclude globs are dropped from the diff
+(git :(exclude) pathspecs) before reviewers see it. The default,
+.planning/**,CHANGELOG.md, removes planning/tracking artifacts that are noise
+to a reviewer. A non-empty --exclude replaces the default; --exclude='' disables
+it. Excludes do not apply to a pre-computed --diff-file.
+
 Output layout matches multi_review for compatibility:
   <output-dir>/raw/<agent>/{review.md,status.json}
   <output-dir>/multi-review-summary.json
