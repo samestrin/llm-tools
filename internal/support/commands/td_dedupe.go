@@ -139,6 +139,7 @@ type DedupeSummary struct {
 	Clusters         int `json:"clusters"`
 	MergedRows       int `json:"merged_rows"`
 	NeedsReviewCount int `json:"needs_review_count"`
+	Skipped          int `json:"skipped"` // malformed rows (<5 columns) — surfaced, not silently dropped
 }
 
 // DedupeResult is the full payload.
@@ -164,6 +165,7 @@ func dedupeTD(streams []StreamInput, opts DedupeOpts) (*DedupeResult, error) {
 	}
 
 	var rows []tdParsedRow
+	skipped := 0
 	for _, s := range streams {
 		for _, line := range strings.Split(s.Content, "\n") {
 			t := strings.TrimSpace(line)
@@ -172,6 +174,7 @@ func dedupeTD(streams []StreamInput, opts DedupeOpts) (*DedupeResult, error) {
 			}
 			r, ok := normalizeRow(t, s.Tag)
 			if !ok {
+				skipped++ // malformed (<5 columns): surfaced in summary, not silently dropped
 				continue
 			}
 			rows = append(rows, r)
@@ -248,6 +251,7 @@ func dedupeTD(streams []StreamInput, opts DedupeOpts) (*DedupeResult, error) {
 			Clusters:         len(clusters),
 			MergedRows:       len(merged),
 			NeedsReviewCount: needsReview,
+			Skipped:          skipped,
 		},
 	}, nil
 }

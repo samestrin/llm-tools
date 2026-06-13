@@ -168,6 +168,22 @@ HIGH|nolinefile|p2|f|security|5|e|kai`}
 	}
 }
 
+// Malformed (<5-col) rows are counted in summary.skipped, not silently dropped.
+func TestDedupeTD_MalformedRowSurfaced(t *testing.T) {
+	a := StreamInput{Tag: "c", Content: `HIGH|x.go:1|p|f|security|5|e|bruce
+GARBAGE|too|few`}
+	res, err := dedupeTD([]StreamInput{a}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if res.Summary.Skipped != 1 {
+		t.Errorf("skipped = %d, want 1 (the 3-col garbage row)", res.Summary.Skipped)
+	}
+	if res.Summary.InputRows != 1 {
+		t.Errorf("input_rows = %d, want 1 (the valid row)", res.Summary.InputRows)
+	}
+}
+
 func TestDedupeTD_EmptyStreams(t *testing.T) {
 	res, err := dedupeTD([]StreamInput{{Tag: "a", Content: ""}, {Tag: "b", Content: "# comment only\n"}}, DedupeOpts{Tolerance: 3})
 	if err != nil {
