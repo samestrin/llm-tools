@@ -126,6 +126,61 @@ func TestDedupeTD_SyntheszeReviewerFromTag(t *testing.T) {
 	}
 }
 
+// --- Adversarial ---
+
+// Two findings far apart in the same file (gap > tolerance) must NOT merge.
+func TestDedupeTD_FarApartSameFileNotMerged(t *testing.T) {
+	a := StreamInput{Tag: "c", Content: `HIGH|big.go:10|issue one|fix|security|5|e|bruce
+LOW|big.go:500|issue two|fix|style|5|e|kai`}
+	res, err := dedupeTD([]StreamInput{a}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if res.Summary.Clusters != 2 {
+		t.Errorf("clusters = %d, want 2 (far-apart lines must not merge)", res.Summary.Clusters)
+	}
+}
+
+// Untrusted-only cluster → CONFIDENCE LOW.
+func TestDedupeTD_UntrustedLow(t *testing.T) {
+	a := StreamInput{Tag: "sketchy", Content: `HIGH|x.go:1|p|f|security|5|e|sketchy`}
+	res, err := dedupeTD([]StreamInput{a}, DedupeOpts{Tolerance: 3, Untrusted: []string{"sketchy"}})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if res.Merged[0].Confidence != "LOW" {
+		t.Errorf("confidence = %q, want LOW (untrusted source)", res.Merged[0].Confidence)
+	}
+}
+
+// Rows with no parseable line cluster by file only (one cluster), not merged
+// with line-bearing rows.
+func TestDedupeTD_NoLineRows(t *testing.T) {
+	a := StreamInput{Tag: "c", Content: `HIGH|nolinefile|p1|f|security|5|e|bruce
+HIGH|nolinefile|p2|f|security|5|e|kai`}
+	res, err := dedupeTD([]StreamInput{a}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if res.Summary.Clusters != 1 || res.Merged[0].ClusterSize != 2 {
+		t.Errorf("no-line rows for same file should form one cluster; got clusters=%d size=%d",
+			res.Summary.Clusters, res.Merged[0].ClusterSize)
+	}
+}
+
+func TestDedupeTD_EmptyStreams(t *testing.T) {
+	res, err := dedupeTD([]StreamInput{{Tag: "a", Content: ""}, {Tag: "b", Content: "# comment only\n"}}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if res.Summary.InputRows != 0 || len(res.Merged) != 0 {
+		t.Errorf("empty streams should yield 0 rows; got %d", res.Summary.InputRows)
+	}
+	if res.Merged == nil {
+		t.Errorf("Merged must be non-nil for JSON []")
+	}
+}
+
 func splitSorted(csv string) []string {
 	out := []string{}
 	for _, p := range splitCSV(csv) {
