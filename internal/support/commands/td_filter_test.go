@@ -159,3 +159,113 @@ func TestFilterTD_GroupScope_ComputedPreMax(t *testing.T) {
 		t.Errorf("group_scope (pre-max) = %v, want [a.go f.go]", scope)
 	}
 }
+
+// --- Adversarial ---
+
+func TestFilterTD_SeverityCaseInsensitive(t *testing.T) {
+	res := runFilter(t, TDFilterOpts{Mode: "all", Severity: []string{"high"}, Max: 10})
+	if got := fileLinesOf(res.Items); !reflect.DeepEqual(got, []string{"a.go:10"}) {
+		t.Errorf("lowercase severity input should match; got %v", got)
+	}
+}
+
+func TestFilterTD_FocusNoMatch(t *testing.T) {
+	res := runFilter(t, TDFilterOpts{Mode: "all", Focus: "nonexistent", Max: 10})
+	if len(res.Items) != 0 {
+		t.Errorf("focus matching nothing should yield 0 items, got %v", fileLinesOf(res.Items))
+	}
+	if res.Summary.FocusMatchedSections != 0 || res.Summary.TotalUnchecked != 0 {
+		t.Errorf("focus no-match: matched_sections=%d total_unchecked=%d, want 0/0",
+			res.Summary.FocusMatchedSections, res.Summary.TotalUnchecked)
+	}
+}
+
+func TestFilterTD_GroupNoMatch(t *testing.T) {
+	res := runFilter(t, TDFilterOpts{Mode: "all", Group: "99", Max: 10})
+	if len(res.Items) != 0 {
+		t.Errorf("group with no match should yield 0 items")
+	}
+	if res.Summary.ExcludedByGroup != 4 {
+		t.Errorf("excluded_by_group = %d, want 4", res.Summary.ExcludedByGroup)
+	}
+}
+
+func TestFilterTD_EveryRowExcluded(t *testing.T) {
+	res := runFilter(t, TDFilterOpts{Mode: "all", Severity: []string{"NONESUCH"}, Max: 10})
+	if len(res.Items) != 0 {
+		t.Errorf("impossible severity should yield 0 items")
+	}
+	if res.Summary.Matched != 0 || res.Summary.ExcludedBySeverity != 4 {
+		t.Errorf("matched=%d excluded_by_severity=%d, want 0/4", res.Summary.Matched, res.Summary.ExcludedBySeverity)
+	}
+}
+
+func TestFilterTD_MalformedEstReported(t *testing.T) {
+	content := `### [2026-06-01] From Sprint: x
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [ ] | HIGH | good.go:1 | p | f | bug | 10 |
+| 1 | [ ] | HIGH | bad.go:2 | p | f | bug | not-a-number |
+`
+	res, err := filterTD(content, TDFilterOpts{Mode: "all", Max: 10})
+	if err != nil {
+		t.Fatalf("filterTD: %v", err)
+	}
+	if got := fileLinesOf(res.Items); !reflect.DeepEqual(got, []string{"good.go:1"}) {
+		t.Errorf("malformed row must be excluded from items; got %v", got)
+	}
+	if !reflect.DeepEqual(res.Summary.Malformed, []string{"bad.go:2"}) {
+		t.Errorf("malformed row must be reported; got %v", res.Summary.Malformed)
+	}
+}
+
+func TestFilterTD_PathologicalTables(t *testing.T) {
+	for name, content := range map[string]string{
+		"empty":          "",
+		"no-sections":    "# Technical Debt\n\nNothing here.\n",
+		"all-checked":    "### [2026-06-01] From Sprint: x\n\n| Group | | Severity | File | Problem | Fix | Category | Est Minutes |\n|--|--|--|--|--|--|--|--|\n| 1 | [x] | HIGH | a.go:1 | p | f | bug | 10 |\n",
+		"header-no-rows": "### [2026-06-01] From Sprint: x\n\n| Group | | Severity | File | Problem | Fix | Category | Est Minutes |\n|--|--|--|--|--|--|--|--|\n",
+	} {
+		res, err := filterTD(content, TDFilterOpts{Mode: "all", Max: 10})
+		if err != nil {
+			t.Fatalf("%s: filterTD: %v", name, err)
+		}
+		if len(res.Items) != 0 || res.Summary.TotalUnchecked != 0 {
+			t.Errorf("%s: want 0 items / 0 unchecked, got %d / %d", name, len(res.Items), res.Summary.TotalUnchecked)
+		}
+		if res.Items == nil {
+			t.Errorf("%s: Items must be non-nil for JSON []", name)
+		}
+	}
+}
+
+// A table under a non-"From" ### section must NOT be collected (mis-attribution
+// guard) — only From-sections hold TD items.
+func TestFilterTD_NonFromSectionTableIgnored(t *testing.T) {
+	content := `### Directory Structure
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|--|--|--|--|--|--|--|--|
+| 1 | [ ] | HIGH | tree.go:1 | p | f | bug | 5 |
+
+### [2026-06-01] From Sprint: real
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|--|--|--|--|--|--|--|--|
+| 1 | [ ] | HIGH | real.go:1 | p | f | bug | 5 |
+`
+	res, err := filterTD(content, TDFilterOpts{Mode: "all", Max: 10})
+	if err != nil {
+		t.Fatalf("filterTD: %v", err)
+	}
+	if got := fileLinesOf(res.Items); !reflect.DeepEqual(got, []string{"real.go:1"}) {
+		t.Errorf("only From-section rows collected; got %v", got)
+	}
+}
+
+func TestFilterTD_InvalidMode(t *testing.T) {
+	if _, err := filterTD(fixtureTDReadme, TDFilterOpts{Mode: "bogus", Max: 10}); err == nil {
+		t.Fatal("invalid mode must error")
+	}
+}
