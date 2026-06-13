@@ -5,6 +5,38 @@ import (
 	"testing"
 )
 
+func TestBuildTDFilterArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "path only",
+			args: map[string]interface{}{"path": "R.md"},
+			want: []string{"td-filter", "--path", "R.md", "--json"},
+		},
+		{
+			name: "full",
+			args: map[string]interface{}{
+				"path": "R.md", "mode": "all", "severity": "high,critical",
+				"confidence": "high", "group": "1", "focus": "Mobile", "max": float64(5),
+			},
+			want: []string{"td-filter", "--path", "R.md", "--mode", "all",
+				"--severity", "high,critical", "--confidence", "high",
+				"--group", "1", "--focus", "Mobile", "--max", "5", "--json"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildTDFilterArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildTDFilterArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildTreeArgs(t *testing.T) {
 	tests := []struct {
 		name string

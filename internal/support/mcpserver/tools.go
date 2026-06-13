@@ -1636,6 +1636,25 @@ func GetToolDefinitions() []ToolDefinition {
 					}`),
 		},
 
+		// 58b. Tech debt selection/filtering
+		{
+			Name:        ToolPrefix + "td_filter",
+			Description: "Select unchecked technical-debt rows from a README by filter criteria (mode quick-wins/backlog/all, severity, confidence, group, section focus, max). Returns matching rows + a summary of counts and the group write-scope. Deterministic replacement for in-model table parsing.",
+			InputSchema: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"path": {"type": "string", "description": "Path to the technical-debt README"},
+							"mode": {"type": "string", "enum": ["quick-wins", "backlog", "all"], "description": "Effort threshold (default quick-wins)"},
+							"severity": {"type": "string", "description": "Comma-separated severities to keep (low,medium,high,critical); empty = all"},
+							"confidence": {"type": "string", "description": "Comma-separated confidences to keep (low,medium,high); empty = all"},
+							"group": {"type": "string", "description": "Group-column value to keep (e.g. solo,1,2,u); empty = all"},
+							"focus": {"type": "string", "description": "Section header substring, case-insensitive"},
+							"max": {"type": "integer", "description": "Max items returned (default 10)"}
+						},
+						"required": ["path"]
+					}`),
+		},
+
 		// 59. Project components (monorepo support)
 		{
 			Name:        ToolPrefix + "project_components",
