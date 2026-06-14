@@ -296,12 +296,3 @@ func frontList(e *Entry, key string) []string {
 	}
 	return nil
 }
-
-func contains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
-}
