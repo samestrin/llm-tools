@@ -14,10 +14,11 @@ import (
 )
 
 var (
-	kaDir    string
-	kaRepair bool
-	kaJSON   bool
-	kaMin    bool
+	kaDir        string
+	kaRepair     bool
+	kaAllEntries bool
+	kaJSON       bool
+	kaMin        bool
 )
 
 func newKnowledgeAuditCmd() *cobra.Command {
@@ -43,6 +44,7 @@ caller which entries warrant a semantic (model) review.`,
 	}
 	cmd.Flags().StringVar(&kaDir, "dir", "", "Path to the .knowledge directory (required)")
 	cmd.Flags().BoolVar(&kaRepair, "repair-schema", false, "Write deterministic frontmatter normalization (default off = read-only report)")
+	cmd.Flags().BoolVar(&kaAllEntries, "all-entries", false, "Enumerate every entry (default: only non-clean entries appear in `entries`; all are counted in `summary`)")
 	cmd.Flags().BoolVar(&kaJSON, "json", true, "Output as JSON (default true)")
 	cmd.Flags().BoolVar(&kaMin, "min", false, "Minimal output format")
 	cmd.MarkFlagRequired("dir")
@@ -61,7 +63,7 @@ func runKnowledgeAudit(cmd *cobra.Command, _ []string) error {
 	if err != nil || !info.IsDir() {
 		return fmt.Errorf("--dir %q is not a readable directory: %v", kaDir, err)
 	}
-	result, err := auditDir(kaDir, kaRepair, time.Now())
+	result, err := auditDir(kaDir, kaRepair, kaAllEntries, time.Now())
 	if err != nil {
 		return err
 	}
@@ -84,9 +86,12 @@ type EntryAudit struct {
 	Flags    []string     `json:"flags,omitempty"`
 }
 
-// AuditSummary aggregates the KB's health.
+// AuditSummary aggregates the KB's health. Counts cover every entry; `emitted`
+// is how many appear in the result's entries list (non-clean only, unless
+// --all-entries).
 type AuditSummary struct {
 	Total          int `json:"total"`
+	Emitted        int `json:"emitted"`
 	Nonconformant  int `json:"nonconformant"`
 	MissingCreated int `json:"missing_created"`
 	MissingFiles   int `json:"missing_files"`
@@ -103,8 +108,10 @@ type AuditResult struct {
 }
 
 // auditDir audits every .md entry in dir. When repair is true it normalizes
-// frontmatter in place (git-backed; the caller should run on a clean tree).
-func auditDir(dir string, repair bool, now time.Time) (*AuditResult, error) {
+// frontmatter in place (git-backed; the caller should run on a clean tree). By
+// default only non-clean entries are enumerated in the result (all are counted
+// in the summary); allEntries includes the clean ones too.
+func auditDir(dir string, repair, allEntries bool, now time.Time) (*AuditResult, error) {
 	des, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("read dir: %w", err)
@@ -144,15 +151,18 @@ func auditDir(dir string, repair bool, now time.Time) (*AuditResult, error) {
 		if repair && e.HasFrontmatter && e.ParseErr == "" {
 			newContent, changed := e.repair(drift.Created)
 			if changed {
-				if werr := atomicWrite(full, newContent); werr == nil {
-					ea.Repaired = true
-					res.Summary.Repaired++
-					// Re-evaluate post-repair so the report reflects the new state.
-					e2 := parseEntry(name, newContent)
-					ea.Schema = e2.schemaReport()
-					ea.Drift = analyzeDrift(repoRoot, entryRel, e2, now)
-					ea.ID = idOf(e2)
+				// A failed write must NOT be silent — surface it so the caller
+				// knows the KB was not fully repaired (e.g. read-only dir).
+				if werr := atomicWrite(full, newContent); werr != nil {
+					return nil, fmt.Errorf("repair %s: %w", name, werr)
 				}
+				ea.Repaired = true
+				res.Summary.Repaired++
+				// Re-evaluate post-repair so the report reflects the new state.
+				e2 := parseEntry(name, newContent)
+				ea.Schema = e2.schemaReport()
+				ea.Drift = analyzeDrift(repoRoot, entryRel, e2, now)
+				ea.ID = idOf(e2)
 			}
 		}
 
@@ -177,8 +187,14 @@ func auditDir(dir string, repair bool, now time.Time) (*AuditResult, error) {
 		if ea.Drift.Placeholders {
 			res.Summary.Incomplete++
 		}
-		res.Entries = append(res.Entries, ea)
+		// Enumerate only entries that warrant attention (or were repaired this
+		// run), so a healthy KB returns a tiny payload and the model isn't fed
+		// every clean entry. --all-entries overrides.
+		if allEntries || !ea.Schema.Conformant || len(ea.Flags) > 0 || ea.Repaired {
+			res.Entries = append(res.Entries, ea)
+		}
 	}
+	res.Summary.Emitted = len(res.Entries)
 	return res, nil
 }
 

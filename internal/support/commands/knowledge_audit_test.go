@@ -271,6 +271,19 @@ Duplicate: internal/registry/config.go again.`
 	}
 }
 
+func TestInferType(t *testing.T) {
+	cases := map[string]string{
+		"clarifications-1.0_x-Q1.md": "clarifications",
+		"sprint-learning-foo.md":     "sprint-learning",
+		"random-note.md":             "knowledge",
+	}
+	for f, want := range cases {
+		if got := inferType(f); got != want {
+			t.Errorf("inferType(%q) = %q, want %q", f, got, want)
+		}
+	}
+}
+
 // --- test helpers ---
 
 func frontMap(e *Entry) map[string]interface{} {

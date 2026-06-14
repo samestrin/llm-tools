@@ -20,6 +20,7 @@ type auditJSON struct {
 	} `json:"entries"`
 	Summary struct {
 		Total         int `json:"total"`
+		Emitted       int `json:"emitted"`
 		Nonconformant int `json:"nonconformant"`
 		Repaired      int `json:"repaired"`
 	} `json:"summary"`
@@ -87,9 +88,6 @@ func TestKnowledgeAuditCmd_RepairWritesAndIsIdempotent(t *testing.T) {
 	if res2.Summary.Repaired != 0 {
 		t.Errorf("second repair = %d, want 0 (idempotent)", res2.Summary.Repaired)
 	}
-	if res2.Entries[0].Schema.Conformant && len(res2.Entries[0].Flags) == 0 {
-		// fine — fully clean
-	}
 	// Body preserved.
 	content, _ := os.ReadFile(p)
 	if !bytes.Contains(content, []byte("## Decision\nbody text\n")) {
@@ -116,5 +114,60 @@ func TestKnowledgeAuditCmd_EmptyDir(t *testing.T) {
 	res := runAudit(t, "--dir", dir, "--json")
 	if res.Summary.Total != 0 {
 		t.Errorf("empty dir total = %d, want 0", res.Summary.Total)
+	}
+}
+
+// Clean, conformant entries are counted but NOT enumerated by default (keeps
+// the model payload proportional to the problems); --all-entries includes them.
+func TestKnowledgeAuditCmd_OmitsCleanEntriesByDefault(t *testing.T) {
+	dir := t.TempDir()
+	clean := "---\nid: mem-2026-01-01-aaaaaa\nquestion: \"Q?\"\ncreated: 2026-01-01\nlast_retrieved: \"\"\nsprints: []\nfiles: []\ntags:\n- x\nretrievals: 0\nstatus: active\ntype: knowledge\n---\n\n# Clean\n"
+	drifted := "---\ndate: 2026-02-02\ntype: knowledge\n---\n\n# Drifted\n"
+	if err := os.WriteFile(filepath.Join(dir, "clean.md"), []byte(clean), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "drifted.md"), []byte(drifted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runAudit(t, "--dir", dir, "--json")
+	if res.Summary.Total != 2 {
+		t.Errorf("total = %d, want 2 (both counted)", res.Summary.Total)
+	}
+	if len(res.Entries) != 1 || res.Entries[0].File != "drifted.md" {
+		t.Errorf("default should enumerate only the drifted entry, got %d: %+v", len(res.Entries), res.Entries)
+	}
+	if res.Summary.Emitted != 1 {
+		t.Errorf("emitted = %d, want 1", res.Summary.Emitted)
+	}
+
+	all := runAudit(t, "--dir", dir, "--all-entries", "--json")
+	if len(all.Entries) != 2 {
+		t.Errorf("--all-entries should enumerate both, got %d", len(all.Entries))
+	}
+}
+
+// A failed repair write surfaces an error rather than silently reporting
+// repaired:0 (skipped when running as root, where mode bits are ignored).
+func TestKnowledgeAuditCmd_RepairWriteErrorSurfaces(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: directory mode is not enforced")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("---\ndate: 2026-02-02\ntype: knowledge\n---\n\n# T\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil { // r-x: no temp file can be created
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o755)
+
+	cmd := newKnowledgeAuditCmd()
+	var out, errb bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errb)
+	cmd.SetArgs([]string{"--dir", dir, "--repair-schema", "--json"})
+	if err := cmd.Execute(); err == nil {
+		t.Error("expected an error when a repair write fails, got nil")
 	}
 }
