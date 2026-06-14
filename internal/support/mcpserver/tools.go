@@ -1685,6 +1685,20 @@ func GetToolDefinitions() []ToolDefinition {
 					}`),
 		},
 
+		// 58e. Knowledge-base audit + frontmatter repair
+		{
+			Name:        ToolPrefix + "knowledge_audit",
+			Description: "Audit a .knowledge/ directory for frontmatter drift and stale code references. Per entry: schema conformance (missing/unknown/aliased keys, soft fields needing input) and drift (git-derived created date, age, cited-file existence + commits-since-capture, unfilled placeholders), plus a flags array (code_changed_after_capture/dangling_ref/incomplete/needs_input) marking entries that warrant model review. Read-only by default; repair_schema deterministically normalizes frontmatter (rename aliases, fill derivable/bookkeeping keys, synthesize missing id, derive files from body) preserving the body, filename, and existing id, and is idempotent.",
+			InputSchema: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"dir": {"type": "string", "description": "Path to the .knowledge directory"},
+							"repair_schema": {"type": "boolean", "description": "Write deterministic frontmatter normalization (default false = read-only report)"}
+						},
+						"required": ["dir"]
+					}`),
+		},
+
 		// 59. Project components (monorepo support)
 		{
 			Name:        ToolPrefix + "project_components",

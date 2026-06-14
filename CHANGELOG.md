@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-06-14
+
+### Added
+
+#### llm-support
+
+- **`knowledge-audit` command + `llm_support_knowledge_audit` MCP tool** — audits a `.knowledge/` directory for frontmatter drift and stale code references. Per entry it reports schema conformance against the canonical 10-key frontmatter (missing/unknown/aliased keys; soft fields `question`/`tags` flagged `needs_input`) and drift against the codebase (git-derived `created` date, age, whether each cited file still exists and how many commits touched it since capture, and unfilled `[from context]`-style placeholders), plus a per-entry `flags` array (`code_changed_after_capture`/`dangling_ref`/`incomplete`/`needs_input`) marking entries that warrant model review. Read-only by default; only non-clean entries are enumerated (all are counted in `summary`) so a healthy KB returns a tiny payload. With `--repair-schema` it deterministically normalizes frontmatter — rename aliases (`date`→`created`), fill bookkeeping defaults, derive `created` from the entry's git first-add date, derive `files` from body code citations, synthesize a missing `id`, infer `type` from the filename — **preserving the entry body byte-for-byte, the filename, and any existing id**, and never inventing `question`/`tags`. Repair is idempotent and surfaces write failures rather than silently skipping. Backs the new `/knowledge --audit` skill mode. Validated on a 183-entry KB: 118 repaired with zero body changes; second run a no-op.
+
 ## [1.3.1] - 2026-06-13
 
 ### Fixed
