@@ -17,8 +17,9 @@ var canonicalKeys = []string{
 }
 
 // softKeys are values repair will NEVER invent — only a human or the model
-// (via the --audit report) can fill them. Repair leaves them empty + flagged.
-var softKeys = map[string]bool{"question": true, "tags": true}
+// (via the --audit report) can fill them. Repair leaves them empty + flagged;
+// schemaReport lists them in needs_input when missing or empty.
+var softKeys = []string{"question", "tags"}
 
 // listKeys render as YAML block sequences (or `[]` when empty).
 var listKeys = map[string]bool{"sprints": true, "files": true, "tags": true}
@@ -157,7 +158,7 @@ func (e *Entry) schemaReport() SchemaReport {
 		}
 	}
 	// Soft fields that are missing or empty need human/model input.
-	for _, k := range []string{"question", "tags"} {
+	for _, k := range softKeys {
 		if !present[k] || e.isEmpty(k) {
 			r.NeedsInput = append(r.NeedsInput, k)
 		}
