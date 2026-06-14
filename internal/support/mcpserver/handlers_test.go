@@ -5,6 +5,37 @@ import (
 	"testing"
 )
 
+func TestBuildKnowledgeAuditArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "dir only (report)",
+			args: map[string]interface{}{"dir": "/x/.knowledge"},
+			want: []string{"knowledge-audit", "--dir", "/x/.knowledge", "--json"},
+		},
+		{
+			name: "with repair",
+			args: map[string]interface{}{"dir": "/x/.knowledge", "repair_schema": true},
+			want: []string{"knowledge-audit", "--dir", "/x/.knowledge", "--repair-schema", "--json"},
+		},
+		{
+			name: "repair false omitted",
+			args: map[string]interface{}{"dir": "/x/.knowledge", "repair_schema": false},
+			want: []string{"knowledge-audit", "--dir", "/x/.knowledge", "--json"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := buildKnowledgeAuditArgs(tt.args); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildKnowledgeAuditArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildTdDedupeArgs(t *testing.T) {
 	tests := []struct {
 		name string

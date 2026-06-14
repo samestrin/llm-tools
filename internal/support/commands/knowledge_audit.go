@@ -345,15 +345,6 @@ func quoteIfEmpty(s string) string {
 	return s
 }
 
-func kbContains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
-}
-
 // toStr renders a scalar frontmatter value as a string.
 func toStr(v interface{}) string {
 	switch t := v.(type) {

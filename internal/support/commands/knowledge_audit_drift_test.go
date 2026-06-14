@@ -110,13 +110,13 @@ Old decision text. Rationale: - [from context]
 	if byPath["deleted.go"].Exists {
 		t.Errorf("deleted.go should not exist")
 	}
-	if !hasFlag(d.Flags, "dangling_ref") {
+	if !hasStr(d.Flags, "dangling_ref") {
 		t.Errorf("expected dangling_ref flag, got %v", d.Flags)
 	}
-	if !hasFlag(d.Flags, "code_changed_after_capture") {
+	if !hasStr(d.Flags, "code_changed_after_capture") {
 		t.Errorf("expected code_changed_after_capture flag, got %v", d.Flags)
 	}
-	if !d.Placeholders || !hasFlag(d.Flags, "incomplete") {
+	if !d.Placeholders || !hasStr(d.Flags, "incomplete") {
 		t.Errorf("expected placeholders+incomplete, got placeholders=%v flags=%v", d.Placeholders, d.Flags)
 	}
 }
@@ -174,7 +174,7 @@ func TestAnalyzeDrift_NoFiles(t *testing.T) {
 	if len(d.Files) != 0 {
 		t.Errorf("expected no files, got %+v", d.Files)
 	}
-	if hasFlag(d.Flags, "dangling_ref") || hasFlag(d.Flags, "code_changed_after_capture") {
+	if hasStr(d.Flags, "dangling_ref") || hasStr(d.Flags, "code_changed_after_capture") {
 		t.Errorf("no-files entry should not flag code drift: %v", d.Flags)
 	}
 }
@@ -189,13 +189,4 @@ func TestAnalyzeDrift_FutureCreatedClampsAge(t *testing.T) {
 	if d.AgeDays < 0 {
 		t.Errorf("age_days = %d, want clamped to >= 0", d.AgeDays)
 	}
-}
-
-func hasFlag(flags []string, f string) bool {
-	for _, x := range flags {
-		if x == f {
-			return true
-		}
-	}
-	return false
 }
