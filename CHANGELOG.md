@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-06-14
+
+### Added
+
+#### llm-support
+
+- **`diff-smell` command + `llm_support_diff_smell` MCP tool** — scans a unified diff (a `--diff` file, or a commit via `--repo`/`--rev` through `git show`) for over-simplification / reward-hack fingerprints: a "fix" that touched only tests (`test_only`, HARD), a test that dropped assertions without replacing them (`weakened_assertion`, HARD), or an added line that suppressed a linter/type-checker (`suppression`), swallowed an exception (`empty_catch`), or stubbed a body (`stub_body`) — all SOFT. Returns `{files, smells, summary}` with `summary.verdict` = `hard` (force review) / `soft_only` (adjudicate) / `clean`. Deterministic and model-independent — the over-simplification gate for `/resolve-td`, the inverse of its existing too-complex `SAFE_SCOPE` check, so a weak model can't approve its own narrow patch. Precise test/impl path classification (e.g. `latest_test_results.go` is impl, not a test); suppression tokens are matched only on genuinely-added lines.
+
 ## [1.4.0] - 2026-06-14
 
 ### Added
