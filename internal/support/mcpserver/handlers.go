@@ -280,6 +280,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildTdDedupeArgs(args), nil
 	case "knowledge_audit":
 		return buildKnowledgeAuditArgs(args), nil
+	case "diff_smell":
+		return buildDiffSmellArgs(args), nil
 	case "tier_classifier":
 		return buildTierClassifierArgs(args), nil
 	default:
@@ -1887,6 +1889,21 @@ func buildTdDedupeArgs(args map[string]interface{}) []string {
 	}
 	if v, ok := args["untrusted"].(string); ok && v != "" {
 		cmdArgs = append(cmdArgs, "--untrusted", v)
+	}
+	cmdArgs = append(cmdArgs, "--json")
+	return cmdArgs
+}
+
+func buildDiffSmellArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"diff-smell"}
+	if v, ok := args["diff"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--diff", v)
+	}
+	if v, ok := args["repo"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--repo", v)
+	}
+	if v, ok := args["rev"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--rev", v)
 	}
 	cmdArgs = append(cmdArgs, "--json")
 	return cmdArgs

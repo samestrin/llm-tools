@@ -5,6 +5,37 @@ import (
 	"testing"
 )
 
+func TestBuildDiffSmellArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "diff file",
+			args: map[string]interface{}{"diff": "/tmp/fix.diff"},
+			want: []string{"diff-smell", "--diff", "/tmp/fix.diff", "--json"},
+		},
+		{
+			name: "repo + rev",
+			args: map[string]interface{}{"repo": "/r", "rev": "HEAD"},
+			want: []string{"diff-smell", "--repo", "/r", "--rev", "HEAD", "--json"},
+		},
+		{
+			name: "repo default rev",
+			args: map[string]interface{}{"repo": "/r"},
+			want: []string{"diff-smell", "--repo", "/r", "--json"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := buildDiffSmellArgs(tt.args); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildDiffSmellArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildKnowledgeAuditArgs(t *testing.T) {
 	tests := []struct {
 		name string

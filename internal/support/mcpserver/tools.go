@@ -1699,6 +1699,20 @@ func GetToolDefinitions() []ToolDefinition {
 					}`),
 		},
 
+		// 58f. Diff over-simplification / reward-hack smell
+		{
+			Name:        ToolPrefix + "diff_smell",
+			Description: "Scan a diff for over-simplification / reward-hack fingerprints: the change touched only tests (test_only), a test removed assertions without replacing them (weakened_assertion), or an added line suppressed a linter/type-checker (suppression), swallowed an exception (empty_catch), or stubbed a body (stub_body). Deterministic, model-independent gate for /resolve-td — the inverse of its too-complex SAFE_SCOPE check. Returns smells + summary.verdict (hard=force review / soft_only=adjudicate / clean). Source is a diff file (`diff`) or a commit (`repo`+`rev`, via git show).",
+			InputSchema: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"diff": {"type": "string", "description": "Path to a unified diff file (takes precedence over repo/rev)"},
+							"repo": {"type": "string", "description": "Repository to read the commit diff from when diff is not given"},
+							"rev": {"type": "string", "description": "Commit to scan via 'git show <rev>' (default HEAD)"}
+						}
+					}`),
+		},
+
 		// 59. Project components (monorepo support)
 		{
 			Name:        ToolPrefix + "project_components",
