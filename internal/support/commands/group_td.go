@@ -412,6 +412,14 @@ func parsePipeInput(input string, headersStr string, delimiter string) ([]map[st
 			continue
 		}
 
+		// Skip a literal header row. When the input content carries its own
+		// column-name line (not prefixed with #), its fields equal the declared
+		// --headers. Parsing it would create a bogus item (e.g. FILE_LINE="FILE_LINE")
+		// that lands ungrouped. Match case-insensitively against headers.
+		if isHeaderRow(fields, headers) {
+			continue
+		}
+
 		row := make(map[string]interface{})
 		for j, header := range headers {
 			if j < len(fields) {
@@ -428,6 +436,23 @@ func parsePipeInput(input string, headersStr string, delimiter string) ([]map[st
 	}
 
 	return items, nil
+}
+
+// isHeaderRow reports whether a parsed pipe line is the declared header row
+// rather than a data row. It returns true only when the field count matches the
+// header count and every field equals the corresponding header name
+// (case-insensitive). Data values virtually never satisfy this, so the check is
+// safe — it only suppresses an echoed column-name line in the input content.
+func isHeaderRow(fields, headers []string) bool {
+	if len(fields) != len(headers) {
+		return false
+	}
+	for i := range fields {
+		if !strings.EqualFold(fields[i], headers[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // groupItems clusters TD items into groups. When assignNumbers is true and

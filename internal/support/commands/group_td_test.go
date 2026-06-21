@@ -1178,6 +1178,43 @@ HIGH|src/auth/c.ts:3|Problem 3|Fix 3|security|60
 	}
 }
 
+func TestGroupTDPipeFormatSkipsHeaderRow(t *testing.T) {
+	// Input content echoes the column-name line (not prefixed with #). It must
+	// be skipped, not parsed into a bogus ungrouped item.
+	pipeInput := `SEVERITY|FILE_LINE|PROBLEM|FIX|CATEGORY|EST_MINUTES
+HIGH|src/auth/login.ts:10|Missing validation|Add zod schema|security|30
+MEDIUM|src/auth/logout.ts:20|No error handling|Add try-catch|reliability|45
+LOW|src/auth/validate.ts:30|Magic number|Extract constant|maintainability|15
+`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES",
+		"--json",
+		"--min-group-size", "2",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result GroupTDResult
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
+		t.Fatalf("failed to parse output: %v\nOutput: %s", err, buf.String())
+	}
+
+	if result.Summary.TotalItems != 3 {
+		t.Errorf("expected 3 items (header skipped), got %d", result.Summary.TotalItems)
+	}
+	if result.Summary.UngroupedCount != 0 {
+		t.Errorf("expected 0 ungrouped, got %d", result.Summary.UngroupedCount)
+	}
+}
+
 func TestGroupTDPipeFormatNoHeaders(t *testing.T) {
 	cmd := newGroupTDCmd()
 	buf := new(bytes.Buffer)
