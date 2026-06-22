@@ -8,7 +8,7 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Verify we have exactly 72 tools
+	// Expect exactly 72 tools
 	if len(tools) != 72 {
 		t.Errorf("Expected 72 tools, got %d", len(tools))
 	}
