@@ -1636,6 +1636,20 @@ func GetToolDefinitions() []ToolDefinition {
 					}`),
 		},
 
+		// 58a. Tech debt README cleanup
+		{
+			Name:        ToolPrefix + "td_clean",
+			Description: "Clean a technical-debt README in place: strip resolved [x] rows (whole-cell match, not prose substrings), remove sprint sections left empty, regenerate the Stats section, and refresh the Last Modified line. Returns counts of rows/sections removed and post-cleanup totals. No-op (file untouched) when no resolved rows exist. Deterministic replacement for in-model row stripping.",
+			InputSchema: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"path": {"type": "string", "description": "Path to the technical-debt README"},
+							"today": {"type": "string", "description": "Date for the Last Modified line (YYYY-MM-DD); defaults to today"}
+						},
+						"required": ["path"]
+					}`),
+		},
+
 		// 58b. Tech debt selection/filtering
 		{
 			Name:        ToolPrefix + "td_filter",
