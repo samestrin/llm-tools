@@ -102,8 +102,13 @@ func cleanTDReadme(content, today string) (string, *TDCleanResult) {
 		stripped = append(stripped, line)
 	}
 
-	// Pass 2: drop "###" sections whose table now has no data rows.
-	stripped, result.RemovedSections = removeEmptySections(stripped)
+	// Pass 2: drop "###" sections whose table now has no data rows. Only run
+	// when rows were actually stripped — this matches the skills' contract
+	// (empty-section removal happened only inside their "rows removed" branch)
+	// and keeps the no-op guarantee airtight: no resolved rows => no changes.
+	if result.RemovedRows > 0 {
+		stripped, result.RemovedSections = removeEmptySections(stripped)
+	}
 
 	cleaned := strings.Join(stripped, "\n")
 

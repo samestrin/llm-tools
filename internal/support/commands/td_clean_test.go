@@ -189,6 +189,43 @@ func TestTDCleanNoResolvedIsNoOp(t *testing.T) {
 	}
 }
 
+// A pre-existing empty section with zero resolved rows must be left alone:
+// the no-op guarantee keys off resolved-row removal, matching the skills.
+func TestTDCleanPreExistingEmptySectionIsNoOp(t *testing.T) {
+	content := `# Technical Debt
+
+**Last Modified:** 2026-01-01 | **Open Items:** 1 | **Deferred Items:** 0 | **Resolved Items:** 0 | **Total Items:** 1
+
+### [2026-06-01] From Sprint: already_empty
+
+| Group | | Severity | File:Line | Problem | Fix | Category | Confidence | Est |
+|-------|---|----------|-----------|---------|-----|----------|-----------|-----|
+
+### [2026-06-02] From Sprint: has_open
+
+| Group | | Severity | File:Line | Problem | Fix | Category | Confidence | Est |
+|-------|---|----------|-----------|---------|-----|----------|-----------|-----|
+| 1 | [ ] | MEDIUM | b.go:20 | open | todo | bug | MEDIUM | 60 |
+
+## Stats
+
+| Severity | Open | Deferred | Resolved |
+|----------|------|----------|----------|
+| MEDIUM | 1 | 0 | 0 |
+`
+	p := writeTemp(t, content)
+	before, _ := os.ReadFile(p)
+	res, _ := runClean(t, "--path", p, "--today", "2026-06-22", "--json")
+	after, _ := os.ReadFile(p)
+
+	if res.RemovedRows != 0 || res.RemovedSections != 0 {
+		t.Errorf("expected no removals, got rows=%d sections=%d", res.RemovedRows, res.RemovedSections)
+	}
+	if !bytes.Equal(before, after) {
+		t.Error("file must be unchanged when no resolved rows exist, even with a pre-existing empty section")
+	}
+}
+
 func TestTDCleanIdempotent(t *testing.T) {
 	p := writeTemp(t, fullReadme)
 	runClean(t, "--path", p, "--today", "2026-06-22", "--json")
