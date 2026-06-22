@@ -119,6 +119,38 @@ func TestBuildTierClassifierArgs(t *testing.T) {
 	}
 }
 
+func TestBuildTDCleanArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "path only",
+			args: map[string]interface{}{"path": "R.md"},
+			want: []string{"td-clean", "--path", "R.md", "--json", "--min"},
+		},
+		{
+			name: "with today",
+			args: map[string]interface{}{"path": "R.md", "today": "2026-06-22"},
+			want: []string{"td-clean", "--path", "R.md", "--today", "2026-06-22", "--json", "--min"},
+		},
+		{
+			name: "empty today omitted",
+			args: map[string]interface{}{"path": "R.md", "today": ""},
+			want: []string{"td-clean", "--path", "R.md", "--json", "--min"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildTDCleanArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildTDCleanArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildTDFilterArgs(t *testing.T) {
 	tests := []struct {
 		name string
