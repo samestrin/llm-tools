@@ -226,6 +226,53 @@ func TestTDCleanJSONShape(t *testing.T) {
 	}
 }
 
+func TestTDCleanTextOutput(t *testing.T) {
+	p := writeTemp(t, fullReadme)
+	cmd := newTDCleanCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--path", p, "--today", "2026-06-22"}) // no --json
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), "Removed 2 resolved row(s), 1 empty section(s)") {
+		t.Errorf("unexpected text output:\n%s", buf.String())
+	}
+}
+
+// A README with no "## Stats" section must get one appended, and a file with
+// no trailing newline must not be corrupted.
+func TestTDCleanAppendsStatsAndPreservesNoTrailingNewline(t *testing.T) {
+	content := "# Technical Debt\n" +
+		"\n" +
+		"**Last Modified:** 2026-01-01 | **Open Items:** 0 | **Deferred Items:** 0 | **Resolved Items:** 0 | **Total Items:** 0\n" +
+		"\n" +
+		"### [2026-06-01] From Sprint: mixed\n" +
+		"\n" +
+		"| Group | | Severity | File:Line | Problem | Fix | Category | Confidence | Est |\n" +
+		"|-------|---|----------|-----------|---------|-----|----------|-----------|-----|\n" +
+		"| 1 | [x] | HIGH | a.go:10 | done | did | bug | HIGH | 30 |\n" +
+		"| 1 | [ ] | LOW | b.go:20 | open | todo | bug | LOW | 60 |" // no trailing newline
+
+	p := writeTemp(t, content)
+	res, _ := runClean(t, "--path", p, "--today", "2026-06-22", "--json")
+	if res.RemovedRows != 1 {
+		t.Errorf("RemovedRows = %d, want 1", res.RemovedRows)
+	}
+	out, _ := os.ReadFile(p)
+	s := string(out)
+	if !strings.Contains(s, "## Stats") {
+		t.Errorf("Stats section should be appended:\n%s", s)
+	}
+	if !strings.Contains(s, "| LOW | 1 | 0 | 0 |") {
+		t.Errorf("appended stats should reflect the open LOW item:\n%s", s)
+	}
+	if !strings.Contains(s, "b.go:20") {
+		t.Error("open row should survive")
+	}
+}
+
 func TestTDCleanDefaultsTodayWhenOmitted(t *testing.T) {
 	p := writeTemp(t, fullReadme)
 	// No --today: should still update the Last Modified line with some date.
