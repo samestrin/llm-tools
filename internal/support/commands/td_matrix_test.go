@@ -211,6 +211,25 @@ func TestTDMatrixMissingFile(t *testing.T) {
 	}
 }
 
+func TestTDMatrixTextOutput(t *testing.T) {
+	p := writeTemp(t, matrixReadme)
+	cmd := newTDMatrixCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"--path", p}) // no --json: human markdown
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, buf.String())
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Open TD by Severity") {
+		t.Errorf("text output missing heading:\n%s", out)
+	}
+	if !strings.Contains(out, "| **Total** | 1 | 2 | 1 | 2 | 6 |") {
+		t.Errorf("text output missing totals row:\n%s", out)
+	}
+}
+
 func TestTDMatrixJSONShape(t *testing.T) {
 	p := writeTemp(t, matrixReadme)
 	_, raw := runMatrix(t, "--path", p, "--json")
