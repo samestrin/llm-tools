@@ -1636,6 +1636,19 @@ func GetToolDefinitions() []ToolDefinition {
 					}`),
 		},
 
+		// 58z. Tech debt open-items cross-tab
+		{
+			Name:        ToolPrefix + "td_matrix",
+			Description: "Cross-tab OPEN technical-debt items by severity (columns) and group (rows), with row/column totals. Resolved [x] and deferred [/] items are excluded; only rows inside dated '### [date] From...' sections are counted. Read-only. Returns structured counts plus a rendered markdown table.",
+			InputSchema: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"path": {"type": "string", "description": "Path to the technical-debt README"}
+						},
+						"required": ["path"]
+					}`),
+		},
+
 		// 58a. Tech debt README cleanup
 		{
 			Name:        ToolPrefix + "td_clean",

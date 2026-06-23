@@ -119,6 +119,28 @@ func TestBuildTierClassifierArgs(t *testing.T) {
 	}
 }
 
+func TestBuildTDMatrixArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "path only",
+			args: map[string]interface{}{"path": "R.md"},
+			want: []string{"td-matrix", "--path", "R.md", "--json", "--min"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildTDMatrixArgs(tt.args)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildTDMatrixArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildTDCleanArgs(t *testing.T) {
 	tests := []struct {
 		name string

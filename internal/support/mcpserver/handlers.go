@@ -276,6 +276,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildTDStatsArgs(args), nil
 	case "td_clean":
 		return buildTDCleanArgs(args), nil
+	case "td_matrix":
+		return buildTDMatrixArgs(args), nil
 	case "td_filter":
 		return buildTDFilterArgs(args), nil
 	case "td_dedupe":
@@ -1865,6 +1867,15 @@ func buildTDCleanArgs(args map[string]interface{}) []string {
 	}
 	if today, ok := args["today"].(string); ok && today != "" {
 		cmdArgs = append(cmdArgs, "--today", today)
+	}
+	cmdArgs = append(cmdArgs, "--json", "--min")
+	return cmdArgs
+}
+
+func buildTDMatrixArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"td-matrix"}
+	if path, ok := args["path"].(string); ok {
+		cmdArgs = append(cmdArgs, "--path", path)
 	}
 	cmdArgs = append(cmdArgs, "--json", "--min")
 	return cmdArgs
