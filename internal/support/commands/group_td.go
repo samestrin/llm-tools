@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -34,6 +35,9 @@ var (
 	groupTDHeaders          string
 	groupTDDelimiter        string
 	groupTDRenumber         bool
+	groupTDValidateLines    bool
+	groupTDRepoRoot         string
+	groupTDQuarantineFile   string
 )
 
 // Constants
@@ -225,6 +229,9 @@ Examples:
 	cmd.Flags().StringVar(&groupTDHeaders, "headers", "", "Comma-separated headers for pipe format (required with --format=pipe)")
 	cmd.Flags().StringVar(&groupTDDelimiter, "delimiter", "|", "Field delimiter for pipe format")
 	cmd.Flags().BoolVar(&groupTDRenumber, "renumber", false, "Renumber active groups in --output-file so each globally-active group number is unique. No input needed. Inactive ([x]-only) sections keep their numbers.")
+	cmd.Flags().BoolVar(&groupTDValidateLines, "validate-lines", true, "Quarantine input rows whose FILE_LINE cites a line past the end of an existing file (hallucinated-reviewer guard). Missing files and unparseable line refs are left untouched.")
+	cmd.Flags().StringVar(&groupTDRepoRoot, "repo-root", "", "Root for resolving relative FILE_LINE paths during --validate-lines (default: current directory)")
+	cmd.Flags().StringVar(&groupTDQuarantineFile, "quarantine-file", "", "Write rows rejected by --validate-lines to this path as a JSON array (with reason); default discards them with a stderr warning")
 
 	return cmd
 }
@@ -272,6 +279,33 @@ func runGroupTD(cmd *cobra.Command, args []string) error {
 	items, err := parseGroupTDInput(input, groupTDFormat, groupTDHeaders, groupTDDelimiter)
 	if err != nil {
 		return fmt.Errorf("failed to parse input: %w", err)
+	}
+
+	// Line-existence guard: drop hallucinated rows whose FILE_LINE cites a
+	// line past the end of an existing file (e.g. a runaway reviewer emitting
+	// hundreds of rows beyond EOF). Deterministic and model-independent; the
+	// only safety net that would have stopped the 2026-06-22 phantom-row
+	// incident at ingest. Disable with --validate-lines=false.
+	if groupTDValidateLines {
+		kept := make([]map[string]interface{}, 0, len(items))
+		var quarantined []map[string]interface{}
+		for _, it := range items {
+			if phantom, reason := phantomLineItem(it, groupTDRepoRoot); phantom {
+				it["QUARANTINE_REASON"] = reason
+				quarantined = append(quarantined, it)
+				continue
+			}
+			kept = append(kept, it)
+		}
+		if len(quarantined) > 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: quarantined %d TD row(s) citing nonexistent lines (likely hallucinated)\n", len(quarantined))
+			if groupTDQuarantineFile != "" {
+				if werr := writeQuarantineFile(groupTDQuarantineFile, quarantined); werr != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not write quarantine file %q: %v\n", groupTDQuarantineFile, werr)
+				}
+			}
+			items = kept
+		}
 	}
 
 	// Resolve global-numbering offset. When the caller writes a new section
@@ -380,6 +414,80 @@ func parseGroupTDInput(input string, format string, headers string, delimiter st
 	}
 
 	return nil, fmt.Errorf("could not parse input as {items:[...]}, {rows:[...]}, or raw array")
+}
+
+// phantomLineItem reports whether item's FILE_LINE cites a line beyond the end
+// of an existing file — the signature of a hallucinated reviewer row (e.g. the
+// 2026-06-22 incident: ~500 rows citing syntaxguard_test.go:280..3759 in a
+// 337-line file). It is deliberately conservative: it flags ONLY when the file
+// exists and the cited line exceeds its line count. Missing files (left for
+// downstream relocation), directories, and rows without a parseable :line are
+// never flagged. repoRoot anchors relative paths; "" means the current dir.
+func phantomLineItem(item map[string]interface{}, repoRoot string) (bool, string) {
+	fileLine, _ := item["FILE_LINE"].(string)
+	fileLine = strings.TrimSpace(fileLine)
+	if fileLine == "" {
+		return false, ""
+	}
+
+	// FILE_LINE is "<path>:<line>"; the path itself never contains ':' on the
+	// platforms we target, so split on the last colon.
+	idx := strings.LastIndex(fileLine, ":")
+	if idx < 0 {
+		return false, ""
+	}
+	pathPart := strings.TrimSpace(fileLine[:idx])
+	line, err := strconv.Atoi(strings.TrimSpace(fileLine[idx+1:]))
+	if err != nil || line < 1 || pathPart == "" {
+		return false, ""
+	}
+
+	resolved := pathPart
+	if repoRoot != "" && !filepath.IsAbs(resolved) {
+		resolved = filepath.Join(repoRoot, resolved)
+	}
+	info, statErr := os.Stat(resolved)
+	if statErr != nil || info.IsDir() {
+		// Missing file: not our call — resolve-td's relocation handles drift.
+		return false, ""
+	}
+
+	n, cErr := countFileLines(resolved)
+	if cErr != nil {
+		return false, ""
+	}
+	if line > n {
+		return true, fmt.Sprintf("FILE_LINE cites line %d but %s has %d line(s)", line, pathPart, n)
+	}
+	return false, ""
+}
+
+// countFileLines returns the number of lines in a file. A final line without a
+// trailing newline still counts as a line; an empty file is zero lines.
+func countFileLines(path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	if len(data) == 0 {
+		return 0, nil
+	}
+	n := bytes.Count(data, []byte{'\n'})
+	if data[len(data)-1] != '\n' {
+		n++
+	}
+	return n, nil
+}
+
+// writeQuarantineFile records rows rejected by the line-existence guard as a
+// pretty-printed JSON array so they can be inspected or re-ingested after the
+// cited paths are corrected.
+func writeQuarantineFile(path string, items []map[string]interface{}) error {
+	data, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
 func parsePipeInput(input string, headersStr string, delimiter string) ([]map[string]interface{}, error) {

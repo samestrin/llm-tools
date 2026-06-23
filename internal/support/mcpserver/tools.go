@@ -1624,12 +1624,20 @@ func GetToolDefinitions() []ToolDefinition {
 		// 58. Tech debt statistics
 		{
 			Name:        ToolPrefix + "td_stats",
-			Description: "Generate tech debt statistics from a markdown README with checkbox/severity table.",
+			Description: "Generate tech debt statistics from a markdown README with checkbox/severity table. With write=true, deterministically rewrites the '## Stats' section and '**Last Modified:**' line in place without adding or removing any data rows (the safe replacement for model-built edit_blocks on large tables).",
 			InputSchema: json.RawMessage(`{
 						"type": "object",
 						"properties": {
 							"path": {
 								"type": "string"
+							},
+							"write": {
+								"type": "boolean",
+								"description": "Rewrite the '## Stats' section and '**Last Modified:**' line in path in place. Does NOT add or remove data rows."
+							},
+							"today": {
+								"type": "string",
+								"description": "Date for the Last Modified line (YYYY-MM-DD) when write=true; defaults to today"
 							}
 						},
 						"required": ["path"]
