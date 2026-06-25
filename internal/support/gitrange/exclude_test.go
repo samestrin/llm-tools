@@ -31,12 +31,14 @@ func fixtureExcludeRepo(t *testing.T) (string, string, string) {
 	writeNested(t, dir, "code.go", "package p\n\nfunc A() int { return 1 }\n")
 	writeNested(t, dir, ".planning/technical-debt/README.md", "# TD\n\nold\n")
 	writeNested(t, dir, "CHANGELOG.md", "# Changelog\n\nold\n")
+	writeNested(t, dir, "docs/guide.md", "# Guide\n\nold\n")
 	mustGit(t, dir, "commit", "-q", "-m", "base")
 	base := mustGit(t, dir, "rev-parse", "HEAD")
 
 	writeNested(t, dir, "code.go", "package p\n\nfunc A() int { return 2 }\n")
 	writeNested(t, dir, ".planning/technical-debt/README.md", "# TD\n\nnew\n")
 	writeNested(t, dir, "CHANGELOG.md", "# Changelog\n\nnew\n")
+	writeNested(t, dir, "docs/guide.md", "# Guide\n\nnew\n")
 	mustGit(t, dir, "commit", "-q", "-m", "head")
 	head := mustGit(t, dir, "rev-parse", "HEAD")
 	return dir, base, head
@@ -96,7 +98,7 @@ func TestDiffExcluding_DropsMatchedKeepsCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
-	for _, want := range []string{"code.go", ".planning/technical-debt/README.md", "CHANGELOG.md"} {
+	for _, want := range []string{"code.go", ".planning/technical-debt/README.md", "CHANGELOG.md", "docs/guide.md"} {
 		if !strings.Contains(full, want) {
 			t.Fatalf("plain Diff missing %q; fixture wrong", want)
 		}
@@ -114,6 +116,9 @@ func TestDiffExcluding_DropsMatchedKeepsCode(t *testing.T) {
 	}
 	if strings.Contains(got, "CHANGELOG.md") {
 		t.Errorf("excluded diff still contains CHANGELOG.md:\n%s", got)
+	}
+	if strings.Contains(got, "docs/") {
+		t.Errorf("excluded diff still contains docs/ path:\n%s", got)
 	}
 }
 
@@ -146,7 +151,7 @@ func TestExcludedFileNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExcludedFileNames: %v", err)
 	}
-	want := []string{".planning/technical-debt/README.md", "CHANGELOG.md"}
+	want := []string{".planning/technical-debt/README.md", "CHANGELOG.md", "docs/guide.md"}
 	sort.Strings(got)
 	sort.Strings(want)
 	if !reflect.DeepEqual(got, want) {

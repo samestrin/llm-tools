@@ -2258,7 +2258,7 @@ llm-support review_direct [flags]
 
 `--diff-file` is mutually exclusive with `--base`/`--head`/`--merge-commit`.
 
-**Diff exclusion (self-serve only):** the self-serve diff drops paths matching `--exclude` globs (translated to git `:(exclude)` pathspecs) before reviewers see it. The default — `.planning/**,CHANGELOG.md` — removes planning/tracking artifacts that are noise or actively misleading to a reviewer (the technical-debt README reads like reviewer output). A non-empty `--exclude` (or `review.direct.exclude_globs` in config) **replaces** the default list rather than adding to it; pass `--exclude=''` to disable exclusion and review every file. The stdout `diff:` line reports how many files were excluded and which globs were active. Excludes are inert in `--diff-file` mode (the pre-computed diff is used verbatim). If every changed file is excluded, the resulting empty diff is a hard error that names the exclusion as the cause.
+**Diff exclusion (self-serve only):** the self-serve diff drops paths matching `--exclude` globs (translated to git `:(exclude)` pathspecs) before reviewers see it. The default — `.planning/**,CHANGELOG.md,doc*/**` — removes notes and tracking artifacts that are noise or actively misleading to a reviewer (the technical-debt README reads like reviewer output; `docs/` and similar hold prose, not code). A non-empty `--exclude` (or `review.direct.exclude_globs` in config) **replaces** the default list rather than adding to it; pass `--exclude=''` to disable exclusion and review every file. The stdout `diff:` line reports how many files were excluded and which globs were active. Excludes are inert in `--diff-file` mode (the pre-computed diff is used verbatim). If every changed file is excluded, the resulting empty diff is a hard error that names the exclusion as the cause.
 
 **Optional flags:**
 
@@ -2270,7 +2270,7 @@ llm-support review_direct [flags]
 | `--registry-dir` | `~/.config/llm-tools/agents/` | Agent/provider registry (registry.yaml + per-agent prompts) |
 | `--task-message` | (auto) | Override the task message sent to each reviewer. Full override — suppresses the `--sprint-plan` scope block. |
 | `--sprint-plan` | (empty) | Path to `sprint-plan.md` or an epic file; its content is injected into reviewer prompts as a SCOPE CONSTRAINT block (placed before the embedded diff) so findings stay scoped to the sprint's work items. A missing or blank file is silently ignored — reviewers fall back to diff-touched-line scoping. |
-| `--exclude` | `.planning/**,CHANGELOG.md` | Comma-separated path globs dropped from the self-serve diff (git `:(exclude)` pathspecs). Replaces the default list, not added to it; `--exclude=''` disables exclusion. See *Diff exclusion* above. |
+| `--exclude` | `.planning/**,CHANGELOG.md,doc*/**` | Comma-separated path globs dropped from the self-serve diff (git `:(exclude)` pathspecs). Replaces the default list, not added to it; `--exclude=''` disables exclusion. See *Diff exclusion* above. |
 
 **Output layout under `--output-dir`** (matches `multi_review` so `/reconcile-code-review` auto-discovers it):
 
