@@ -282,6 +282,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildTDFilterArgs(args), nil
 	case "td_dedupe":
 		return buildTdDedupeArgs(args), nil
+	case "td_validate":
+		return buildTDValidateArgs(args), nil
 	case "knowledge_audit":
 		return buildKnowledgeAuditArgs(args), nil
 	case "diff_smell":
@@ -1963,6 +1965,21 @@ func buildTdDedupeArgs(args map[string]interface{}) []string {
 	}
 	if v, ok := args["untrusted"].(string); ok && v != "" {
 		cmdArgs = append(cmdArgs, "--untrusted", v)
+	}
+	cmdArgs = append(cmdArgs, "--json")
+	return cmdArgs
+}
+
+func buildTDValidateArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"td-validate"}
+	if v, ok := args["path"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--path", v)
+	}
+	if v, ok := args["root"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--root", v)
+	}
+	if v, ok := args["mode"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--mode", v)
 	}
 	cmdArgs = append(cmdArgs, "--json")
 	return cmdArgs
