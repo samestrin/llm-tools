@@ -60,9 +60,9 @@ file warns — in both cases reviewers fall back to diff-touched-line scoping.
 
 In self-serve mode, paths matching --exclude globs are dropped from the diff
 (git :(exclude) pathspecs) before reviewers see it. The default,
-.planning/**,CHANGELOG.md, removes planning/tracking artifacts that are noise
-to a reviewer. A non-empty --exclude replaces the default; --exclude='' disables
-it. Excludes do not apply to a pre-computed --diff-file.
+.planning/**,CHANGELOG.md,doc*/**, removes notes and tracking artifacts that are
+noise to a reviewer. A non-empty --exclude replaces the default; --exclude=''
+disables it. Excludes do not apply to a pre-computed --diff-file.
 
 Output layout matches multi_review for compatibility:
   <output-dir>/raw/<agent>/{review.md,status.json}

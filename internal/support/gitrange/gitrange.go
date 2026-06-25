@@ -211,10 +211,11 @@ func BundleReachable(repoPath, sha string) (bool, error) {
 }
 
 // DefaultExcludeGlobs is the built-in set of path globs dropped from review
-// diffs unless overridden: planning/tracking artifacts that are noise (or
+// diffs unless overridden: notes and tracking artifacts that are noise (or
 // actively misleading) to a code reviewer — the technical-debt README reads
-// like reviewer output, and CHANGELOG churn carries no reviewable logic.
-var DefaultExcludeGlobs = []string{".planning/**", "CHANGELOG.md"}
+// like reviewer output, CHANGELOG churn carries no reviewable logic, and
+// documentation directories hold prose rather than code.
+var DefaultExcludeGlobs = []string{".planning/**", "CHANGELOG.md", "doc*/**"}
 
 // excludePathspec converts exclude globs into the trailing argv git needs to
 // drop them from a diff: a positive ":(top)" pathspec (required — exclude-only

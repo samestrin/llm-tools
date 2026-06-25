@@ -36,11 +36,13 @@ func excludeFixtureRepo(t *testing.T) string {
 	writeN("code.go", "package p\n\nfunc A() int { return 1 }\n")
 	writeN(".planning/technical-debt/README.md", "# TD\n\nold\n")
 	writeN("CHANGELOG.md", "# Changelog\n\nold\n")
+	writeN("docs/guide.md", "# Guide\n\nold\n")
 	git("add", "-A")
 	git("commit", "-q", "-m", "base")
 	writeN("code.go", "package p\n\nfunc A() int { return 2 }\n")
 	writeN(".planning/technical-debt/README.md", "# TD\n\nnew\n")
 	writeN("CHANGELOG.md", "# Changelog\n\nnew\n")
+	writeN("docs/guide.md", "# Guide\n\nnew\n")
 	git("add", "-A")
 	git("commit", "-q", "-m", "head")
 	return dir
@@ -111,8 +113,11 @@ func TestReviewDirect_DefaultExcludes(t *testing.T) {
 	if strings.Contains(diff, "CHANGELOG.md") {
 		t.Errorf("default excludes kept CHANGELOG.md")
 	}
-	if !strings.Contains(stdout, "excluded 2 file") {
-		t.Errorf("report line should note 2 excluded files; got: %s", stdout)
+	if strings.Contains(diff, "docs/") {
+		t.Errorf("default excludes kept docs/:\n%s", diff)
+	}
+	if !strings.Contains(stdout, "excluded 3 file") {
+		t.Errorf("report line should note 3 excluded files; got: %s", stdout)
 	}
 }
 
