@@ -1981,7 +1981,7 @@ func buildTDValidateArgs(args map[string]interface{}) []string {
 	if v, ok := args["mode"].(string); ok && v != "" {
 		cmdArgs = append(cmdArgs, "--mode", v)
 	}
-	cmdArgs = append(cmdArgs, "--json")
+	cmdArgs = append(cmdArgs, "--json", "--min")
 	return cmdArgs
 }
 

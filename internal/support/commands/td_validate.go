@@ -330,6 +330,8 @@ func symbolExistsInFile(absPath, symbol string) bool {
 
 	re := regexp.MustCompile(`\b` + regexp.QuoteMeta(symbol) + `\b`)
 	scanner := bufio.NewScanner(f)
+	// Raise buffer to 1 MB to handle generated/minified files with very long lines.
+	scanner.Buffer(make([]byte, 1<<20), 1<<20)
 	for scanner.Scan() {
 		if re.MatchString(scanner.Text()) {
 			return true
@@ -364,7 +366,9 @@ func printTDValidateText(w io.Writer, data interface{}) {
 		statusLabel := strings.ToUpper(parts[0])
 		fileLine := parts[1]
 		count := seen[key]
-		if count > 1 {
+		if fileLine == "" {
+			fmt.Fprintf(w, "%s\n", statusLabel)
+		} else if count > 1 {
 			fmt.Fprintf(w, "%s: %s (%d items)\n", statusLabel, fileLine, count)
 		} else {
 			fmt.Fprintf(w, "%s: %s\n", statusLabel, fileLine)

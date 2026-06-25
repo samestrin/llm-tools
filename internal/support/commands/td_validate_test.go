@@ -478,6 +478,44 @@ func TestTDValidate_RootFlag(t *testing.T) {
 	}
 }
 
+// TestTDValidate_SymbolFoundAfterLongLine verifies that a symbol present on a line
+// following a very long line (>64KB default scanner buffer) is still found.
+func TestTDValidate_SymbolFoundAfterLongLine(t *testing.T) {
+	rootDir := t.TempDir()
+	scriptsDir := filepath.Join(rootDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Write a file with a 70KB first line followed by the symbol on the next line.
+	longLine := strings.Repeat("x", 70*1024)
+	content := longLine + "\ndef deep_func(): pass\n"
+	if err := os.WriteFile(filepath.Join(scriptsDir, "big.py"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readme := `# TD
+
+### [2026-01-01] From Sprint: s
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [ ] | LOW | scripts/big.py:deep_func | prob | fix | bug | 5 |
+`
+	readmePath := filepath.Join(rootDir, "README.md")
+	if err := os.WriteFile(readmePath, []byte(readme), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, _, err := runTDValidateCmd(t, "--path", readmePath, "--root", rootDir, "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Items) != 1 {
+		t.Fatalf("want 1 item, got %d", len(res.Items))
+	}
+	if res.Items[0].Status != "valid" {
+		t.Errorf("status = %q, want valid (symbol after long line must be found)", res.Items[0].Status)
+	}
+}
+
 // TestTDValidate_MissingPath verifies that omitting --path returns an error.
 func TestTDValidate_MissingPath(t *testing.T) {
 	cmd := newTDValidateCmd()
