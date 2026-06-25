@@ -14,6 +14,8 @@ Complete documentation for all 40+ llm-support commands.
   - [grep](#grep)
   - [multigrep](#multigrep)
   - [multiexists](#multiexists)
+- [Network](#network)
+  - [fetch](#fetch)
 - [Code Analysis](#code-analysis)
   - [detect](#detect)
   - [discover-tests](#discover-tests)
@@ -277,6 +279,52 @@ llm-support multiexists [paths...]
 ```bash
 llm-support multiexists config.json README.md package.json
 llm-support multiexists src/ tests/ docs/
+```
+
+---
+
+## Network
+
+### fetch
+
+Download a URL through a smart fallback ladder: a direct HTTP GET first, then a rotating HTTP proxy on IP-level blocks (403/429/5xx or connection errors), then FlareSolverr on Cloudflare/JavaScript challenge pages. With neither a proxy nor FlareSolverr configured, it is a plain HTTP GET.
+
+```bash
+llm-support fetch <url> [flags]
+```
+
+**Configuration (environment variables; flags override):**
+| Env var | Description |
+|---------|-------------|
+| `FETCH_FLARESOLVERR_URL` | FlareSolverr endpoint, e.g. `http://localhost:8191` (enables JS rendering) |
+| `FETCH_PROXY_URL` | Rotating proxy gateway, e.g. `http://user:pass@host:port` |
+| `FETCH_TIMEOUT` | Per-attempt timeout in seconds (default 30) |
+| `FETCH_MAX_RETRIES` | Retries within a single tier (default 2) |
+| `FETCH_USER_AGENT` | Override the request User-Agent |
+
+**Flags:**
+| Flag | Description |
+|------|-------------|
+| `--format` | HTML output transform: `raw` (default), `text`, or `markdown`. Non-HTML passes through unchanged |
+| `--output` | Write the body to this file instead of stdout |
+| `--via` | Routing: `auto` (default, full ladder), `direct`, `proxy`, or `flaresolverr` |
+| `--no-fallback` | Direct fetch only (alias for `--via direct`) |
+| `--flaresolverr` | FlareSolverr endpoint (overrides `FETCH_FLARESOLVERR_URL`) |
+| `--proxy` | Rotating proxy URL (overrides `FETCH_PROXY_URL`) |
+| `--timeout` | Per-attempt timeout in seconds |
+| `--retries` | Retries within a tier |
+| `--user-agent` | Override the request User-Agent |
+
+**JavaScript pages:** JS rendering is performed by FlareSolverr's headless Chrome — there is no bundled browser. The `auto` ladder escalates to FlareSolverr only on a *challenge/block* response; a client-rendered SPA that returns HTTP 200 with an empty shell will not auto-escalate. Force rendering with `--via flaresolverr`.
+
+**Examples:**
+```bash
+llm-support fetch https://example.com
+llm-support fetch https://example.com --format markdown
+llm-support fetch https://example.com --format text --output page.txt
+llm-support fetch https://example.com --via proxy
+llm-support fetch https://example.com --via flaresolverr   # force JS rendering
+llm-support fetch https://example.com --json
 ```
 
 ---

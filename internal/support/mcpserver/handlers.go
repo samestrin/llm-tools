@@ -288,9 +288,52 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildDiffSmellArgs(args), nil
 	case "tier_classifier":
 		return buildTierClassifierArgs(args), nil
+	case "fetch":
+		return buildFetchArgs(args), nil
 	default:
 		return nil, fmt.Errorf("unknown command: %s", cmdName)
 	}
+}
+
+func buildFetchArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"fetch"}
+	if url, ok := args["url"].(string); ok {
+		cmdArgs = append(cmdArgs, url)
+	}
+	// MCP output flows into model context, so default to token-efficient markdown.
+	format := "markdown"
+	if f, ok := args["format"].(string); ok && f != "" {
+		format = f
+	}
+	cmdArgs = append(cmdArgs, "--format", format)
+	if out, ok := args["output"].(string); ok && out != "" {
+		cmdArgs = append(cmdArgs, "--output", out)
+	}
+	if fs, ok := args["flaresolverr"].(string); ok && fs != "" {
+		cmdArgs = append(cmdArgs, "--flaresolverr", fs)
+	}
+	if proxy, ok := args["proxy"].(string); ok && proxy != "" {
+		cmdArgs = append(cmdArgs, "--proxy", proxy)
+	}
+	if timeout, ok := getInt(args, "timeout"); ok {
+		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(timeout))
+	}
+	if retries, ok := getInt(args, "retries"); ok {
+		cmdArgs = append(cmdArgs, "--retries", strconv.Itoa(retries))
+	}
+	if via, ok := args["via"].(string); ok && via != "" {
+		cmdArgs = append(cmdArgs, "--via", via)
+	}
+	if getBool(args, "no_fallback") {
+		cmdArgs = append(cmdArgs, "--no-fallback")
+	}
+	if getBoolDefault(args, "json", true) {
+		cmdArgs = append(cmdArgs, "--json")
+	}
+	if getBoolDefault(args, "min", true) {
+		cmdArgs = append(cmdArgs, "--min")
+	}
+	return cmdArgs
 }
 
 func buildTreeArgs(args map[string]interface{}) []string {
