@@ -8,6 +8,7 @@ package fetch
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Defaults applied when the corresponding env var / flag is unset.
@@ -25,6 +26,14 @@ type Config struct {
 	Timeout         int
 	MaxRetries      int
 	UserAgent       string
+	// FlareSolverrProxyURL is a proxy used only for the FlareSolverr render. Set
+	// it to a no-auth relay: Chrome cannot authenticate proxies, so FlareSolverr's
+	// authenticated-proxy path is flaky (ERR_NO_SUPPORTED_PROXIES). When empty the
+	// render falls back to ProxyURL.
+	FlareSolverrProxyURL string
+	// FlareSolverrNoProxy keeps the FlareSolverr render direct even when a proxy
+	// is configured (saves metered proxy bandwidth on sites that don't block it).
+	FlareSolverrNoProxy bool
 }
 
 // LoadConfig reads configuration from environment variables.
@@ -34,14 +43,26 @@ type Config struct {
 //	FETCH_TIMEOUT           Per-attempt timeout in seconds (default 30)
 //	FETCH_MAX_RETRIES       Retries within a tier (default 2)
 //	FETCH_USER_AGENT        Override the request User-Agent
+//	FETCH_FLARESOLVERR_PROXY_URL  Proxy for the FlareSolverr render (no-auth relay)
+//	FETCH_FLARESOLVERR_NO_PROXY   Keep the FlareSolverr render direct (1/true/yes)
 func LoadConfig() *Config {
 	return &Config{
-		FlareSolverrURL: os.Getenv("FETCH_FLARESOLVERR_URL"),
-		ProxyURL:        os.Getenv("FETCH_PROXY_URL"),
-		Timeout:         getEnvInt("FETCH_TIMEOUT", DefaultTimeout),
-		MaxRetries:      getEnvInt("FETCH_MAX_RETRIES", DefaultMaxRetries),
-		UserAgent:       getEnvOrDefault("FETCH_USER_AGENT", DefaultUserAgent),
+		FlareSolverrURL:      os.Getenv("FETCH_FLARESOLVERR_URL"),
+		ProxyURL:             os.Getenv("FETCH_PROXY_URL"),
+		Timeout:              getEnvInt("FETCH_TIMEOUT", DefaultTimeout),
+		MaxRetries:           getEnvInt("FETCH_MAX_RETRIES", DefaultMaxRetries),
+		UserAgent:            getEnvOrDefault("FETCH_USER_AGENT", DefaultUserAgent),
+		FlareSolverrProxyURL: os.Getenv("FETCH_FLARESOLVERR_PROXY_URL"),
+		FlareSolverrNoProxy:  getEnvBool("FETCH_FLARESOLVERR_NO_PROXY"),
 	}
+}
+
+func getEnvBool(key string) bool {
+	switch strings.ToLower(os.Getenv(key)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 func getEnvOrDefault(key, defaultValue string) string {
