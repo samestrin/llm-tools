@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -502,6 +503,35 @@ func TestTDValidate_BadMode(t *testing.T) {
 	_, _, err := runTDValidateCmd(t, "--path", readmePath, "--root", rootDir, "--mode", "bogus", "--json")
 	if err == nil {
 		t.Fatal("invalid --mode must return an error")
+	}
+}
+
+// TestTDValidate_TextOutput verifies default (non-JSON) text output includes summary line
+// and lists problematic items.
+func TestTDValidate_TextOutput(t *testing.T) {
+	readme := `# TD
+
+### [2026-01-01] From Sprint: s
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [ ] | LOW | scripts/foo.py:42 | ok | fix | perf | 10 |
+| 2 | [ ] | HIGH | scripts/missing.py:help | gone | fix | bug | 5 |
+`
+	readmePath, rootDir := writeTDValidateFiles(t, readme)
+	cmd := newTDValidateCmd()
+	cmd.SetArgs([]string{"--path", readmePath, "--root", rootDir})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if !strings.Contains(text, "td_validate:") {
+		t.Errorf("text output missing summary line, got:\n%s", text)
+	}
+	if !strings.Contains(text, "FILE_MISSING") {
+		t.Errorf("text output missing FILE_MISSING line, got:\n%s", text)
 	}
 }
 
