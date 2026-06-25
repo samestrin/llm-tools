@@ -1781,5 +1781,26 @@ func GetToolDefinitions() []ToolDefinition {
 						}
 					}`),
 		},
+
+		// Fetch URL with FlareSolverr + rotating-proxy fallback
+		{
+			Name:        ToolPrefix + "fetch",
+			Description: "Download a URL with a smart fallback ladder: direct HTTP first, then a rotating HTTP proxy on IP-level blocks (403/429/5xx/conn), then FlareSolverr on Cloudflare/JS challenge pages. Config from env (FETCH_FLARESOLVERR_URL, FETCH_PROXY_URL, FETCH_TIMEOUT, FETCH_MAX_RETRIES, FETCH_USER_AGENT) overridable per call. HTML is returned as Markdown by default (token-efficient); pass format=text or format=raw to change. Returns {url, final_url, status, tier, format, bytes} plus body inline (or pass output to write the body to a file for large pages). Set no_fallback for a direct-only fetch.",
+			InputSchema: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"url": {"type": "string", "description": "URL to download (http:// or https://)"},
+							"format": {"type": "string", "enum": ["raw", "text", "markdown"], "description": "HTML output transform (non-HTML passes through). raw=as received, text=tags stripped, markdown=structure-preserving. Defaults to markdown for token efficiency."},
+							"output": {"type": "string", "description": "Write the body to this file instead of returning it inline"},
+							"flaresolverr": {"type": "string", "description": "FlareSolverr endpoint (overrides FETCH_FLARESOLVERR_URL)"},
+							"proxy": {"type": "string", "description": "Rotating proxy URL (overrides FETCH_PROXY_URL)"},
+							"timeout": {"type": "integer", "description": "Per-attempt timeout in seconds (default 30)"},
+							"retries": {"type": "integer", "description": "Retries within a tier (default 2)"},
+							"via": {"type": "string", "enum": ["auto", "direct", "proxy", "flaresolverr"], "description": "Routing: auto=full fallback ladder (default), or force a single tier (direct/proxy/flaresolverr)"},
+							"no_fallback": {"type": "boolean", "description": "Direct fetch only (alias for via=direct)"}
+						},
+						"required": ["url"]
+					}`),
+		},
 	}
 }

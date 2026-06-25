@@ -150,6 +150,9 @@ llm-support detect --path .
 llm-support extract-relevant --path docs/ --context "Authentication Config"
 llm-support extract-relevant --path https://docs.example.com --context "API keys"
 
+# Fetch a URL as Markdown, with proxy + FlareSolverr fallback (JS via --via flaresolverr)
+llm-support fetch https://example.com --format markdown
+
 # Extract and rank links from any webpage (heuristic scoring)
 llm-support extract-links --url https://example.com/docs --json
 
