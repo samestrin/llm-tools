@@ -1698,6 +1698,21 @@ func GetToolDefinitions() []ToolDefinition {
 					}`),
 		},
 
+		// 58c-2. Technical debt file/symbol validation
+		{
+			Name:        ToolPrefix + "td_validate",
+			Description: "Validate open (and optionally deferred) technical-debt rows by checking whether the cited file and symbol still exist in the repository. Returns per-item status: valid, file_missing, symbol_not_found, or no_file. Use to identify stale TD items that can be closed as won't-fix.",
+			InputSchema: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"path": {"type": "string", "description": "Path to the technical-debt README"},
+							"root": {"type": "string", "description": "Repo root for resolving relative file paths (default: current directory)"},
+							"mode": {"type": "string", "enum": ["open", "all"], "description": "open = open [ ] items only (default); all = also include deferred [/] items"}
+						},
+						"required": ["path"]
+					}`),
+		},
+
 		// 58d. Package documentation tier classification
 		{
 			Name:        ToolPrefix + "tier_classifier",
