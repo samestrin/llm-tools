@@ -301,6 +301,8 @@ llm-support fetch <url> [flags]
 | `FETCH_TIMEOUT` | Per-attempt timeout in seconds (default 30) |
 | `FETCH_MAX_RETRIES` | Retries within a single tier (default 2) |
 | `FETCH_USER_AGENT` | Override the request User-Agent |
+| `FETCH_FLARESOLVERR_PROXY_URL` | Proxy used for the FlareSolverr render only — set to a no-auth relay (see note) |
+| `FETCH_FLARESOLVERR_NO_PROXY` | Keep the FlareSolverr render direct even when a proxy is set (`1`/`true`/`yes`) |
 
 **Flags:**
 | Flag | Description |
@@ -311,11 +313,15 @@ llm-support fetch <url> [flags]
 | `--no-fallback` | Direct fetch only (alias for `--via direct`) |
 | `--flaresolverr` | FlareSolverr endpoint (overrides `FETCH_FLARESOLVERR_URL`) |
 | `--proxy` | Rotating proxy URL (overrides `FETCH_PROXY_URL`) |
+| `--flaresolverr-proxy` | Proxy for the FlareSolverr render only, e.g. a no-auth relay (overrides `FETCH_FLARESOLVERR_PROXY_URL`) |
+| `--flaresolverr-no-proxy` | Keep the FlareSolverr render direct even when a proxy is configured |
 | `--timeout` | Per-attempt timeout in seconds |
-| `--retries` | Retries within a tier |
+| `--retries` | Retries within a tier (also retries a FlareSolverr render that comes back as an error/block page) |
 | `--user-agent` | Override the request User-Agent |
 
-**JavaScript pages:** JS rendering is performed by FlareSolverr's headless Chrome — there is no bundled browser. The `auto` ladder escalates to FlareSolverr only on a *challenge/block* response; a client-rendered SPA that returns HTTP 200 with an empty shell will not auto-escalate. Force rendering with `--via flaresolverr`.
+**JavaScript pages:** JS rendering is performed by FlareSolverr's headless Chrome — there is no bundled browser. The `auto` ladder escalates to FlareSolverr on a *challenge/block* response, including bot-verification interstitials served with HTTP 200 (e.g. Reddit's "Please wait for verification"). A client-rendered SPA that returns a plain empty 200 shell will not auto-escalate — force rendering with `--via flaresolverr`.
+
+**Proxying the render:** when a proxy is set, the FlareSolverr render egresses through it too (its own datacenter IP is blocked by sites like Reddit). Chrome cannot authenticate a proxy via `--proxy-server`, so an *authenticated* proxy can intermittently fail inside FlareSolverr with `ERR_NO_SUPPORTED_PROXIES`. To avoid that, point `--flaresolverr-proxy` / `FETCH_FLARESOLVERR_PROXY_URL` at a credential-less relay that injects the auth upstream. A render that returns an error or block page is retried within `--retries`.
 
 **Examples:**
 ```bash

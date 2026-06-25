@@ -10,11 +10,17 @@ import (
 	"time"
 )
 
+// flareProxy routes the FlareSolverr browser's egress through an HTTP proxy.
+type flareProxy struct {
+	URL string `json:"url"`
+}
+
 // flareRequest is a FlareSolverr v1 request.get payload.
 type flareRequest struct {
-	Cmd        string `json:"cmd"`
-	URL        string `json:"url"`
-	MaxTimeout int    `json:"maxTimeout"` // milliseconds
+	Cmd        string      `json:"cmd"`
+	URL        string      `json:"url"`
+	MaxTimeout int         `json:"maxTimeout"` // milliseconds
+	Proxy      *flareProxy `json:"proxy,omitempty"`
 }
 
 // flareResponse is the relevant subset of a FlareSolverr v1 response.
@@ -32,6 +38,54 @@ type flareResponse struct {
 // FlareSolverr to spin up the browser and solve the challenge.
 const flareOverhead = 30 * time.Second
 
+// renderFailureMarkers flag a FlareSolverr-rendered body that is itself an error
+// or block page — a Chrome proxy error (FlareSolverr's authenticated-proxy path
+// is flaky and intermittently fails), an unreachable page, or a residual block.
+// Such a render is worth one more attempt on a freshly rotated proxy IP.
+var renderFailureMarkers = []string{
+	"err_no_supported_proxies",
+	"err_proxy_connection_failed",
+	"err_tunnel_connection_failed",
+	"this site can’t be reached", // curly apostrophe (Chrome error page)
+	"this site can't be reached",
+	"blocked by network security",
+}
+
+// flareProxyURL is the proxy the FlareSolverr render should egress through: a
+// dedicated FlareSolverr proxy (e.g. a no-auth relay that sidesteps Chrome's
+// inability to authenticate proxies) when set, otherwise the shared proxy.
+func (f *Fetcher) flareProxyURL() string {
+	if f.cfg.FlareSolverrNoProxy {
+		return ""
+	}
+	if f.cfg.FlareSolverrProxyURL != "" {
+		return f.cfg.FlareSolverrProxyURL
+	}
+	return f.cfg.ProxyURL
+}
+
+// attemptFlareSolverrRetry renders through FlareSolverr, retrying within
+// MaxRetries when the rendered body is itself an error/block page (a fresh
+// rotated proxy IP or browser often succeeds on the next try).
+func (f *Fetcher) attemptFlareSolverrRetry(rawURL string) *Result {
+	var res *Result
+	for attempt := 0; attempt <= f.cfg.MaxRetries; attempt++ {
+		res = f.attemptFlareSolverr(rawURL)
+		if res.Err == nil && !renderFailed(res.Body) {
+			return res
+		}
+		if attempt < f.cfg.MaxRetries {
+			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+		}
+	}
+	return res
+}
+
+// renderFailed reports whether a rendered body is an error/block interstitial.
+func renderFailed(body []byte) bool {
+	return isChallengeBody(body, renderFailureMarkers)
+}
+
 // attemptFlareSolverr proxies the request through FlareSolverr, which renders
 // the page in a headless browser and solves Cloudflare/JS challenges.
 func (f *Fetcher) attemptFlareSolverr(rawURL string) *Result {
@@ -43,7 +97,14 @@ func (f *Fetcher) attemptFlareSolverr(rawURL string) *Result {
 		maxTimeout = DefaultTimeout * 1000
 	}
 
-	payload, err := json.Marshal(flareRequest{Cmd: "request.get", URL: rawURL, MaxTimeout: maxTimeout})
+	reqBody := flareRequest{Cmd: "request.get", URL: rawURL, MaxTimeout: maxTimeout}
+	// Route the headless browser through the proxy too: some sites (e.g. Reddit)
+	// block FlareSolverr's own datacenter IP, so a direct render still fails.
+	if proxy := f.flareProxyURL(); proxy != "" {
+		reqBody.Proxy = &flareProxy{URL: proxy}
+	}
+
+	payload, err := json.Marshal(reqBody)
 	if err != nil {
 		res.Err = fmt.Errorf("flaresolverr marshal failed: %w", err)
 		return res

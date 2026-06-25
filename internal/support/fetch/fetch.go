@@ -51,7 +51,8 @@ const (
 )
 
 // challengeMarkers are case-insensitive substrings that mark a Cloudflare/JS
-// interstitial challenge page.
+// interstitial challenge page. Applied when the status code already signals a
+// block (403/429/503), so looser natural-language entries are acceptable.
 var challengeMarkers = []string{
 	"just a moment",
 	"cf-browser-verification",
@@ -59,6 +60,19 @@ var challengeMarkers = []string{
 	"_cf_chl_opt",
 	"cf_chl_",
 	"attention required",
+}
+
+// strongChallengeMarkers are high-confidence interstitial fingerprints, safe to
+// act on even for a 200 response — some sites (e.g. Reddit) serve a bot
+// verification wall with a 200 status. Kept narrower than challengeMarkers so a
+// legitimate 2xx page that merely contains a phrase like "attention required"
+// is not misrouted to the renderer.
+var strongChallengeMarkers = []string{
+	"cf-browser-verification",
+	"challenge-platform",
+	"_cf_chl_opt",
+	"cf_chl_",
+	"please wait for verification", // Reddit interstitial
 }
 
 // Fetcher runs the fallback ladder for a Config.
@@ -96,7 +110,7 @@ func (f *Fetcher) Fetch(rawURL string, via string) *Result {
 		if f.cfg.FlareSolverrURL == "" {
 			return &Result{URL: rawURL, Tier: TierFlareSolverr, Err: fmt.Errorf("--via flaresolverr requires a FlareSolverr URL (FETCH_FLARESOLVERR_URL or --flaresolverr)")}
 		}
-		return f.attemptFlareSolverr(rawURL)
+		return f.attemptFlareSolverrRetry(rawURL)
 	}
 
 	// ViaAuto (and any unspecified value): full ladder.
@@ -108,7 +122,7 @@ func (f *Fetcher) Fetch(rawURL string, via string) *Result {
 
 	case kindChallenge:
 		if f.cfg.FlareSolverrURL != "" {
-			return f.attemptFlareSolverr(rawURL)
+			return f.attemptFlareSolverrRetry(rawURL)
 		}
 		return res
 
@@ -120,7 +134,7 @@ func (f *Fetcher) Fetch(rawURL string, via string) *Result {
 				return pres
 			case kindChallenge:
 				if f.cfg.FlareSolverrURL != "" {
-					return f.attemptFlareSolverr(rawURL)
+					return f.attemptFlareSolverrRetry(rawURL)
 				}
 				return pres
 			}
@@ -128,7 +142,7 @@ func (f *Fetcher) Fetch(rawURL string, via string) *Result {
 		}
 		// Last resort: a renderer can sometimes pass where raw IPs are blocked.
 		if f.cfg.FlareSolverrURL != "" {
-			return f.attemptFlareSolverr(rawURL)
+			return f.attemptFlareSolverrRetry(rawURL)
 		}
 		return res
 	}
@@ -213,11 +227,17 @@ func classify(r *Result) failureKind {
 		return kindBlocked // transport failure — a different egress may work
 	}
 	if r.Status >= 200 && r.Status < 300 {
+		// Some sites (e.g. Reddit) serve a bot-verification interstitial with a
+		// 200 status. Escalate to the renderer only on a high-confidence
+		// fingerprint, so ordinary 2xx pages are never misrouted.
+		if r.cfMitigated || isChallengeBody(r.Body, strongChallengeMarkers) {
+			return kindChallenge
+		}
 		return kindOK
 	}
 
 	// Challenge pages arrive as 403/503/429 carrying Cloudflare fingerprints.
-	if r.cfMitigated || isChallengeBody(r.Body) {
+	if r.cfMitigated || isChallengeBody(r.Body, challengeMarkers) {
 		switch r.Status {
 		case http.StatusForbidden, http.StatusServiceUnavailable, http.StatusTooManyRequests:
 			return kindChallenge
@@ -234,7 +254,7 @@ func classify(r *Result) failureKind {
 	}
 }
 
-func isChallengeBody(body []byte) bool {
+func isChallengeBody(body []byte, markers []string) bool {
 	if len(body) == 0 {
 		return false
 	}
@@ -243,7 +263,7 @@ func isChallengeBody(body []byte) bool {
 		n = 4096
 	}
 	lower := strings.ToLower(string(body[:n]))
-	for _, m := range challengeMarkers {
+	for _, m := range markers {
 		if strings.Contains(lower, m) {
 			return true
 		}

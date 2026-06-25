@@ -315,6 +315,9 @@ func buildFetchArgs(args map[string]interface{}) []string {
 	if proxy, ok := args["proxy"].(string); ok && proxy != "" {
 		cmdArgs = append(cmdArgs, "--proxy", proxy)
 	}
+	if fsProxy, ok := args["flaresolverr_proxy"].(string); ok && fsProxy != "" {
+		cmdArgs = append(cmdArgs, "--flaresolverr-proxy", fsProxy)
+	}
 	if timeout, ok := getInt(args, "timeout"); ok {
 		cmdArgs = append(cmdArgs, "--timeout", strconv.Itoa(timeout))
 	}
@@ -326,6 +329,9 @@ func buildFetchArgs(args map[string]interface{}) []string {
 	}
 	if getBool(args, "no_fallback") {
 		cmdArgs = append(cmdArgs, "--no-fallback")
+	}
+	if getBool(args, "flaresolverr_no_proxy") {
+		cmdArgs = append(cmdArgs, "--flaresolverr-no-proxy")
 	}
 	if getBoolDefault(args, "json", true) {
 		cmdArgs = append(cmdArgs, "--json")

@@ -198,6 +198,12 @@ func TestClassify(t *testing.T) {
 		{"401 terminal", &Result{Status: 401}, kindTerminal},
 		{"cf challenge body", &Result{Status: 403, Body: []byte("<title>Just a moment</title>")}, kindChallenge},
 		{"cf-mitigated header", &Result{Status: 503, cfMitigated: true}, kindChallenge},
+		// A 200 bot-verification interstitial (e.g. Reddit) must escalate.
+		{"200 reddit interstitial", &Result{Status: 200, Body: []byte("<title>Reddit - Please wait for verification</title>")}, kindChallenge},
+		{"200 cf-mitigated", &Result{Status: 200, cfMitigated: true}, kindChallenge},
+		// A legitimate 200 page that merely contains a loose marker phrase must
+		// NOT be misrouted to the renderer (strong markers only on 2xx).
+		{"200 loose marker stays ok", &Result{Status: 200, Body: []byte("<p>Attention required for this form</p>")}, kindOK},
 	}
 	for _, c := range cases {
 		if got := classify(c.r); got != c.want {

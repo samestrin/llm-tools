@@ -12,17 +12,19 @@ import (
 )
 
 var (
-	fetchOutput       string
-	fetchFormat       string
-	fetchVia          string
-	fetchFlareSolverr string
-	fetchProxy        string
-	fetchTimeout      int
-	fetchRetries      int
-	fetchNoFallback   bool
-	fetchUserAgent    string
-	fetchJSON         bool
-	fetchMinimal      bool
+	fetchOutput            string
+	fetchFormat            string
+	fetchVia               string
+	fetchFlareSolverr      string
+	fetchFlareSolverrProxy string
+	fetchProxy             string
+	fetchTimeout           int
+	fetchRetries           int
+	fetchNoFallback        bool
+	fetchUserAgent         string
+	fetchFlareSolverrNoPxy bool
+	fetchJSON              bool
+	fetchMinimal           bool
 )
 
 // FetchResult is the serializable outcome of a fetch.
@@ -88,11 +90,13 @@ Examples:
 	cmd.Flags().StringVar(&fetchFormat, "format", fetch.FormatRaw, "Output format: raw, text, or markdown (HTML only)")
 	cmd.Flags().StringVar(&fetchFlareSolverr, "flaresolverr", "", "FlareSolverr endpoint (overrides FETCH_FLARESOLVERR_URL)")
 	cmd.Flags().StringVar(&fetchProxy, "proxy", "", "Rotating proxy URL (overrides FETCH_PROXY_URL)")
+	cmd.Flags().StringVar(&fetchFlareSolverrProxy, "flaresolverr-proxy", "", "Proxy for the FlareSolverr render only, e.g. a no-auth relay (overrides FETCH_FLARESOLVERR_PROXY_URL)")
 	cmd.Flags().IntVar(&fetchTimeout, "timeout", fetch.DefaultTimeout, "Per-attempt timeout in seconds")
 	cmd.Flags().IntVar(&fetchRetries, "retries", fetch.DefaultMaxRetries, "Retries within a tier")
 	cmd.Flags().StringVar(&fetchVia, "via", fetch.ViaAuto, "Routing: auto, direct, proxy, or flaresolverr")
 	cmd.Flags().BoolVar(&fetchNoFallback, "no-fallback", false, "Direct fetch only (alias for --via direct)")
 	cmd.Flags().StringVar(&fetchUserAgent, "user-agent", "", "Override the request User-Agent")
+	cmd.Flags().BoolVar(&fetchFlareSolverrNoPxy, "flaresolverr-no-proxy", false, "Keep the FlareSolverr render direct even when a proxy is configured")
 	cmd.Flags().BoolVar(&fetchJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&fetchMinimal, "min", false, "Output in minimal/token-optimized format")
 
@@ -113,6 +117,9 @@ func runFetch(cmd *cobra.Command, args []string) error {
 	if fetchProxy != "" {
 		cfg.ProxyURL = fetchProxy
 	}
+	if fetchFlareSolverrProxy != "" {
+		cfg.FlareSolverrProxyURL = fetchFlareSolverrProxy
+	}
 	if cmd.Flags().Changed("timeout") {
 		cfg.Timeout = fetchTimeout
 	}
@@ -121,6 +128,9 @@ func runFetch(cmd *cobra.Command, args []string) error {
 	}
 	if fetchUserAgent != "" {
 		cfg.UserAgent = fetchUserAgent
+	}
+	if cmd.Flags().Changed("flaresolverr-no-proxy") {
+		cfg.FlareSolverrNoProxy = fetchFlareSolverrNoPxy
 	}
 
 	// Resolve routing: --no-fallback is an alias for --via direct.
