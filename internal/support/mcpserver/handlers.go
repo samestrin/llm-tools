@@ -1907,6 +1907,12 @@ func buildTDStatsArgs(args map[string]interface{}) []string {
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
+	if write, ok := args["write"].(bool); ok && write {
+		cmdArgs = append(cmdArgs, "--write")
+	}
+	if today, ok := args["today"].(string); ok && today != "" {
+		cmdArgs = append(cmdArgs, "--today", today)
+	}
 	cmdArgs = append(cmdArgs, "--json", "--min")
 	return cmdArgs
 }

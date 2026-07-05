@@ -6,15 +6,18 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	tdStatsPath string
-	tdStatsJSON bool
-	tdStatsMin  bool
+	tdStatsPath  string
+	tdStatsJSON  bool
+	tdStatsMin   bool
+	tdStatsWrite bool
+	tdStatsToday string
 )
 
 // TDStatsResult holds the aggregated tech debt statistics
@@ -62,6 +65,8 @@ table in the "markdown" field.`,
 	cmd.Flags().StringVar(&tdStatsPath, "path", "", "Path to tech debt README (required)")
 	cmd.Flags().BoolVar(&tdStatsJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&tdStatsMin, "min", false, "Minimal output format")
+	cmd.Flags().BoolVar(&tdStatsWrite, "write", false, "Rewrite the \"## Stats\" section and \"**Last Modified:**\" line in --path in place. Deterministic; does NOT add or remove any data rows (unlike td-clean).")
+	cmd.Flags().StringVar(&tdStatsToday, "today", "", "Date for the Last Modified line (YYYY-MM-DD) when --write is set; defaults to today")
 	cmd.MarkFlagRequired("path")
 
 	return cmd
@@ -82,6 +87,23 @@ func runTDStats(cmd *cobra.Command, args []string) error {
 	}
 
 	result.Markdown = formatTDStatsMarkdown(result)
+
+	// In-place stats refresh. Recomputes "## Stats" and "**Last Modified:**"
+	// from the current rows and writes them back deterministically — no data
+	// row is added or removed. This replaces the model-built edit_blocks the
+	// resolve-td flush step used to rely on, which truncated large tables.
+	if tdStatsWrite {
+		today := tdStatsToday
+		if today == "" {
+			today = time.Now().Format("2006-01-02")
+		}
+		lines := strings.Split(string(content), "\n")
+		lines = replaceStatsSection(lines, result.Markdown)
+		lines = updateLastModified(lines, today, result.Summary)
+		if err := os.WriteFile(tdStatsPath, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+	}
 
 	formatter := output.New(tdStatsJSON, tdStatsMin, cmd.OutOrStdout())
 	return formatter.Print(result, func(w io.Writer, data interface{}) {
