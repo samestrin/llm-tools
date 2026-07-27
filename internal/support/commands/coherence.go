@@ -385,18 +385,102 @@ type httpReranker struct {
 // newHTTPRerankerFromEnv builds a reranker from LLM_SEMANTIC_RERANKER_API_URL /
 // LLM_SEMANTIC_RERANKER_MODEL, key from LLM_SEMANTIC_RERANKER_API_KEY or
 // LLM_SEMANTIC_API_KEY.
-func newHTTPRerankerFromEnv() *httpReranker { return &httpReranker{} }
+func newHTTPRerankerFromEnv() *httpReranker {
+	return &httpReranker{
+		apiURL: strings.TrimRight(os.Getenv("LLM_SEMANTIC_RERANKER_API_URL"), "/"),
+		model:  firstNonEmpty(os.Getenv("LLM_SEMANTIC_RERANKER_MODEL"), "Qwen/Qwen3-Reranker-0.6B"),
+		apiKey: firstNonEmpty(os.Getenv("LLM_SEMANTIC_RERANKER_API_KEY"), os.Getenv("LLM_SEMANTIC_API_KEY")),
+		client: &http.Client{Timeout: 60 * time.Second},
+	}
+}
 
 // available reports whether a reranker endpoint is configured.
-func (r *httpReranker) available() bool { return false }
+func (r *httpReranker) available() bool { return r.apiURL != "" }
 
 // Rerank returns one relevance score per document, in document order.
 func (r *httpReranker) Rerank(ctx context.Context, query string, documents []string) ([]float64, error) {
-	return nil, nil
+	if len(documents) == 0 {
+		return nil, nil
+	}
+	body, err := json.Marshal(map[string]any{
+		"model":     r.model,
+		"query":     query,
+		"documents": documents,
+		"top_n":     len(documents),
+	})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.apiURL+"/v1/rerank", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if r.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+r.apiKey)
+	}
+	client := r.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("rerank endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+	}
+	var parsed struct {
+		Results []struct {
+			Index          int     `json:"index"`
+			RelevanceScore float64 `json:"relevance_score"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, err
+	}
+	if len(parsed.Results) != len(documents) {
+		return nil, fmt.Errorf("rerank: got %d scores for %d documents", len(parsed.Results), len(documents))
+	}
+	out := make([]float64, len(documents))
+	seen := make([]bool, len(documents))
+	for _, res := range parsed.Results {
+		if res.Index < 0 || res.Index >= len(out) {
+			return nil, fmt.Errorf("rerank: index %d out of range for %d documents", res.Index, len(documents))
+		}
+		out[res.Index] = res.RelevanceScore
+		seen[res.Index] = true
+	}
+	for i, ok := range seen {
+		if !ok {
+			return nil, fmt.Errorf("rerank: missing score at index %d", i)
+		}
+	}
+	return out, nil
 }
 
 // rerankSignal scores each row's PROBLEM↔FIX pair as 1-relevance (higher = more
 // suspect). It degrades to available=false if any row's rerank call fails.
 func rerankSignal(ctx context.Context, r rerankerClient, rows []coherenceRow) signalResult {
-	return signalResult{name: "rerank"}
+	res := signalResult{name: "rerank"}
+	if len(rows) == 0 {
+		res.available = true
+		res.scores = []float64{}
+		return res
+	}
+	scores := make([]float64, len(rows))
+	for i, row := range rows {
+		rel, err := r.Rerank(ctx,
+			"Problem: "+stripCoherenceBoilerplate(row.problem),
+			[]string{"Fix: " + stripCoherenceBoilerplate(row.fix)})
+		if err != nil || len(rel) != 1 {
+			return res // available=false
+		}
+		scores[i] = clamp01(1 - rel[0])
+	}
+	res.available = true
+	res.scores = scores
+	return res
 }
