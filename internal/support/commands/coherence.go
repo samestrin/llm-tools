@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"context"
 	"math"
+	"net/http"
 	"regexp"
 	"sort"
 	"strings"
@@ -219,3 +221,41 @@ func coherenceTier(fix string) string {
 	}
 	return "low"
 }
+
+// --- signal 1: bi-encoder cosine (RED stubs; implemented in GREEN) ---
+
+// embedderClient produces embedding vectors for a batch of texts. The cosine
+// signal and the qdrant grounder depend on this seam so tests can inject a fake.
+type embedderClient interface {
+	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
+}
+
+// httpEmbedder is a self-contained OpenAI-compatible /v1/embeddings client.
+type httpEmbedder struct {
+	apiURL string
+	model  string
+	apiKey string
+	client *http.Client
+}
+
+// newHTTPEmbedderFromEnv builds an embedder from LLM_SEMANTIC_API_URL /
+// LLM_SEMANTIC_MODEL, with the key from LLM_SEMANTIC_API_KEY or OPENAI_API_KEY.
+func newHTTPEmbedderFromEnv() *httpEmbedder { return &httpEmbedder{} }
+
+// available reports whether an endpoint is configured.
+func (e *httpEmbedder) available() bool { return false }
+
+// EmbedBatch returns one vector per input text, in input order.
+func (e *httpEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	return nil, nil
+}
+
+// cosineSignal scores each row's PROBLEM↔FIX pair as 1-cosine (higher = more
+// suspect). It degrades to available=false if embedding fails.
+func cosineSignal(ctx context.Context, e embedderClient, rows []coherenceRow) signalResult {
+	return signalResult{name: "cosine"}
+}
+
+func firstNonEmpty(a, b string) string { return "" }
+
+func clamp01(x float64) float64 { return 0 }
