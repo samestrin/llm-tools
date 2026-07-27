@@ -142,10 +142,11 @@ type signalResult struct {
 	available bool
 }
 
-// coherenceRow is one TD row's text pair fed to the coherence check.
+// coherenceRow is one TD row's text pair (and cited file) fed to the check.
 type coherenceRow struct {
 	problem string
 	fix     string
+	file    string // cited file path (for grounding); "" when unknown
 }
 
 // coherenceVerdict is the per-row ensemble outcome, in original row order.
@@ -346,6 +347,44 @@ func cosineSignal(ctx context.Context, e embedderClient, rows []coherenceRow) si
 	res.scores = scores
 	return res
 }
+
+// --- signal 3: qdrant grounding (RED stubs; implemented in GREEN) ---
+
+// qdrantGrounder embeds a FIX and asks a qdrant collection for the nearest code
+// chunk, flagging rows whose FIX grounds to a file other than the cited one.
+type qdrantGrounder struct {
+	apiURL     string
+	collection string
+	apiKey     string
+	embedder   embedderClient
+	client     *http.Client
+}
+
+// newQdrantGrounderFromEnv builds a grounder from QDRANT_API_URL/QDRANT_URL and
+// QDRANT_API_KEY, for the given collection, reusing the provided embedder.
+func newQdrantGrounderFromEnv(collection string, e embedderClient) *qdrantGrounder {
+	return &qdrantGrounder{}
+}
+
+// available reports whether grounding can run (endpoint + collection + embedder).
+func (g *qdrantGrounder) available() bool { return false }
+
+// nearestFile returns the file-path payload of the top hit for a query vector,
+// or "" when there is no hit / no file payload.
+func (g *qdrantGrounder) nearestFile(ctx context.Context, vec []float32) (string, error) {
+	return "", nil
+}
+
+// groundSignal scores a row 1.0 when its FIX grounds to a file other than the
+// cited one, else 0.0. Degrades to available=false on any embed/search failure.
+func groundSignal(ctx context.Context, g *qdrantGrounder, rows []coherenceRow) signalResult {
+	return signalResult{name: "ground"}
+}
+
+// filePathsMatch reports whether two repo-relative paths plausibly refer to the
+// same file (equal, suffix, or same base name). Permissive by design: grounding
+// is a noisy signal, so it only fires on a clear file difference.
+func filePathsMatch(nearest, cited string) bool { return true }
 
 // firstNonEmpty returns a if non-empty, else b.
 func firstNonEmpty(a, b string) string {
