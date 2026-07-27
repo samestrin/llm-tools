@@ -121,3 +121,44 @@ func isDeferralPunt(fix string) bool {
 	}
 	return false
 }
+
+// --- ensemble (RED stubs; implemented in GREEN) ---
+
+// signalResult holds one provider's per-row suspicion scores, aligned to the
+// coherence row order. Higher score = more suspect (less coherent). A provider
+// that could not run reports available=false and is excluded from the ensemble.
+type signalResult struct {
+	name      string
+	scores    []float64
+	available bool
+}
+
+// coherenceRow is one TD row's text pair fed to the coherence check.
+type coherenceRow struct {
+	problem string
+	fix     string
+}
+
+// coherenceVerdict is the per-row ensemble outcome, in original row order.
+type coherenceVerdict struct {
+	score   float64 // combined suspicion (higher = more suspect)
+	suspect bool
+	tier    string // "high", "low", or "" when not suspect
+}
+
+// combineSignals averages the available signals' per-row scores into a single
+// suspicion score per row, and returns the names of the signals that ran.
+func combineSignals(results []signalResult, nRows int) ([]float64, []string) {
+	return make([]float64, nRows), nil
+}
+
+// flagCoherence ranks rows by combined suspicion and flags the top pct% as
+// suspect, assigning each flagged row a confidence tier.
+func flagCoherence(rows []coherenceRow, combined []float64, pct int) []coherenceVerdict {
+	return make([]coherenceVerdict, len(rows))
+}
+
+// coherenceTier labels a flagged row HIGH when its FIX looks like a technical
+// remedy (has code identifiers, not a deferral punt) — the paste-error
+// signature — and LOW otherwise.
+func coherenceTier(fix string) string { return "" }

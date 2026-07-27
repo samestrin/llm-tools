@@ -105,3 +105,136 @@ func keysOf(m map[string]struct{}) []string {
 	}
 	return k
 }
+
+func TestCombineSignals(t *testing.T) {
+	t.Run("mean of available signals", func(t *testing.T) {
+		results := []signalResult{
+			{name: "cosine", scores: []float64{0.9, 0.1, 0.5}, available: true},
+			{name: "rerank", scores: []float64{0.7, 0.3, 0.5}, available: true},
+			{name: "ground", scores: []float64{1, 1, 1}, available: false}, // excluded
+		}
+		combined, active := combineSignals(results, 3)
+		want := []float64{0.8, 0.2, 0.5}
+		for i := range want {
+			if math.Abs(combined[i]-want[i]) > 1e-9 {
+				t.Fatalf("combined[%d] = %v, want %v", i, combined[i], want[i])
+			}
+		}
+		if len(active) != 2 || active[0] != "cosine" || active[1] != "rerank" {
+			t.Fatalf("active = %v, want [cosine rerank]", active)
+		}
+	})
+
+	t.Run("length-mismatched signal excluded", func(t *testing.T) {
+		results := []signalResult{
+			{name: "cosine", scores: []float64{0.4, 0.6}, available: true},
+			{name: "bad", scores: []float64{0.1}, available: true}, // wrong length
+		}
+		combined, active := combineSignals(results, 2)
+		if len(active) != 1 || active[0] != "cosine" {
+			t.Fatalf("active = %v, want [cosine]", active)
+		}
+		if math.Abs(combined[0]-0.4) > 1e-9 || math.Abs(combined[1]-0.6) > 1e-9 {
+			t.Fatalf("combined = %v, want [0.4 0.6]", combined)
+		}
+	})
+
+	t.Run("no available signals", func(t *testing.T) {
+		results := []signalResult{{name: "x", scores: []float64{1, 1}, available: false}}
+		combined, active := combineSignals(results, 2)
+		if len(active) != 0 {
+			t.Fatalf("active = %v, want empty", active)
+		}
+		for i, c := range combined {
+			if c != 0 {
+				t.Fatalf("combined[%d] = %v, want 0", i, c)
+			}
+		}
+	})
+}
+
+func TestFlagCoherence(t *testing.T) {
+	rows := []coherenceRow{
+		{fix: "add io.LimitReader guard"},                      // 0
+		{fix: "A backend decision owned by the atcr.dev team"}, // 1 (punt)
+		{fix: "thread per-chunk membership through runEngine"}, // 2
+		{fix: "just do the thing"},                             // 3 (no code id)
+		{fix: "call normalizeScope before the lookup"},         // 4
+	}
+
+	t.Run("top pct flagged, ranked by suspicion", func(t *testing.T) {
+		combined := []float64{0.1, 0.9, 0.2, 0.3, 0.05}
+		v := flagCoherence(rows, combined, 20) // ceil(5*0.2)=1 -> only the max
+		if !v[1].suspect {
+			t.Fatalf("row 1 (max 0.9) should be suspect")
+		}
+		for _, i := range []int{0, 2, 3, 4} {
+			if v[i].suspect {
+				t.Fatalf("row %d should not be suspect", i)
+			}
+		}
+		if v[1].tier != "low" { // punt -> low
+			t.Fatalf("row 1 tier = %q, want low", v[1].tier)
+		}
+	})
+
+	t.Run("larger cut flags more, tiers by fix", func(t *testing.T) {
+		combined := []float64{0.1, 0.85, 0.2, 0.9, 0.05}
+		v := flagCoherence(rows, combined, 40) // ceil(5*0.4)=2 -> rows 3 and 1
+		if !v[3].suspect || !v[1].suspect {
+			t.Fatalf("rows 3 and 1 should be suspect; got %+v", v)
+		}
+		if v[3].tier != "low" { // "just do the thing" has no code identifier
+			t.Fatalf("row 3 tier = %q, want low", v[3].tier)
+		}
+	})
+
+	t.Run("high tier for technical fix", func(t *testing.T) {
+		combined := []float64{0.99, 0.1, 0.1, 0.1, 0.1}
+		v := flagCoherence(rows, combined, 20)
+		if !v[0].suspect || v[0].tier != "high" { // has io.LimitReader, not a punt
+			t.Fatalf("row 0 should be suspect/high; got suspect=%v tier=%q", v[0].suspect, v[0].tier)
+		}
+	})
+
+	t.Run("deterministic tie-break by index", func(t *testing.T) {
+		combined := []float64{0.5, 0.5, 0.5, 0.5, 0.5}
+		v := flagCoherence(rows, combined, 20) // 1 flagged -> lowest index wins
+		if !v[0].suspect {
+			t.Fatalf("tie should flag lowest index (0); got %+v", v)
+		}
+	})
+
+	t.Run("pct 0 flags none", func(t *testing.T) {
+		combined := []float64{0.9, 0.9, 0.9, 0.9, 0.9}
+		v := flagCoherence(rows, combined, 0)
+		for i := range v {
+			if v[i].suspect {
+				t.Fatalf("row %d should not be suspect at pct=0", i)
+			}
+		}
+	})
+
+	t.Run("empty rows", func(t *testing.T) {
+		if v := flagCoherence(nil, nil, 10); len(v) != 0 {
+			t.Fatalf("empty input should yield empty verdicts, got %v", v)
+		}
+	})
+}
+
+func TestCoherenceTier(t *testing.T) {
+	cases := []struct {
+		name, fix, want string
+	}{
+		{"technical", "add io.LimitReader mirroring readCapped", "high"},
+		{"punt", "A backend decision owned by the team", "low"},
+		{"no code id", "just do the thing carefully", "low"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := coherenceTier(tc.fix); got != tc.want {
+				t.Fatalf("coherenceTier(%q) = %q, want %q", tc.fix, got, tc.want)
+			}
+		})
+	}
+}
