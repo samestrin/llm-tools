@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // runTDValidateText runs td-validate capturing stdout/stderr without JSON decoding.
@@ -271,6 +272,29 @@ func TestApplyCoherence_ItemsRowsMismatchNoPanic(t *testing.T) {
 	applyCoherence(nil, items, rows, summary, 10, "", &bytes.Buffer{})
 	if summary.CoherenceSkipped || len(summary.CoherenceSignals) != 0 {
 		t.Fatalf("mismatch should be a no-op; summary=%+v", summary)
+	}
+}
+
+func TestTDValidate_Coherence_TimeoutDegrades(t *testing.T) {
+	clearCoherenceEnv(t)
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{}})
+	}))
+	defer slow.Close()
+	t.Setenv("LLM_SEMANTIC_API_URL", slow.URL)
+
+	old := coherenceTimeout
+	coherenceTimeout = 40 * time.Millisecond
+	defer func() { coherenceTimeout = old }()
+
+	readmePath, rootDir := writeTDValidateFiles(t, coherenceREADME)
+	res, _, err := runTDValidateCmd(t, "--path", readmePath, "--root", rootDir, "--coherence", "--json")
+	if err != nil {
+		t.Fatalf("cmd should still succeed under timeout: %v", err)
+	}
+	if !res.Summary.CoherenceSkipped {
+		t.Fatal("a slow endpoint beyond the coherence timeout should degrade to skipped")
 	}
 }
 

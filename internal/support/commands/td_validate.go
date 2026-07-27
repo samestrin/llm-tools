@@ -86,7 +86,14 @@ Per-item status values:
   valid            — file exists; symbol found (or no symbol to check)
   file_missing     — file path does not exist under --root
   symbol_not_found — file exists but symbol is absent
-  no_file          — FileLine column is empty or unparseable`,
+  no_file          — FileLine column is empty or unparseable
+
+Coherence (--coherence, advisory): flags rows whose FIX reads as incoherent with
+its PROBLEM — the signature of a FIX copy-pasted from an unrelated finding. Uses
+an ensemble of embedding cosine (primary), a cross-encoder reranker, and optional
+qdrant grounding (--coherence-collection). Each signal degrades gracefully if its
+endpoint is unreachable; if none is available the check is skipped and file/symbol
+results are unaffected. Endpoints come from the LLM_SEMANTIC_* / QDRANT_* env vars.`,
 		RunE: runTDValidate,
 	}
 	cmd.Flags().StringVar(&tdValidatePath, "path", "", "Path to TD README (required)")

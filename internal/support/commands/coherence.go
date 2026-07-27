@@ -520,6 +520,11 @@ func groundSignal(ctx context.Context, g *qdrantGrounder, rows []coherenceRow) s
 // cells (e.g. "fix", "add a test") carry too little signal to judge.
 const coherenceMinChars = 20
 
+// coherenceTimeout bounds the whole coherence phase. The reranker and grounder
+// make one HTTP call per row, so without an overall deadline a slow or hanging
+// endpoint could stall td-validate for a long time. Overridable in tests.
+var coherenceTimeout = 120 * time.Second
+
 // applyCoherence runs the enabled coherence signals over eligible items and
 // annotates them in place. Fail-soft: any missing endpoint drops that signal,
 // and if nothing runs it sets summary.CoherenceSkipped and warns.
@@ -542,6 +547,10 @@ func applyCoherence(ctx context.Context, items []TDValidateItem, rows []TDFilter
 		summary.CoherenceSkipped = true
 		return
 	}
+
+	// Bound the whole phase: per-row rerank/qdrant calls must not hang the run.
+	ctx, cancel := context.WithTimeout(ctx, coherenceTimeout)
+	defer cancel()
 
 	embedder := newHTTPEmbedderFromEnv()
 	reranker := newHTTPRerankerFromEnv()
