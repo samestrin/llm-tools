@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/samestrin/llm-tools/pkg/output"
@@ -401,6 +402,46 @@ func printTDValidateText(w io.Writer, data interface{}) {
 		} else {
 			fmt.Fprintf(w, "%s: %s\n", statusLabel, fileLine)
 		}
+	}
+
+	printCoherenceText(w, r)
+}
+
+// printCoherenceText appends the advisory coherence report (suspects ranked
+// HIGH-tier first, then by descending suspicion) when the check ran.
+func printCoherenceText(w io.Writer, r *TDValidateResult) {
+	if len(r.Summary.CoherenceSignals) == 0 {
+		if r.Summary.CoherenceSkipped {
+			fmt.Fprintln(w, "coherence: skipped (no candidate rows or no endpoint reachable)")
+		}
+		return
+	}
+	fmt.Fprintf(w, "coherence: %d suspect(s) via [%s]\n",
+		r.Summary.CoherenceSuspect, strings.Join(r.Summary.CoherenceSignals, ", "))
+
+	type susp struct {
+		fileLine, tier string
+		score          float64
+	}
+	var list []susp
+	for _, it := range r.Items {
+		if !it.CoherenceSuspect {
+			continue
+		}
+		score := 0.0
+		if it.CoherenceScore != nil {
+			score = *it.CoherenceScore
+		}
+		list = append(list, susp{it.FileLine, it.CoherenceTier, score})
+	}
+	sort.SliceStable(list, func(a, b int) bool {
+		if list[a].tier != list[b].tier {
+			return list[a].tier == "high" // HIGH before LOW
+		}
+		return list[a].score > list[b].score
+	})
+	for _, s := range list {
+		fmt.Fprintf(w, "  [%s] %.3f %s\n", strings.ToUpper(s.tier), s.score, s.fileLine)
 	}
 }
 

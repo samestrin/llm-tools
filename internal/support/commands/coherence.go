@@ -464,11 +464,71 @@ func groundSignal(ctx context.Context, g *qdrantGrounder, rows []coherenceRow) s
 	return res
 }
 
+// coherenceMinChars is the minimum length (after boilerplate stripping) a
+// PROBLEM or FIX cell must have for a row to be a coherence candidate. Terse
+// cells (e.g. "fix", "add a test") carry too little signal to judge.
+const coherenceMinChars = 20
+
 // applyCoherence runs the enabled coherence signals over eligible items and
 // annotates them in place. Fail-soft: any missing endpoint drops that signal,
-// and if nothing runs it sets summary.CoherenceSkipped and warns. (RED stub;
-// implemented in GREEN.)
+// and if nothing runs it sets summary.CoherenceSkipped and warns.
 func applyCoherence(ctx context.Context, items []TDValidateItem, rows []TDFilterRow, summary *TDValidateSummary, pct int, collection string, warn io.Writer) {
+	crows := make([]coherenceRow, 0, len(items))
+	idxOf := make([]int, 0, len(items))
+	for i := range items {
+		p := strings.TrimSpace(stripCoherenceBoilerplate(rows[i].Problem))
+		f := strings.TrimSpace(stripCoherenceBoilerplate(rows[i].Fix))
+		if len(p) < coherenceMinChars || len(f) < coherenceMinChars {
+			continue
+		}
+		crows = append(crows, coherenceRow{problem: rows[i].Problem, fix: rows[i].Fix, file: items[i].FilePath})
+		idxOf = append(idxOf, i)
+	}
+	if len(crows) == 0 {
+		summary.CoherenceSkipped = true
+		return
+	}
+
+	embedder := newHTTPEmbedderFromEnv()
+	reranker := newHTTPRerankerFromEnv()
+	grounder := newQdrantGrounderFromEnv(collection, embedder)
+
+	var results []signalResult
+	if embedder.available() {
+		results = append(results, cosineSignal(ctx, embedder, crows))
+	}
+	if reranker.available() {
+		results = append(results, rerankSignal(ctx, reranker, crows))
+	}
+	if grounder.available() {
+		results = append(results, groundSignal(ctx, grounder, crows))
+	}
+
+	var avail []signalResult
+	for _, r := range results {
+		if r.available {
+			avail = append(avail, r)
+		}
+	}
+
+	combined, active := combineSignals(avail, len(crows))
+	if len(active) == 0 {
+		summary.CoherenceSkipped = true
+		fmt.Fprintln(warn, "td_validate: coherence check skipped (no embedding/reranker/qdrant endpoint reachable)")
+		return
+	}
+
+	verdicts := flagCoherence(crows, combined, pct)
+	summary.CoherenceSignals = active
+	for j, i := range idxOf {
+		score := verdicts[j].score
+		items[i].CoherenceScore = &score
+		items[i].CoherenceTier = verdicts[j].tier
+		items[i].CoherenceSuspect = verdicts[j].suspect
+		if verdicts[j].suspect {
+			summary.CoherenceSuspect++
+		}
+	}
 }
 
 // filePathsMatch reports whether two repo-relative paths plausibly refer to the

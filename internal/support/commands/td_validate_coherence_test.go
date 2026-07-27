@@ -1,12 +1,25 @@
 package commands
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+// runTDValidateText runs td-validate capturing stdout/stderr without JSON decoding.
+func runTDValidateText(t *testing.T, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	cmd := newTDValidateCmd()
+	cmd.SetArgs(args)
+	var out, errb bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errb)
+	err = cmd.Execute()
+	return out.String(), errb.String(), err
+}
 
 // coherenceREADME has two rows with substantive PROBLEM and FIX cells (>=20
 // chars each), so both are coherence candidates; both cite scripts/foo.py.
@@ -171,6 +184,35 @@ func TestTDValidate_Coherence_SkipWhenNoEndpoints(t *testing.T) {
 		if it.CoherenceScore != nil || it.CoherenceSuspect {
 			t.Fatalf("no item should be scored when skipped: %+v", it)
 		}
+	}
+}
+
+func TestTDValidate_Coherence_TextOutput(t *testing.T) {
+	clearCoherenceEnv(t)
+	embed := embedTestServer(t)
+	defer embed.Close()
+	t.Setenv("LLM_SEMANTIC_API_URL", embed.URL)
+
+	readmePath, rootDir := writeTDValidateFiles(t, coherenceREADME)
+	stdout, _, err := runTDValidateText(t, "--path", readmePath, "--root", rootDir,
+		"--coherence", "--coherence-percentile", "100")
+	if err != nil {
+		t.Fatalf("cmd error: %v", err)
+	}
+	if !strings.Contains(stdout, "coherence:") {
+		t.Fatalf("text output missing coherence section:\n%s", stdout)
+	}
+}
+
+func TestTDValidate_Coherence_TextSkipped(t *testing.T) {
+	clearCoherenceEnv(t)
+	readmePath, rootDir := writeTDValidateFiles(t, coherenceREADME)
+	stdout, _, err := runTDValidateText(t, "--path", readmePath, "--root", rootDir, "--coherence")
+	if err != nil {
+		t.Fatalf("cmd error: %v", err)
+	}
+	if !strings.Contains(stdout, "coherence: skipped") {
+		t.Fatalf("expected skipped line in text output:\n%s", stdout)
 	}
 }
 
