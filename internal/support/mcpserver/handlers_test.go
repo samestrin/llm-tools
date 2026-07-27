@@ -67,6 +67,47 @@ func TestBuildKnowledgeAuditArgs(t *testing.T) {
 	}
 }
 
+func TestBuildTDValidateArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want []string
+	}{
+		{
+			name: "basic",
+			args: map[string]interface{}{"path": "R"},
+			want: []string{"td-validate", "--path", "R", "--json", "--min"},
+		},
+		{
+			name: "coherence on",
+			args: map[string]interface{}{"path": "R", "coherence": true},
+			want: []string{"td-validate", "--path", "R", "--coherence", "--json", "--min"},
+		},
+		{
+			name: "coherence with collection",
+			args: map[string]interface{}{"path": "R", "coherence": true, "coherence_collection": "atcr-code"},
+			want: []string{"td-validate", "--path", "R", "--coherence", "--coherence-collection", "atcr-code", "--json", "--min"},
+		},
+		{
+			name: "coherence false omitted",
+			args: map[string]interface{}{"path": "R", "coherence": false},
+			want: []string{"td-validate", "--path", "R", "--json", "--min"},
+		},
+		{
+			name: "collection without coherence ignored",
+			args: map[string]interface{}{"path": "R", "coherence_collection": "atcr-code"},
+			want: []string{"td-validate", "--path", "R", "--json", "--min"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := buildTDValidateArgs(tt.args); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("buildTDValidateArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildTdDedupeArgs(t *testing.T) {
 	tests := []struct {
 		name string

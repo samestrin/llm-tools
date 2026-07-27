@@ -80,6 +80,33 @@ func runTDValidateCmd(t *testing.T, args ...string) (TDValidateResult, string, e
 	return res, errb.String(), err
 }
 
+// TestTDValidate_ParseCapturesFix asserts the parser populates the Fix cell
+// (column 6). The coherence check compares Problem against Fix, so the parser
+// must retain it.
+func TestTDValidate_ParseCapturesFix(t *testing.T) {
+	rows := parseTDValidateRows(fixtureTDValidateReadme)
+	if len(rows) == 0 {
+		t.Fatal("expected rows, got none")
+	}
+	// First non-resolved row is the "line ref item"; its Fix cell is "fix".
+	if rows[0].Fix != "fix" {
+		t.Fatalf("row[0].Fix = %q, want %q", rows[0].Fix, "fix")
+	}
+	// The explicit-deferred [/] row's Fix cell is "later".
+	var found bool
+	for _, r := range rows {
+		if r.Problem == "explicit deferred" {
+			found = true
+			if r.Fix != "later" {
+				t.Fatalf("deferred row Fix = %q, want %q", r.Fix, "later")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("did not find the explicit-deferred row")
+	}
+}
+
 // TestTDValidate_OpenModeDefault verifies that the default (open) mode includes
 // only [ ] rows without an intent_note deferred marker, and excludes [/] and [x].
 func TestTDValidate_OpenModeDefault(t *testing.T) {

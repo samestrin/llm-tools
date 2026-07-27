@@ -1715,7 +1715,9 @@ func GetToolDefinitions() []ToolDefinition {
 						"properties": {
 							"path": {"type": "string", "description": "Path to the technical-debt README"},
 							"root": {"type": "string", "description": "Repo root for resolving relative file paths (default: current directory)"},
-							"mode": {"type": "string", "enum": ["open", "all"], "description": "open = open [ ] items only (default); all = also include deferred [/] items"}
+							"mode": {"type": "string", "enum": ["open", "all"], "description": "open = open [ ] items only (default); all = also include deferred [/] items"},
+							"coherence": {"type": "boolean", "description": "Advisory: flag rows whose FIX reads as incoherent with its PROBLEM (copy-paste signature). Needs an embedding/reranker endpoint; degrades gracefully if none is reachable."},
+							"coherence_collection": {"type": "string", "description": "Qdrant collection for the optional grounding signal (e.g. atcr-code); empty disables grounding"}
 						},
 						"required": ["path"]
 					}`),
