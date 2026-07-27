@@ -40,7 +40,7 @@ mode threshold -> group (+ write-scope) -> severity -> confidence -> max.
   severity:    comma list (low,medium,high,critical); empty = all
   confidence:  comma list (low,medium,high); empty = all. Rows with no
                Confidence column are excluded when this filter is set.
-  group:       Group-column value (e.g. solo,1,2,u); empty = all
+  group:       Group-column value (e.g. Solo,1,2,U; case-insensitive); empty = all
   focus:       section header substring, case-insensitive
   max:         cap on returned items (default 10), first N in source order
 

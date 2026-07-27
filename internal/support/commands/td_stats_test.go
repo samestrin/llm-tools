@@ -223,6 +223,157 @@ func TestParseTDStats(t *testing.T) {
 	}
 }
 
+func TestTDStatsWriteInPlace(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := `# Tech Debt
+
+## Stats
+
+| Severity | Open | Deferred | Resolved |
+|----------|------|----------|----------|
+| HIGH | 5 | 0 | 0 |
+
+**Last Modified:** 2026-01-01 | **Open Items:** 5 | **Deferred Items:** 0 | **Resolved Items:** 0 | **Total Items:** 5
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [x] | HIGH | foo.py:1 | Fixed issue | Was fixed | error-handling | 30 |
+| 1 | [ ] | HIGH | bar.py:1 | Open issue | Needs fix | security | 120 |
+`
+	mdFile := filepath.Join(tmpDir, "README.md")
+	os.WriteFile(mdFile, []byte(content), 0644)
+
+	cmd := newTDStatsCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", mdFile, "--write", "--today", "2026-06-22"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "Written to") {
+		t.Errorf("expected write confirmation in output, got:\n%s", buf.String())
+	}
+
+	written, err := os.ReadFile(mdFile)
+	if err != nil {
+		t.Fatalf("failed to read written file: %v", err)
+	}
+	s := string(written)
+
+	// Stats section reflects the actual data rows (1 open, 1 resolved), not the stale "5 open" it started with.
+	if !strings.Contains(s, "| HIGH | 1 | 0 | 1 |") {
+		t.Errorf("Stats section not refreshed, got:\n%s", s)
+	}
+	if !strings.Contains(s, "**Last Modified:** 2026-06-22 | **Open Items:** 1 | **Deferred Items:** 0 | **Resolved Items:** 1 | **Total Items:** 2") {
+		t.Errorf("Last Modified line not updated, got:\n%s", s)
+	}
+
+	// Data rows must survive untouched — --write never adds or removes a row (that's td-clean's job).
+	if !strings.Contains(s, "| 1 | [x] | HIGH | foo.py:1 | Fixed issue | Was fixed | error-handling | 30 |") {
+		t.Errorf("resolved data row was removed, but --write must never touch data rows, got:\n%s", s)
+	}
+	if !strings.Contains(s, "| 1 | [ ] | HIGH | bar.py:1 | Open issue | Needs fix | security | 120 |") {
+		t.Errorf("open data row missing, got:\n%s", s)
+	}
+}
+
+func TestTDStatsWriteIdempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Already-consistent stats/date — --write should leave the file byte-for-byte unchanged and report no write.
+	content := `## Stats
+
+| Severity | Open | Deferred | Resolved |
+|----------|------|----------|----------|
+| CRITICAL | 0 | 0 | 0 |
+| HIGH | 1 | 0 | 0 |
+| MEDIUM | 0 | 0 | 0 |
+| LOW | 0 | 0 | 0 |
+
+**Last Modified:** 2026-06-22 | **Open Items:** 1 | **Deferred Items:** 0 | **Resolved Items:** 0 | **Total Items:** 1
+
+| Group | | Severity | File |
+|-------|---|----------|------|
+| 1 | [ ] | HIGH | foo.py |
+`
+	mdFile := filepath.Join(tmpDir, "README.md")
+	os.WriteFile(mdFile, []byte(content), 0644)
+
+	before, err := os.ReadFile(mdFile)
+	if err != nil {
+		t.Fatalf("failed to read fixture: %v", err)
+	}
+	beforeInfo, err := os.Stat(mdFile)
+	if err != nil {
+		t.Fatalf("failed to stat fixture: %v", err)
+	}
+
+	cmd := newTDStatsCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", mdFile, "--write", "--today", "2026-06-22"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "No change") {
+		t.Errorf("expected no-change output for an already up-to-date file, got:\n%s", buf.String())
+	}
+
+	after, err := os.ReadFile(mdFile)
+	if err != nil {
+		t.Fatalf("failed to read file after run: %v", err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("file should be byte-for-byte unchanged when nothing to update, before:\n%s\nafter:\n%s", before, after)
+	}
+
+	afterInfo, err := os.Stat(mdFile)
+	if err != nil {
+		t.Fatalf("failed to stat file after run: %v", err)
+	}
+	if !beforeInfo.ModTime().Equal(afterInfo.ModTime()) {
+		t.Error("file mtime changed even though content was already up to date — WriteFile should have been skipped")
+	}
+}
+
+func TestTDStatsWithoutWriteFlagLeavesFileUntouched(t *testing.T) {
+	tmpDir := t.TempDir()
+	content := `## Stats
+
+| Severity | Open | Deferred | Resolved |
+|----------|------|----------|----------|
+| HIGH | 99 | 0 | 0 |
+
+**Last Modified:** 2020-01-01 | **Open Items:** 99 | **Deferred Items:** 0 | **Resolved Items:** 0 | **Total Items:** 99
+
+| Group | | Severity | File |
+|-------|---|----------|------|
+| 1 | [ ] | HIGH | foo.py |
+`
+	mdFile := filepath.Join(tmpDir, "README.md")
+	os.WriteFile(mdFile, []byte(content), 0644)
+
+	cmd := newTDStatsCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"--path", mdFile})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	after, err := os.ReadFile(mdFile)
+	if err != nil {
+		t.Fatalf("failed to read file after run: %v", err)
+	}
+	if string(after) != content {
+		t.Errorf("without --write, the file on disk must be untouched (read-only), got:\n%s", after)
+	}
+}
+
 func TestSplitTableRow(t *testing.T) {
 	tests := []struct {
 		input string

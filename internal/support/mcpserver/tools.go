@@ -1624,12 +1624,20 @@ func GetToolDefinitions() []ToolDefinition {
 		// 58. Tech debt statistics
 		{
 			Name:        ToolPrefix + "td_stats",
-			Description: "Generate tech debt statistics from a markdown README with checkbox/severity table.",
+			Description: "Generate tech debt statistics from a markdown README with checkbox/severity table. With write=true, rewrites the ## Stats section and Last Modified line in place deterministically (no data rows added or removed — use td_clean for that).",
 			InputSchema: json.RawMessage(`{
 						"type": "object",
 						"properties": {
 							"path": {
 								"type": "string"
+							},
+							"write": {
+								"type": "boolean",
+								"description": "Rewrite the ## Stats section and Last Modified line in place"
+							},
+							"today": {
+								"type": "string",
+								"description": "Date for the Last Modified line (YYYY-MM-DD); defaults to today. Only used with write=true."
 							}
 						},
 						"required": ["path"]
@@ -1708,6 +1716,21 @@ func GetToolDefinitions() []ToolDefinition {
 							"path": {"type": "string", "description": "Path to the technical-debt README"},
 							"root": {"type": "string", "description": "Repo root for resolving relative file paths (default: current directory)"},
 							"mode": {"type": "string", "enum": ["open", "all"], "description": "open = open [ ] items only (default); all = also include deferred [/] items"}
+						},
+						"required": ["path"]
+					}`),
+		},
+
+		// 58c-3. Codebase-discovery.json path validation
+		{
+			Name:        ToolPrefix + "discovery_validate",
+			Description: "Verify that file paths cited in a codebase-discovery.json plan artifact still exist. Checks files_to_modify[*].path, related_files[*].path, semantic_matches[*].file, reusable_components[*].path, existing_patterns[*].files[], and integration_points[*].location (file segment). Report-only by default; pass write=true to mark stale entries status=deprecated with a deprecated_reason (never deletes, never overwrites an entry's existing reason field). Skips files_to_create[*] (expected not to exist yet) and reports build_from.primary_file / test_patterns.* as informational-only (never auto-mutated). Entries already status=deprecated are left untouched. Deterministic replacement for model-driven path re-verification in /refine-codebase-discovery.",
+			InputSchema: json.RawMessage(`{
+						"type": "object",
+						"properties": {
+							"path": {"type": "string", "description": "Path to codebase-discovery.json"},
+							"root": {"type": "string", "description": "Repo root for resolving relative paths cited in the JSON (default: current directory)"},
+							"write": {"type": "boolean", "description": "Mark stale entries deprecated in place (default: false, report-only)"}
 						},
 						"required": ["path"]
 					}`),

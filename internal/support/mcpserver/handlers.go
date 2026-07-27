@@ -284,6 +284,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildTdDedupeArgs(args), nil
 	case "td_validate":
 		return buildTDValidateArgs(args), nil
+	case "discovery_validate":
+		return buildDiscoveryValidateArgs(args), nil
 	case "knowledge_audit":
 		return buildKnowledgeAuditArgs(args), nil
 	case "diff_smell":
@@ -1907,6 +1909,12 @@ func buildTDStatsArgs(args map[string]interface{}) []string {
 	if path, ok := args["path"].(string); ok {
 		cmdArgs = append(cmdArgs, "--path", path)
 	}
+	if write, ok := args["write"].(bool); ok && write {
+		cmdArgs = append(cmdArgs, "--write")
+	}
+	if today, ok := args["today"].(string); ok && today != "" {
+		cmdArgs = append(cmdArgs, "--today", today)
+	}
 	cmdArgs = append(cmdArgs, "--json", "--min")
 	return cmdArgs
 }
@@ -1980,6 +1988,21 @@ func buildTDValidateArgs(args map[string]interface{}) []string {
 	}
 	if v, ok := args["mode"].(string); ok && v != "" {
 		cmdArgs = append(cmdArgs, "--mode", v)
+	}
+	cmdArgs = append(cmdArgs, "--json", "--min")
+	return cmdArgs
+}
+
+func buildDiscoveryValidateArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"discovery-validate"}
+	if v, ok := args["path"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--path", v)
+	}
+	if v, ok := args["root"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--root", v)
+	}
+	if v, ok := args["write"].(bool); ok && v {
+		cmdArgs = append(cmdArgs, "--write")
 	}
 	cmdArgs = append(cmdArgs, "--json", "--min")
 	return cmdArgs

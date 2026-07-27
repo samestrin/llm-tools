@@ -74,8 +74,9 @@ func TestTDMatrixCounts(t *testing.T) {
 	if res.Total != 6 {
 		t.Errorf("Total = %d, want 6 (open items only)", res.Total)
 	}
-	// Group order: numeric ascending, then non-numeric alpha.
-	wantGroups := []string{"1", "2", "10", "solo"}
+	// Group order: numeric ascending, then non-numeric alpha. Lowercase "solo"
+	// in the fixture folds to canonical "Solo".
+	wantGroups := []string{"1", "2", "10", "Solo"}
 	if strings.Join(res.Groups, ",") != strings.Join(wantGroups, ",") {
 		t.Errorf("Groups = %v, want %v", res.Groups, wantGroups)
 	}
@@ -86,7 +87,7 @@ func TestTDMatrixCounts(t *testing.T) {
 		{"1", "HIGH", 1}, {"1", "MEDIUM", 1}, {"1", "CRITICAL", 0},
 		{"2", "HIGH", 1}, {"2", "LOW", 1},
 		{"10", "LOW", 1},
-		{"solo", "CRITICAL", 1}, {"solo", "LOW", 0},
+		{"Solo", "CRITICAL", 1}, {"Solo", "LOW", 0},
 	}
 	for _, c := range checks {
 		if got := res.Counts[c.group][c.sev]; got != c.want {
@@ -96,7 +97,7 @@ func TestTDMatrixCounts(t *testing.T) {
 	if res.ColTotals["HIGH"] != 2 || res.ColTotals["LOW"] != 2 || res.ColTotals["CRITICAL"] != 1 || res.ColTotals["MEDIUM"] != 1 {
 		t.Errorf("ColTotals wrong: %v", res.ColTotals)
 	}
-	if res.RowTotals["1"] != 2 || res.RowTotals["2"] != 2 || res.RowTotals["10"] != 1 || res.RowTotals["solo"] != 1 {
+	if res.RowTotals["1"] != 2 || res.RowTotals["2"] != 2 || res.RowTotals["10"] != 1 || res.RowTotals["Solo"] != 1 {
 		t.Errorf("RowTotals wrong: %v", res.RowTotals)
 	}
 }
@@ -109,8 +110,38 @@ func TestTDMatrixExcludesClosed(t *testing.T) {
 		t.Errorf("resolved [x] CRITICAL must not be counted, got %d", res.Counts["2"]["CRITICAL"])
 	}
 	// solo LOW is [/] deferred — must not be counted.
-	if res.Counts["solo"]["LOW"] != 0 {
-		t.Errorf("deferred [/] LOW must not be counted, got %d", res.Counts["solo"]["LOW"])
+	if res.Counts["Solo"]["LOW"] != 0 {
+		t.Errorf("deferred [/] LOW must not be counted, got %d", res.Counts["Solo"]["LOW"])
+	}
+}
+
+// TestTDMatrixFoldsGroupCase verifies that case variants of the two special
+// group tokens collapse into single rows: u/U -> "U", solo/Solo -> "Solo",
+// while Solo and U stay distinct buckets.
+func TestTDMatrixFoldsGroupCase(t *testing.T) {
+	content := `# TD
+
+### [2026-06-01] From Sprint: x
+
+| Group | | Severity | File:Line | Problem | Fix | Category | Est |
+|-------|---|----------|-----------|---------|-----|----------|-----|
+| solo | [ ] | HIGH | a.go:1 | p | f | bug | 5 |
+| Solo | [ ] | LOW | b.go:2 | p | f | bug | 5 |
+| u | [ ] | MEDIUM | c.go:3 | p | f | bug | 5 |
+| U | [ ] | LOW | d.go:4 | p | f | bug | 5 |
+`
+	p := writeTemp(t, content)
+	res, _ := runMatrix(t, "--path", p, "--json")
+
+	wantGroups := []string{"Solo", "U"}
+	if strings.Join(res.Groups, ",") != strings.Join(wantGroups, ",") {
+		t.Errorf("Groups = %v, want %v (case variants must fold)", res.Groups, wantGroups)
+	}
+	if res.RowTotals["Solo"] != 2 {
+		t.Errorf("Solo row total = %d, want 2 (solo+Solo folded)", res.RowTotals["Solo"])
+	}
+	if res.RowTotals["U"] != 2 {
+		t.Errorf("U row total = %d, want 2 (u+U folded)", res.RowTotals["U"])
 	}
 }
 

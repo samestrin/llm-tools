@@ -65,6 +65,21 @@ func runTDMatrix(cmd *cobra.Command, args []string) error {
 	})
 }
 
+// canonicalGroupLabel folds case variants of the two special group tokens to
+// their canonical form so the cross-tab does not fragment into separate rows.
+// "u"/"U" -> "U" (ungrouped); "solo"/"Solo" -> "Solo". Numeric and any other
+// labels pass through unchanged. Solo and U remain distinct buckets.
+func canonicalGroupLabel(group string) string {
+	switch strings.ToLower(strings.TrimSpace(group)) {
+	case "u":
+		return "U"
+	case "solo":
+		return "Solo"
+	default:
+		return group
+	}
+}
+
 // buildTDMatrix walks the README, counting open rows by (group, severity).
 func buildTDMatrix(content string) *TDMatrixResult {
 	counts := map[string]map[string]int{}
@@ -94,7 +109,7 @@ func buildTDMatrix(content string) *TDMatrixResult {
 		if cells[1] != "[ ]" { // open items only
 			continue
 		}
-		group := cells[0]
+		group := canonicalGroupLabel(cells[0])
 		severity := strings.ToUpper(cells[2])
 		if group == "" || severity == "" {
 			continue
