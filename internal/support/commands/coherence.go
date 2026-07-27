@@ -365,3 +365,38 @@ func clamp01(x float64) float64 {
 	}
 	return x
 }
+
+// --- signal 2: cross-encoder reranker (RED stubs; implemented in GREEN) ---
+
+// rerankerClient scores a query against documents, returning one relevance
+// score per document in document order.
+type rerankerClient interface {
+	Rerank(ctx context.Context, query string, documents []string) ([]float64, error)
+}
+
+// httpReranker is a self-contained cohere-format /v1/rerank client.
+type httpReranker struct {
+	apiURL string
+	model  string
+	apiKey string
+	client *http.Client
+}
+
+// newHTTPRerankerFromEnv builds a reranker from LLM_SEMANTIC_RERANKER_API_URL /
+// LLM_SEMANTIC_RERANKER_MODEL, key from LLM_SEMANTIC_RERANKER_API_KEY or
+// LLM_SEMANTIC_API_KEY.
+func newHTTPRerankerFromEnv() *httpReranker { return &httpReranker{} }
+
+// available reports whether a reranker endpoint is configured.
+func (r *httpReranker) available() bool { return false }
+
+// Rerank returns one relevance score per document, in document order.
+func (r *httpReranker) Rerank(ctx context.Context, query string, documents []string) ([]float64, error) {
+	return nil, nil
+}
+
+// rerankSignal scores each row's PROBLEM↔FIX pair as 1-relevance (higher = more
+// suspect). It degrades to available=false if any row's rerank call fails.
+func rerankSignal(ctx context.Context, r rerankerClient, rows []coherenceRow) signalResult {
+	return signalResult{name: "rerank"}
+}
