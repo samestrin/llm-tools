@@ -6,15 +6,18 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
 var (
-	tdStatsPath string
-	tdStatsJSON bool
-	tdStatsMin  bool
+	tdStatsPath  string
+	tdStatsJSON  bool
+	tdStatsMin   bool
+	tdStatsWrite bool
+	tdStatsToday string
 )
 
 // TDStatsResult holds the aggregated tech debt statistics
@@ -22,6 +25,7 @@ type TDStatsResult struct {
 	Severity map[string]TDStatsSeverity `json:"severity"`
 	Summary  TDStatsTotals              `json:"summary"`
 	Markdown string                     `json:"markdown"`
+	Written  bool                       `json:"written"`
 }
 
 // TDStatsTotals holds aggregate counts across all severities
@@ -55,13 +59,19 @@ Columns are detected by header name (looks for a column containing checkbox
 markers and a column named "Severity").
 
 Output includes both structured severity counts and a pre-rendered markdown
-table in the "markdown" field.`,
+table in the "markdown" field.
+
+With --write, the "## Stats" section and "**Last Modified:**" line are
+rewritten in place deterministically. No data rows are added or removed —
+use td-clean for that. This is a no-op read when --write is omitted.`,
 		RunE: runTDStats,
 	}
 
 	cmd.Flags().StringVar(&tdStatsPath, "path", "", "Path to tech debt README (required)")
 	cmd.Flags().BoolVar(&tdStatsJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&tdStatsMin, "min", false, "Minimal output format")
+	cmd.Flags().BoolVar(&tdStatsWrite, "write", false, "Rewrite the ## Stats section and Last Modified line in place (no rows added/removed)")
+	cmd.Flags().StringVar(&tdStatsToday, "today", "", "Date for the Last Modified line (YYYY-MM-DD); defaults to today (only used with --write)")
 	cmd.MarkFlagRequired("path")
 
 	return cmd
@@ -83,9 +93,41 @@ func runTDStats(cmd *cobra.Command, args []string) error {
 
 	result.Markdown = formatTDStatsMarkdown(result)
 
+	if tdStatsWrite {
+		today := tdStatsToday
+		if today == "" {
+			today = time.Now().Format("2006-01-02")
+		}
+
+		// Reuses td-clean's in-place rewrite helpers, but skips its row-stripping
+		// passes entirely: td-stats --write only refreshes the ## Stats section and
+		// Last Modified line to match the file's current data rows, it never adds
+		// or removes one. Idempotent — if nothing changed, the file is left
+		// byte-for-byte unchanged.
+		lines := strings.Split(string(content), "\n")
+		lines = replaceStatsSection(lines, result.Markdown)
+		lines = updateLastModified(lines, today, result.Summary)
+		updated := strings.Join(lines, "\n")
+
+		if updated != string(content) {
+			if err := os.WriteFile(tdStatsPath, []byte(updated), 0644); err != nil {
+				return fmt.Errorf("failed to write file: %w", err)
+			}
+			result.Written = true
+		}
+	}
+
 	formatter := output.New(tdStatsJSON, tdStatsMin, cmd.OutOrStdout())
 	return formatter.Print(result, func(w io.Writer, data interface{}) {
-		fmt.Fprint(w, data.(*TDStatsResult).Markdown)
+		r := data.(*TDStatsResult)
+		fmt.Fprint(w, r.Markdown)
+		if tdStatsWrite {
+			if r.Written {
+				fmt.Fprintf(w, "\nWritten to %s\n", tdStatsPath)
+			} else {
+				fmt.Fprintf(w, "\nNo change — %s already up to date\n", tdStatsPath)
+			}
+		}
 	})
 }
 
