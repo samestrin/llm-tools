@@ -150,6 +150,39 @@ func (f *fakeReranker) Rerank(ctx context.Context, query string, documents []str
 	return out, nil
 }
 
+func TestHTTPReranker_Adversarial(t *testing.T) {
+	t.Run("malformed json", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("]["))
+		}))
+		defer srv.Close()
+		r := &httpReranker{apiURL: srv.URL, client: srv.Client()}
+		if _, err := r.Rerank(context.Background(), "q", []string{"d"}); err == nil {
+			t.Fatal("expected decode error")
+		}
+	})
+	t.Run("duplicate index leaves a gap", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{
+				{"index": 0, "relevance_score": 0.5},
+				{"index": 0, "relevance_score": 0.6},
+			}})
+		}))
+		defer srv.Close()
+		r := &httpReranker{apiURL: srv.URL, client: srv.Client()}
+		if _, err := r.Rerank(context.Background(), "q", []string{"d0", "d1"}); err == nil {
+			t.Fatal("expected missing-score error")
+		}
+	})
+	t.Run("empty documents", func(t *testing.T) {
+		r := &httpReranker{apiURL: "http://should-not-call"}
+		out, err := r.Rerank(context.Background(), "q", nil)
+		if err != nil || len(out) != 0 {
+			t.Fatalf("empty docs: out=%v err=%v", out, err)
+		}
+	})
+}
+
 func TestRerankSignal(t *testing.T) {
 	rows := []coherenceRow{{problem: "p0", fix: "f0"}, {problem: "p1", fix: "f1"}}
 	t.Run("scores 1-relevance per row", func(t *testing.T) {
