@@ -216,6 +216,64 @@ func TestTDValidate_Coherence_TextSkipped(t *testing.T) {
 	}
 }
 
+func TestTDValidate_Coherence_EndpointDownDegrades(t *testing.T) {
+	clearCoherenceEnv(t)
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer down.Close()
+	t.Setenv("LLM_SEMANTIC_API_URL", down.URL) // configured but failing; no other signals
+
+	readmePath, rootDir := writeTDValidateFiles(t, coherenceREADME)
+	res, stderr, err := runTDValidateCmd(t, "--path", readmePath, "--root", rootDir, "--coherence", "--json")
+	if err != nil {
+		t.Fatalf("cmd should still succeed: %v", err)
+	}
+	if !res.Summary.CoherenceSkipped {
+		t.Fatal("a failing sole endpoint should skip coherence")
+	}
+	if !strings.Contains(stderr, "coherence") {
+		t.Fatalf("expected skip warning; got %q", stderr)
+	}
+	if res.Summary.Total != 2 || res.Summary.Valid != 2 {
+		t.Fatalf("file/symbol results must be intact: %+v", res.Summary)
+	}
+}
+
+func TestTDValidate_Coherence_PartialFailure(t *testing.T) {
+	clearCoherenceEnv(t)
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer down.Close()
+	rerank := rerankTestServer(t)
+	defer rerank.Close()
+	t.Setenv("LLM_SEMANTIC_API_URL", down.URL) // embedding fails
+	t.Setenv("LLM_SEMANTIC_RERANKER_API_URL", rerank.URL)
+
+	readmePath, rootDir := writeTDValidateFiles(t, coherenceREADME)
+	res, _, err := runTDValidateCmd(t, "--path", readmePath, "--root", rootDir, "--coherence", "--json")
+	if err != nil {
+		t.Fatalf("cmd error: %v", err)
+	}
+	if strings.Join(res.Summary.CoherenceSignals, ",") != "rerank" {
+		t.Fatalf("signals = %v, want [rerank] only (embedding failed)", res.Summary.CoherenceSignals)
+	}
+	if res.Summary.CoherenceSkipped {
+		t.Fatal("should not skip when rerank still ran")
+	}
+}
+
+func TestApplyCoherence_ItemsRowsMismatchNoPanic(t *testing.T) {
+	summary := &TDValidateSummary{}
+	items := []TDValidateItem{{}, {}}
+	rows := []TDFilterRow{{}} // deliberately shorter
+	applyCoherence(nil, items, rows, summary, 10, "", &bytes.Buffer{})
+	if summary.CoherenceSkipped || len(summary.CoherenceSignals) != 0 {
+		t.Fatalf("mismatch should be a no-op; summary=%+v", summary)
+	}
+}
+
 func TestTDValidate_Coherence_NoCandidates(t *testing.T) {
 	clearCoherenceEnv(t)
 	embed := embedTestServer(t)

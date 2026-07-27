@@ -473,6 +473,9 @@ const coherenceMinChars = 20
 // annotates them in place. Fail-soft: any missing endpoint drops that signal,
 // and if nothing runs it sets summary.CoherenceSkipped and warns.
 func applyCoherence(ctx context.Context, items []TDValidateItem, rows []TDFilterRow, summary *TDValidateSummary, pct int, collection string, warn io.Writer) {
+	if len(rows) != len(items) {
+		return // defensive: callers must pass one row per item
+	}
 	crows := make([]coherenceRow, 0, len(items))
 	idxOf := make([]int, 0, len(items))
 	for i := range items {
@@ -500,7 +503,8 @@ func applyCoherence(ctx context.Context, items []TDValidateItem, rows []TDFilter
 	if reranker.available() {
 		results = append(results, rerankSignal(ctx, reranker, crows))
 	}
-	if grounder.available() {
+	// Grounding embeds the FIX, so it also needs a reachable embedder.
+	if embedder.available() && grounder.available() {
 		results = append(results, groundSignal(ctx, grounder, crows))
 	}
 
