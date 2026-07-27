@@ -464,6 +464,13 @@ func groundSignal(ctx context.Context, g *qdrantGrounder, rows []coherenceRow) s
 	return res
 }
 
+// applyCoherence runs the enabled coherence signals over eligible items and
+// annotates them in place. Fail-soft: any missing endpoint drops that signal,
+// and if nothing runs it sets summary.CoherenceSkipped and warns. (RED stub;
+// implemented in GREEN.)
+func applyCoherence(ctx context.Context, items []TDValidateItem, rows []TDFilterRow, summary *TDValidateSummary, pct int, collection string, warn io.Writer) {
+}
+
 // filePathsMatch reports whether two repo-relative paths plausibly refer to the
 // same file (equal, suffix, or same base name). Permissive by design: grounding
 // is a noisy signal, so it only fires on a clear file difference.

@@ -14,11 +14,14 @@ import (
 )
 
 var (
-	tdValidatePath string
-	tdValidateRoot string
-	tdValidateMode string
-	tdValidateJSON bool
-	tdValidateMin  bool
+	tdValidatePath          string
+	tdValidateRoot          string
+	tdValidateMode          string
+	tdValidateJSON          bool
+	tdValidateMin           bool
+	tdValidateCoherence     bool
+	tdValidateCoherencePct  int
+	tdValidateCoherenceColl string
 )
 
 // lineRangeRe matches a pure line-number or line-range suffix (e.g., "72", "289-322").
@@ -36,6 +39,11 @@ type TDValidateItem struct {
 	SymbolFound *bool  `json:"symbol_found"` // null=no symbol to check; true=found; false=not found
 	Status      string `json:"status"`       // valid|file_missing|symbol_not_found|no_file
 	Section     string `json:"section"`
+
+	// Coherence fields (only populated when --coherence ran on this row).
+	CoherenceScore   *float64 `json:"coherence_score,omitempty"` // combined suspicion; higher = less coherent
+	CoherenceTier    string   `json:"coherence_tier,omitempty"`  // high|low when suspect
+	CoherenceSuspect bool     `json:"coherence_suspect,omitempty"`
 }
 
 // TDValidateSummary holds aggregate counts across all validated rows.
@@ -47,6 +55,11 @@ type TDValidateSummary struct {
 	NoFile          int `json:"no_file"`
 	OpenChecked     int `json:"open_checked"`
 	DeferredChecked int `json:"deferred_checked"`
+
+	// Coherence summary (only populated when --coherence was requested).
+	CoherenceSuspect int      `json:"coherence_suspect,omitempty"`
+	CoherenceSignals []string `json:"coherence_signals,omitempty"` // signals that actually ran
+	CoherenceSkipped bool     `json:"coherence_skipped,omitempty"` // requested but no signal/candidate
 }
 
 // TDValidateResult is the full JSON payload returned by td-validate.
@@ -80,6 +93,9 @@ Per-item status values:
 	cmd.Flags().StringVar(&tdValidateMode, "mode", "open", "Rows to check: open or all")
 	cmd.Flags().BoolVar(&tdValidateJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&tdValidateMin, "min", false, "Minimal output")
+	cmd.Flags().BoolVar(&tdValidateCoherence, "coherence", false, "Flag rows whose FIX reads as incoherent with its PROBLEM (advisory)")
+	cmd.Flags().IntVar(&tdValidateCoherencePct, "coherence-percentile", 10, "Flag the least-coherent N% of rows")
+	cmd.Flags().StringVar(&tdValidateCoherenceColl, "coherence-collection", "", "Qdrant collection for the grounding signal (empty disables grounding)")
 	cmd.MarkFlagRequired("path")
 	return cmd
 }
@@ -102,6 +118,7 @@ func runTDValidate(cmd *cobra.Command, _ []string) error {
 	rows := parseTDValidateRows(string(content))
 
 	items := make([]TDValidateItem, 0)
+	itemRows := make([]TDFilterRow, 0)
 	summary := TDValidateSummary{}
 
 	for _, row := range rows {
@@ -130,6 +147,7 @@ func runTDValidate(cmd *cobra.Command, _ []string) error {
 			item.Status = "no_file"
 			summary.NoFile++
 			items = append(items, item)
+			itemRows = append(itemRows, row)
 			continue
 		}
 
@@ -144,6 +162,7 @@ func runTDValidate(cmd *cobra.Command, _ []string) error {
 			item.Status = "file_missing"
 			summary.FileMissing++
 			items = append(items, item)
+			itemRows = append(itemRows, row)
 			continue
 		}
 
@@ -163,6 +182,12 @@ func runTDValidate(cmd *cobra.Command, _ []string) error {
 		}
 
 		items = append(items, item)
+		itemRows = append(itemRows, row)
+	}
+
+	if tdValidateCoherence {
+		applyCoherence(cmd.Context(), items, itemRows, &summary,
+			tdValidateCoherencePct, tdValidateCoherenceColl, cmd.ErrOrStderr())
 	}
 
 	result := &TDValidateResult{Items: items, Summary: summary}
