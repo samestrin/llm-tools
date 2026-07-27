@@ -114,7 +114,9 @@ func TestCombineSignals(t *testing.T) {
 			{name: "ground", scores: []float64{1, 1, 1}, available: false}, // excluded
 		}
 		combined, active := combineSignals(results, 3)
-		want := []float64{0.8, 0.2, 0.5}
+		// each signal rank-normalizes to [1,0,0.5] (0.9->1, 0.1->0, 0.5->0.5),
+		// so the mean is [1,0,0.5].
+		want := []float64{1, 0, 0.5}
 		for i := range want {
 			if math.Abs(combined[i]-want[i]) > 1e-9 {
 				t.Fatalf("combined[%d] = %v, want %v", i, combined[i], want[i])
@@ -134,8 +136,9 @@ func TestCombineSignals(t *testing.T) {
 		if len(active) != 1 || active[0] != "cosine" {
 			t.Fatalf("active = %v, want [cosine]", active)
 		}
-		if math.Abs(combined[0]-0.4) > 1e-9 || math.Abs(combined[1]-0.6) > 1e-9 {
-			t.Fatalf("combined = %v, want [0.4 0.6]", combined)
+		// cosine [0.4,0.6] rank-normalizes to [0,1]
+		if math.Abs(combined[0]-0) > 1e-9 || math.Abs(combined[1]-1) > 1e-9 {
+			t.Fatalf("combined = %v, want [0 1]", combined)
 		}
 	})
 
@@ -149,6 +152,33 @@ func TestCombineSignals(t *testing.T) {
 			if c != 0 {
 				t.Fatalf("combined[%d] = %v, want 0", i, c)
 			}
+		}
+	})
+}
+
+func TestRankNormalize(t *testing.T) {
+	t.Run("distinct values", func(t *testing.T) {
+		got := rankNormalize([]float64{0.5, 0.1, 0.9})
+		want := []float64{0.5, 0, 1}
+		for i := range want {
+			if math.Abs(got[i]-want[i]) > 1e-9 {
+				t.Fatalf("got %v, want %v", got, want)
+			}
+		}
+	})
+	t.Run("ties share average rank", func(t *testing.T) {
+		got := rankNormalize([]float64{1, 1, 0}) // two 1s (ranks 1,2 avg 1.5), one 0 (rank 0)
+		// 0 -> 0/2=0 ; both 1s -> avg(1,2)/2 = 1.5/2 = 0.75
+		if math.Abs(got[2]-0) > 1e-9 || math.Abs(got[0]-0.75) > 1e-9 || math.Abs(got[1]-0.75) > 1e-9 {
+			t.Fatalf("ties: got %v", got)
+		}
+	})
+	t.Run("single and empty", func(t *testing.T) {
+		if r := rankNormalize([]float64{5}); len(r) != 1 || r[0] != 0 {
+			t.Fatalf("single -> [0], got %v", r)
+		}
+		if r := rankNormalize(nil); len(r) != 0 {
+			t.Fatalf("empty -> [], got %v", r)
 		}
 	})
 }

@@ -157,29 +157,80 @@ type coherenceVerdict struct {
 	tier    string // "high", "low", or "" when not suspect
 }
 
-// combineSignals averages the available signals' per-row scores into a single
-// suspicion score per row, and returns the names of the signals that ran. A
+// rankNormalize maps scores to their within-signal rank in [0,1] (ties share the
+// average rank). This makes heterogeneous signals comparable before averaging:
+// a continuous signal over a narrow band and a binary 0/1 signal both span [0,1]
+// by rank, so neither dominates the ensemble by raw scale. A single value maps
+// to 0.
+func rankNormalize(scores []float64) []float64 {
+	n := len(scores)
+	out := make([]float64, n)
+	if n <= 1 {
+		return out
+	}
+	idx := make([]int, n)
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return scores[idx[a]] < scores[idx[b]] })
+	for i := 0; i < n; {
+		j := i
+		for j+1 < n && scores[idx[j+1]] == scores[idx[i]] {
+			j++
+		}
+		norm := (float64(i+j) / 2.0) / float64(n-1) // average rank of the tie group
+		for k := i; k <= j; k++ {
+			out[idx[k]] = norm
+		}
+		i = j + 1
+	}
+	return out
+}
+
+// coherenceSignalWeights weights each signal in the ensemble. Calibration
+// against the atcr corpus showed cosine is the reliable primary signal, while
+// grounding (coarse 0/1, noisy on sibling-file cites) and the reranker (near-
+// constant tiny scores from the local model) are secondary — useful nudges that
+// must not override cosine. Unknown signals default to weight 1.0.
+var coherenceSignalWeights = map[string]float64{
+	"cosine": 1.0,
+	"rerank": 0.15,
+	"ground": 0.15,
+}
+
+func coherenceWeight(name string) float64 {
+	if w, ok := coherenceSignalWeights[name]; ok {
+		return w
+	}
+	return 1.0
+}
+
+// combineSignals rank-normalizes each available signal and takes a weighted
+// average of the normalized scores into a single suspicion score per row
+// (higher = more suspect), returning the names of the signals that ran. A
 // signal is included only when available and its score length matches nRows.
 func combineSignals(results []signalResult, nRows int) ([]float64, []string) {
 	if nRows == 0 {
 		return []float64{}, nil
 	}
 	combined := make([]float64, nRows)
-	counts := make([]int, nRows)
+	weightSum := make([]float64, nRows)
 	var active []string
 	for _, r := range results {
 		if !r.available || len(r.scores) != nRows {
 			continue
 		}
 		active = append(active, r.name)
+		w := coherenceWeight(r.name)
+		norm := rankNormalize(r.scores)
 		for i := 0; i < nRows; i++ {
-			combined[i] += r.scores[i]
-			counts[i]++
+			combined[i] += w * norm[i]
+			weightSum[i] += w
 		}
 	}
 	for i := 0; i < nRows; i++ {
-		if counts[i] > 0 {
-			combined[i] /= float64(counts[i])
+		if weightSum[i] > 0 {
+			combined[i] /= weightSum[i]
 		}
 	}
 	return combined, active

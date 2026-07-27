@@ -95,7 +95,7 @@ Per-item status values:
 	cmd.Flags().BoolVar(&tdValidateJSON, "json", false, "Output as JSON")
 	cmd.Flags().BoolVar(&tdValidateMin, "min", false, "Minimal output")
 	cmd.Flags().BoolVar(&tdValidateCoherence, "coherence", false, "Flag rows whose FIX reads as incoherent with its PROBLEM (advisory)")
-	cmd.Flags().IntVar(&tdValidateCoherencePct, "coherence-percentile", 10, "Flag the least-coherent N% of rows")
+	cmd.Flags().IntVar(&tdValidateCoherencePct, "coherence-percentile", 20, "Flag the least-coherent N% of rows")
 	cmd.Flags().StringVar(&tdValidateCoherenceColl, "coherence-collection", "", "Qdrant collection for the grounding signal (empty disables grounding)")
 	cmd.MarkFlagRequired("path")
 	return cmd
