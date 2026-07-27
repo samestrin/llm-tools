@@ -3,6 +3,7 @@ package commands
 import (
 	"math"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -147,18 +148,73 @@ type coherenceVerdict struct {
 }
 
 // combineSignals averages the available signals' per-row scores into a single
-// suspicion score per row, and returns the names of the signals that ran.
+// suspicion score per row, and returns the names of the signals that ran. A
+// signal is included only when available and its score length matches nRows.
 func combineSignals(results []signalResult, nRows int) ([]float64, []string) {
-	return make([]float64, nRows), nil
+	combined := make([]float64, nRows)
+	counts := make([]int, nRows)
+	var active []string
+	for _, r := range results {
+		if !r.available || len(r.scores) != nRows {
+			continue
+		}
+		active = append(active, r.name)
+		for i := 0; i < nRows; i++ {
+			combined[i] += r.scores[i]
+			counts[i]++
+		}
+	}
+	for i := 0; i < nRows; i++ {
+		if counts[i] > 0 {
+			combined[i] /= float64(counts[i])
+		}
+	}
+	return combined, active
 }
 
-// flagCoherence ranks rows by combined suspicion and flags the top pct% as
-// suspect, assigning each flagged row a confidence tier.
+// flagCoherence ranks rows by combined suspicion (descending, ties broken by
+// ascending original index) and flags the top pct% as suspect, assigning each
+// flagged row a confidence tier. At least one row is flagged when pct > 0 and
+// there is at least one row.
 func flagCoherence(rows []coherenceRow, combined []float64, pct int) []coherenceVerdict {
-	return make([]coherenceVerdict, len(rows))
+	verdicts := make([]coherenceVerdict, len(rows))
+	for i := range rows {
+		if i < len(combined) {
+			verdicts[i].score = combined[i]
+		}
+	}
+	if len(rows) == 0 || pct <= 0 {
+		return verdicts
+	}
+
+	order := make([]int, len(rows))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return verdicts[order[a]].score > verdicts[order[b]].score
+	})
+
+	flagCount := int(math.Ceil(float64(len(rows)) * float64(pct) / 100))
+	if flagCount < 1 {
+		flagCount = 1
+	}
+	if flagCount > len(rows) {
+		flagCount = len(rows)
+	}
+	for _, idx := range order[:flagCount] {
+		verdicts[idx].suspect = true
+		verdicts[idx].tier = coherenceTier(rows[idx].fix)
+	}
+	return verdicts
 }
 
 // coherenceTier labels a flagged row HIGH when its FIX looks like a technical
 // remedy (has code identifiers, not a deferral punt) — the paste-error
 // signature — and LOW otherwise.
-func coherenceTier(fix string) string { return "" }
+func coherenceTier(fix string) string {
+	if len(extractCodeIdentifiers(fix)) >= 1 && !isDeferralPunt(fix) {
+		return "high"
+	}
+	return "low"
+}
