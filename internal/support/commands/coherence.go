@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -363,28 +364,120 @@ type qdrantGrounder struct {
 // newQdrantGrounderFromEnv builds a grounder from QDRANT_API_URL/QDRANT_URL and
 // QDRANT_API_KEY, for the given collection, reusing the provided embedder.
 func newQdrantGrounderFromEnv(collection string, e embedderClient) *qdrantGrounder {
-	return &qdrantGrounder{}
+	return &qdrantGrounder{
+		apiURL:     strings.TrimRight(firstNonEmpty(os.Getenv("QDRANT_API_URL"), os.Getenv("QDRANT_URL")), "/"),
+		collection: collection,
+		apiKey:     os.Getenv("QDRANT_API_KEY"),
+		embedder:   e,
+		client:     &http.Client{Timeout: 60 * time.Second},
+	}
 }
 
 // available reports whether grounding can run (endpoint + collection + embedder).
-func (g *qdrantGrounder) available() bool { return false }
+func (g *qdrantGrounder) available() bool {
+	return g.apiURL != "" && g.collection != "" && g.embedder != nil
+}
 
 // nearestFile returns the file-path payload of the top hit for a query vector,
 // or "" when there is no hit / no file payload.
 func (g *qdrantGrounder) nearestFile(ctx context.Context, vec []float32) (string, error) {
-	return "", nil
+	body, err := json.Marshal(map[string]any{"vector": vec, "limit": 1, "with_payload": true})
+	if err != nil {
+		return "", err
+	}
+	url := g.apiURL + "/collections/" + g.collection + "/points/search"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if g.apiKey != "" {
+		req.Header.Set("api-key", g.apiKey)
+	}
+	client := g.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return "", fmt.Errorf("qdrant search returned %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+	}
+	var parsed struct {
+		Result []struct {
+			Payload map[string]any `json:"payload"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return "", err
+	}
+	if len(parsed.Result) == 0 {
+		return "", nil
+	}
+	return fileFromPayload(parsed.Result[0].Payload), nil
+}
+
+// fileFromPayload extracts a file path from a qdrant point payload, tolerating
+// the common key spellings used by the semantic indexer.
+func fileFromPayload(p map[string]any) string {
+	for _, k := range []string{"file", "file_path", "path", "source"} {
+		if v, ok := p[k].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // groundSignal scores a row 1.0 when its FIX grounds to a file other than the
 // cited one, else 0.0. Degrades to available=false on any embed/search failure.
 func groundSignal(ctx context.Context, g *qdrantGrounder, rows []coherenceRow) signalResult {
-	return signalResult{name: "ground"}
+	res := signalResult{name: "ground"}
+	if len(rows) == 0 {
+		res.available = true
+		res.scores = []float64{}
+		return res
+	}
+	texts := make([]string, len(rows))
+	for i, r := range rows {
+		texts[i] = "Fix: " + stripCoherenceBoilerplate(r.fix)
+	}
+	vecs, err := g.embedder.EmbedBatch(ctx, texts)
+	if err != nil || len(vecs) != len(rows) {
+		return res
+	}
+	scores := make([]float64, len(rows))
+	for i, r := range rows {
+		nearest, err := g.nearestFile(ctx, vecs[i])
+		if err != nil {
+			return res
+		}
+		if r.file != "" && nearest != "" && !filePathsMatch(nearest, r.file) {
+			scores[i] = 1
+		}
+	}
+	res.available = true
+	res.scores = scores
+	return res
 }
 
 // filePathsMatch reports whether two repo-relative paths plausibly refer to the
 // same file (equal, suffix, or same base name). Permissive by design: grounding
 // is a noisy signal, so it only fires on a clear file difference.
-func filePathsMatch(nearest, cited string) bool { return true }
+func filePathsMatch(nearest, cited string) bool {
+	n := strings.Trim(strings.ReplaceAll(nearest, "\\", "/"), "/")
+	c := strings.Trim(strings.ReplaceAll(cited, "\\", "/"), "/")
+	if n == "" || c == "" {
+		return true
+	}
+	if n == c || strings.HasSuffix(n, "/"+c) || strings.HasSuffix(c, "/"+n) {
+		return true
+	}
+	return path.Base(n) == path.Base(c)
+}
 
 // firstNonEmpty returns a if non-empty, else b.
 func firstNonEmpty(a, b string) string {
