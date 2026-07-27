@@ -198,10 +198,8 @@ func flagCoherence(rows []coherenceRow, combined []float64, pct int) []coherence
 		return verdicts[order[a]].score > verdicts[order[b]].score
 	})
 
+	// pct>=1 and len(rows)>=1 here, so ceil yields at least 1.
 	flagCount := int(math.Ceil(float64(len(rows)) * float64(pct) / 100))
-	if flagCount < 1 {
-		flagCount = 1
-	}
 	if flagCount > len(rows) {
 		flagCount = len(rows)
 	}
