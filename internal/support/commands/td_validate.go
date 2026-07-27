@@ -235,6 +235,9 @@ func parseTDValidateRows(content string) []TDFilterRow {
 		if len(cells) > 4 {
 			row.Problem = cells[4]
 		}
+		if len(cells) > 5 {
+			row.Fix = cells[5]
+		}
 
 		rows = append(rows, row)
 	}
