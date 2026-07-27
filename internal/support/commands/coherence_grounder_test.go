@@ -110,6 +110,63 @@ func TestFilePathsMatch(t *testing.T) {
 	}
 }
 
+func TestFileFromPayload(t *testing.T) {
+	cases := []struct {
+		p    map[string]any
+		want string
+	}{
+		{map[string]any{"file": "a.go"}, "a.go"},
+		{map[string]any{"file_path": "b.go"}, "b.go"},
+		{map[string]any{"path": "c.go"}, "c.go"},
+		{map[string]any{"source": "d.go"}, "d.go"},
+		{map[string]any{"other": "x"}, ""},
+		{map[string]any{"file": 123}, ""}, // non-string ignored
+		{nil, ""},
+	}
+	for _, tc := range cases {
+		if got := fileFromPayload(tc.p); got != tc.want {
+			t.Fatalf("fileFromPayload(%v) = %q, want %q", tc.p, got, tc.want)
+		}
+	}
+}
+
+func TestQdrantGrounder_Adversarial(t *testing.T) {
+	t.Run("malformed json", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("nope"))
+		}))
+		defer srv.Close()
+		g := &qdrantGrounder{apiURL: srv.URL, collection: "c", client: srv.Client()}
+		if _, err := g.nearestFile(context.Background(), []float32{1}); err == nil {
+			t.Fatal("expected decode error")
+		}
+	})
+
+	t.Run("groundSignal degrades on qdrant error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "boom", http.StatusInternalServerError)
+		}))
+		defer srv.Close()
+		g := &qdrantGrounder{apiURL: srv.URL, collection: "c", embedder: &fakeEmbedder{out: [][]float32{{1}}}, client: srv.Client()}
+		res := groundSignal(context.Background(), g, []coherenceRow{{fix: "f", file: "x.go"}})
+		if res.available {
+			t.Fatal("expected unavailable when qdrant search errors")
+		}
+	})
+
+	t.Run("no file payload -> not suspect", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(qdrantSearchResponse("")) // hit without payload
+		}))
+		defer srv.Close()
+		g := &qdrantGrounder{apiURL: srv.URL, collection: "c", embedder: &fakeEmbedder{out: [][]float32{{1}}}, client: srv.Client()}
+		res := groundSignal(context.Background(), g, []coherenceRow{{fix: "f", file: "x.go"}})
+		if !res.available || res.scores[0] != 0 {
+			t.Fatalf("no payload should score 0; available=%v scores=%v", res.available, res.scores)
+		}
+	})
+}
+
 func TestGroundSignal(t *testing.T) {
 	rows := []coherenceRow{
 		{fix: "f0", file: "internal/personas/drift.go"},   // grounds to catalog.go -> mismatch
