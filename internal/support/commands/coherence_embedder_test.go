@@ -219,6 +219,56 @@ func TestCosineSignal(t *testing.T) {
 	})
 }
 
+func TestHTTPEmbedder_Adversarial(t *testing.T) {
+	t.Run("malformed json", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("{not json"))
+		}))
+		defer srv.Close()
+		e := &httpEmbedder{apiURL: srv.URL, client: srv.Client()}
+		if _, err := e.EmbedBatch(context.Background(), []string{"a"}); err == nil {
+			t.Fatal("expected decode error")
+		}
+	})
+
+	t.Run("duplicate index leaves a gap", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// two entries, both index 0 -> index 1 never filled
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
+				{"index": 0, "embedding": []float32{1}},
+				{"index": 0, "embedding": []float32{2}},
+			}})
+		}))
+		defer srv.Close()
+		e := &httpEmbedder{apiURL: srv.URL, client: srv.Client()}
+		if _, err := e.EmbedBatch(context.Background(), []string{"a", "b"}); err == nil {
+			t.Fatal("expected missing-vector error")
+		}
+	})
+
+	t.Run("out-of-range index", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{
+				{"index": 5, "embedding": []float32{1}},
+			}})
+		}))
+		defer srv.Close()
+		e := &httpEmbedder{apiURL: srv.URL, client: srv.Client()}
+		if _, err := e.EmbedBatch(context.Background(), []string{"a"}); err == nil {
+			t.Fatal("expected out-of-range error")
+		}
+	})
+}
+
+func TestCosineSignal_ShortCountDegrades(t *testing.T) {
+	// embedder returns fewer vectors than 2*rows -> degrade, no panic
+	fake := &fakeEmbedder{out: [][]float32{{1, 0}}} // 1 vec for 2 texts
+	res := cosineSignal(context.Background(), fake, []coherenceRow{{problem: "p", fix: "f"}})
+	if res.available {
+		t.Fatal("expected unavailable on short vector count")
+	}
+}
+
 func TestClamp01AndFirstNonEmpty(t *testing.T) {
 	if clamp01(-0.5) != 0 || clamp01(1.5) != 1 || clamp01(0.4) != 0.4 {
 		t.Fatal("clamp01 wrong")
