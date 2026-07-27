@@ -151,6 +151,9 @@ type coherenceVerdict struct {
 // suspicion score per row, and returns the names of the signals that ran. A
 // signal is included only when available and its score length matches nRows.
 func combineSignals(results []signalResult, nRows int) ([]float64, []string) {
+	if nRows == 0 {
+		return []float64{}, nil
+	}
 	combined := make([]float64, nRows)
 	counts := make([]int, nRows)
 	var active []string

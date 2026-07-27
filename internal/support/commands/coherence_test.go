@@ -222,6 +222,68 @@ func TestFlagCoherence(t *testing.T) {
 	})
 }
 
+func TestFlagCoherence_Adversarial(t *testing.T) {
+	rows := []coherenceRow{{fix: "a"}, {fix: "b"}, {fix: "c"}}
+
+	t.Run("pct over 100 caps at all rows", func(t *testing.T) {
+		v := flagCoherence(rows, []float64{0.1, 0.2, 0.3}, 1000)
+		for i := range v {
+			if !v[i].suspect {
+				t.Fatalf("row %d should be suspect when pct>100", i)
+			}
+		}
+	})
+
+	t.Run("single row flagged", func(t *testing.T) {
+		v := flagCoherence([]coherenceRow{{fix: "x"}}, []float64{0.5}, 10)
+		if !v[0].suspect {
+			t.Fatalf("the only row should be flagged")
+		}
+	})
+
+	t.Run("combined shorter than rows does not panic", func(t *testing.T) {
+		v := flagCoherence(rows, []float64{0.9}, 40) // combined len 1, rows len 3
+		if len(v) != 3 {
+			t.Fatalf("want 3 verdicts, got %d", len(v))
+		}
+		if v[1].score != 0 || v[2].score != 0 {
+			t.Fatalf("missing scores should default to 0; got %+v", v)
+		}
+	})
+
+	t.Run("combined longer than rows ignored", func(t *testing.T) {
+		v := flagCoherence(rows, []float64{0.1, 0.2, 0.3, 0.4, 0.5}, 40)
+		if len(v) != 3 {
+			t.Fatalf("want 3 verdicts, got %d", len(v))
+		}
+	})
+}
+
+func TestCombineSignals_Adversarial(t *testing.T) {
+	t.Run("all signals length-mismatched", func(t *testing.T) {
+		results := []signalResult{
+			{name: "a", scores: []float64{1}, available: true},
+			{name: "b", scores: nil, available: true},
+		}
+		combined, active := combineSignals(results, 3)
+		if len(active) != 0 {
+			t.Fatalf("no signal should qualify; active=%v", active)
+		}
+		for i, c := range combined {
+			if c != 0 {
+				t.Fatalf("combined[%d]=%v, want 0", i, c)
+			}
+		}
+	})
+
+	t.Run("zero rows", func(t *testing.T) {
+		combined, active := combineSignals([]signalResult{{name: "a", scores: nil, available: true}}, 0)
+		if len(combined) != 0 || len(active) != 0 {
+			t.Fatalf("zero rows should yield empty combined and no active; got %v %v", combined, active)
+		}
+	})
+}
+
 func TestCoherenceTier(t *testing.T) {
 	cases := []struct {
 		name, fix, want string
