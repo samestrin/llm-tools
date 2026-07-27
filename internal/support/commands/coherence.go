@@ -1,12 +1,18 @@
 package commands
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"math"
 	"net/http"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // coherence.go implements the optional `td-validate --coherence` check, which
@@ -240,22 +246,122 @@ type httpEmbedder struct {
 
 // newHTTPEmbedderFromEnv builds an embedder from LLM_SEMANTIC_API_URL /
 // LLM_SEMANTIC_MODEL, with the key from LLM_SEMANTIC_API_KEY or OPENAI_API_KEY.
-func newHTTPEmbedderFromEnv() *httpEmbedder { return &httpEmbedder{} }
+func newHTTPEmbedderFromEnv() *httpEmbedder {
+	return &httpEmbedder{
+		apiURL: strings.TrimRight(os.Getenv("LLM_SEMANTIC_API_URL"), "/"),
+		model:  os.Getenv("LLM_SEMANTIC_MODEL"),
+		apiKey: firstNonEmpty(os.Getenv("LLM_SEMANTIC_API_KEY"), os.Getenv("OPENAI_API_KEY")),
+		client: &http.Client{Timeout: 60 * time.Second},
+	}
+}
 
 // available reports whether an endpoint is configured.
-func (e *httpEmbedder) available() bool { return false }
+func (e *httpEmbedder) available() bool { return e.apiURL != "" }
 
 // EmbedBatch returns one vector per input text, in input order.
 func (e *httpEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	return nil, nil
+	if len(texts) == 0 {
+		return nil, nil
+	}
+	body, err := json.Marshal(map[string]any{
+		"model":           e.model,
+		"input":           texts,
+		"encoding_format": "float",
+	})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.apiURL+"/v1/embeddings", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if e.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+e.apiKey)
+	}
+	client := e.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("embeddings endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+	}
+	var parsed struct {
+		Data []struct {
+			Index     int       `json:"index"`
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, err
+	}
+	if len(parsed.Data) != len(texts) {
+		return nil, fmt.Errorf("embeddings: got %d vectors for %d inputs", len(parsed.Data), len(texts))
+	}
+	out := make([][]float32, len(texts))
+	for _, d := range parsed.Data {
+		if d.Index < 0 || d.Index >= len(out) {
+			return nil, fmt.Errorf("embeddings: index %d out of range for %d inputs", d.Index, len(texts))
+		}
+		out[d.Index] = d.Embedding
+	}
+	for i := range out {
+		if out[i] == nil {
+			return nil, fmt.Errorf("embeddings: missing vector at index %d", i)
+		}
+	}
+	return out, nil
 }
 
 // cosineSignal scores each row's PROBLEM↔FIX pair as 1-cosine (higher = more
 // suspect). It degrades to available=false if embedding fails.
 func cosineSignal(ctx context.Context, e embedderClient, rows []coherenceRow) signalResult {
-	return signalResult{name: "cosine"}
+	res := signalResult{name: "cosine"}
+	if len(rows) == 0 {
+		res.available = true
+		res.scores = []float64{}
+		return res
+	}
+	texts := make([]string, 0, len(rows)*2)
+	for _, r := range rows {
+		texts = append(texts,
+			"Problem: "+stripCoherenceBoilerplate(r.problem),
+			"Fix: "+stripCoherenceBoilerplate(r.fix))
+	}
+	vecs, err := e.EmbedBatch(ctx, texts)
+	if err != nil || len(vecs) != len(texts) {
+		return res // available=false
+	}
+	scores := make([]float64, len(rows))
+	for i := range rows {
+		scores[i] = clamp01(1 - cosine(vecs[2*i], vecs[2*i+1]))
+	}
+	res.available = true
+	res.scores = scores
+	return res
 }
 
-func firstNonEmpty(a, b string) string { return "" }
+// firstNonEmpty returns a if non-empty, else b.
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
 
-func clamp01(x float64) float64 { return 0 }
+// clamp01 constrains x to [0,1].
+func clamp01(x float64) float64 {
+	if x < 0 {
+		return 0
+	}
+	if x > 1 {
+		return 1
+	}
+	return x
+}
