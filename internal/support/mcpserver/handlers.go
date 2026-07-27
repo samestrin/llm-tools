@@ -1989,6 +1989,12 @@ func buildTDValidateArgs(args map[string]interface{}) []string {
 	if v, ok := args["mode"].(string); ok && v != "" {
 		cmdArgs = append(cmdArgs, "--mode", v)
 	}
+	if v, ok := args["coherence"].(bool); ok && v {
+		cmdArgs = append(cmdArgs, "--coherence")
+		if c, ok := args["coherence_collection"].(string); ok && c != "" {
+			cmdArgs = append(cmdArgs, "--coherence-collection", c)
+		}
+	}
 	cmdArgs = append(cmdArgs, "--json", "--min")
 	return cmdArgs
 }
