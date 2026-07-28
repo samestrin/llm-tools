@@ -244,6 +244,9 @@ func TestNormalizeCategory(t *testing.T) {
 		"   ":             "",
 		// An unknown category is normalized but never invented away.
 		"CROSS_CUTTING": "cross-cutting",
+		// Ambiguous abbreviations must stay distinct rather than be guessed.
+		"sec":  "sec",
+		"spec": "spec",
 	}
 	for in, want := range cases {
 		if got := normalizeCategory(in); got != want {

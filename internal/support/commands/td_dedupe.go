@@ -424,14 +424,15 @@ func parseFloatOr(s string, def float64) float64 {
 // entry belongs here only when the two spellings cannot mean different things.
 var categoryAliases = map[string]string{
 	"maintainancy":  "maintainability", // observed typo in the wild
-	"maintainence":  "maintainability",
+	"maintainence":  "maintainability", // same typo, other common spelling
 	"perf":          "performance",
-	"sec":           "security",
 	"documentation": "docs",
 	"doc":           "docs",
 	"test":          "testing",
 	"tests":         "testing",
-	"correctness":   "correctness",
+	// Deliberately NOT aliased: "sec" (seconds or security?), "spec"
+	// (specification or spec-test?). An abbreviation with two live readings must
+	// stay distinct — guessing wrong silently relabels the finding.
 }
 
 // normalizeCategory canonicalizes a reviewer-authored CATEGORY value so that
