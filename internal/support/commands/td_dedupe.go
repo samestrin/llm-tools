@@ -323,11 +323,14 @@ func aggregateCluster(c []tdParsedRow, untrusted map[string]bool) MergedRow {
 		if !untrusted[r.Source] {
 			allUntrusted = false
 		}
-		if r.Category != "" {
-			if catCount[r.Category] == 0 {
-				catOrder = append(catOrder, r.Category)
+		// Count the NORMALIZED value: raw counting splits the modal vote between
+		// spellings of one concept and lets the first-seen tiebreak below resolve
+		// on stream order rather than consensus.
+		if cat := normalizeCategory(r.Category); cat != "" {
+			if catCount[cat] == 0 {
+				catOrder = append(catOrder, cat)
 			}
-			catCount[r.Category]++
+			catCount[cat]++
 		}
 		if rk := severityRank[r.Severity]; rk > maxRank {
 			maxRank = rk
@@ -412,4 +415,48 @@ func parseFloatOr(s string, def float64) float64 {
 		return f
 	}
 	return def
+}
+
+// categoryAliases folds spellings that mean the same thing onto one value. It is
+// deliberately SMALL and evidence-driven — only observed typos and unambiguous
+// synonyms. Aliasing two genuinely different concepts together would silently
+// destroy information, which is worse than the vote-splitting it fixes, so a new
+// entry belongs here only when the two spellings cannot mean different things.
+var categoryAliases = map[string]string{
+	"maintainancy":  "maintainability", // observed typo in the wild
+	"maintainence":  "maintainability", // same typo, other common spelling
+	"perf":          "performance",
+	"documentation": "docs",
+	"doc":           "docs",
+	"test":          "testing",
+	"tests":         "testing",
+	// Deliberately NOT aliased: "sec" (seconds or security?), "spec"
+	// (specification or spec-test?). An abbreviation with two live readings must
+	// stay distinct — guessing wrong silently relabels the finding.
+}
+
+// normalizeCategory canonicalizes a reviewer-authored CATEGORY value so that
+// spellings of the same concept compare equal.
+//
+// CATEGORY is free text: each reviewer writes its own value into its stream and
+// aggregateCluster takes the modal one. Counting raw strings splits the vote
+// between casing variants ("performance" vs "PERFORMANCE") and separator styles
+// ("ERROR_HANDLING" vs "error-handling"), and the first-seen tiebreak then lets
+// STREAM ORDER pick the winner instead of reviewer consensus — the exact
+// judgment-free-merge property this command exists to provide.
+//
+// Normalization is lossy only in ways that carry no meaning: case, surrounding
+// whitespace, and _ vs - as a word separator. An unrecognized category is
+// normalized but never dropped or invented away.
+func normalizeCategory(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "_", "-")
+	s = strings.ReplaceAll(s, " ", "-")
+	if alias, ok := categoryAliases[s]; ok {
+		return alias
+	}
+	return s
 }
