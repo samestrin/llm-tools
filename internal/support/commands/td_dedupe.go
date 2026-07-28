@@ -413,3 +413,6 @@ func parseFloatOr(s string, def float64) float64 {
 	}
 	return def
 }
+
+// normalizeCategory is a RED stub — always returns the input unchanged.
+func normalizeCategory(s string) string { return s }

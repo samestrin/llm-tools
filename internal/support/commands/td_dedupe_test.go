@@ -220,6 +220,60 @@ func TestDedupeTD_EmptyStreams(t *testing.T) {
 	}
 }
 
+// Reviewers author CATEGORY as free text, so the same concept arrives spelled
+// several ways. Counting the raw string splits the modal vote between those
+// spellings, and the first-seen tiebreak then hands the win to whichever stream
+// happened to be read first — stream ORDER deciding the category instead of
+// reviewer consensus, which is exactly what the deterministic merge exists to
+// prevent. Observed live: performance/PERFORMANCE 14/3, correctness/CORRECTNESS
+// 11/3, maintainability/MAINTAINABILITY/maintainancy 6/1/3.
+func TestNormalizeCategory(t *testing.T) {
+	cases := map[string]string{
+		"performance":     "performance",
+		"PERFORMANCE":     "performance",
+		"  Performance  ": "performance",
+		"ERROR_HANDLING":  "error-handling",
+		"error-handling":  "error-handling",
+		"EDGE_CASES":      "edge-cases",
+		"maintainancy":    "maintainability", // observed typo, 3 live rows
+		"MAINTAINABILITY": "maintainability",
+		"perf":            "performance",
+		"tests":           "testing",
+		"documentation":   "docs",
+		"":                "",
+		"   ":             "",
+		// An unknown category is normalized but never invented away.
+		"CROSS_CUTTING": "cross-cutting",
+	}
+	for in, want := range cases {
+		if got := normalizeCategory(in); got != want {
+			t.Errorf("normalizeCategory(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Case-only variants must concentrate the vote rather than split it. Three
+// reviewers who all mean "performance" must produce "performance" regardless of
+// which spelling appears first in the stream order.
+func TestDedupeTD_CategoryVoteNotSplitByCasing(t *testing.T) {
+	// Stream order deliberately puts the SINGLETON "security" first, so a
+	// raw-string count (1 vs 1 vs 1, first-seen wins) would return "security".
+	a := StreamInput{Tag: "a", Content: `HIGH|db.go:10|N+1 query|Batch it|security|30|e|bruce`}
+	b := StreamInput{Tag: "b", Content: `HIGH|db.go:11|N+1 query|Batch it|PERFORMANCE|30|e|kai`}
+	c := StreamInput{Tag: "c", Content: `HIGH|db.go:12|N+1 query|Batch it|performance|30|e|mira`}
+
+	res, err := dedupeTD([]StreamInput{a, b, c}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if len(res.Merged) != 1 {
+		t.Fatalf("want 1 merged cluster, got %d", len(res.Merged))
+	}
+	if got := res.Merged[0].Category; got != "performance" {
+		t.Errorf("category = %q, want %q — case variants must not split the modal vote", got, "performance")
+	}
+}
+
 func splitSorted(csv string) []string {
 	out := []string{}
 	for _, p := range splitCSV(csv) {
