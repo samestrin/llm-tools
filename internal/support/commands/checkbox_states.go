@@ -42,19 +42,20 @@ var checkboxStateOrder = []checkboxState{
 	{Marker: "[-]", Key: "unreproducible", Column: "Unreproducible", Always: false},
 }
 
-// stateKeys returns the distinct Keys in declaration order, collapsing aliases
-// ("[x]" and "[X]" are both "resolved") to a single entry.
-func stateKeys() []string {
+// distinctStates returns one entry per state in declaration order, collapsing
+// aliases ("[x]" and "[X]" are both "resolved"). Declaration order is the
+// column order.
+func distinctStates() []checkboxState {
 	seen := make(map[string]bool, len(checkboxStateOrder))
-	keys := make([]string, 0, len(checkboxStateOrder))
+	states := make([]checkboxState, 0, len(checkboxStateOrder))
 	for _, state := range checkboxStateOrder {
 		if seen[state.Key] {
 			continue
 		}
 		seen[state.Key] = true
-		keys = append(keys, state.Key)
+		states = append(states, state)
 	}
-	return keys
+	return states
 }
 
 // Not yet universal: td-filter, td-matrix and group-td read the checkbox at a

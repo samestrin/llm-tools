@@ -261,3 +261,41 @@ func TestWriteIsIdempotentWithUnreproducibleRows(t *testing.T) {
 		t.Errorf("counts drifted on re-write:\n%s", second)
 	}
 }
+
+// Rows for non-standard severities came straight off a map range, so Go's
+// randomised iteration reordered them between runs: --write produced a
+// different file on most invocations, which is a spurious diff every time and
+// breaks the idempotence this command promises. Sorted, matching td-matrix.
+func TestNonStandardSeverityRowsAreOrderedDeterministically(t *testing.T) {
+	content := `| Group | | Severity | File |
+|-------|---|----------|------|
+| 1 | [ ] | URGENT | a.py |
+| 2 | [ ] | TRIVIAL | b.py |
+| 3 | [ ] | BLOCKER | c.py |
+`
+	result, err := parseTDStats(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	first := formatTDStatsMarkdown(result)
+	for i := 0; i < 500; i++ {
+		if got := formatTDStatsMarkdown(result); got != first {
+			t.Fatalf("row order varies between renders (iteration %d):\n--- a ---\n%s\n--- b ---\n%s", i, first, got)
+		}
+	}
+
+	blocker := strings.Index(first, "| BLOCKER |")
+	trivial := strings.Index(first, "| TRIVIAL |")
+	urgent := strings.Index(first, "| URGENT |")
+	if blocker == -1 || trivial == -1 || urgent == -1 {
+		t.Fatalf("a non-standard severity row is missing:\n%s", first)
+	}
+	if !(blocker < trivial && trivial < urgent) {
+		t.Errorf("extras should be alphabetical, got:\n%s", first)
+	}
+	// And they must still come after the standard four.
+	if low := strings.Index(first, "| LOW |"); low > blocker {
+		t.Errorf("a non-standard severity preceded the standard four:\n%s", first)
+	}
+}

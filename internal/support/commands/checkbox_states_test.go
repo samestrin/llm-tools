@@ -43,7 +43,10 @@ func TestStateOfTrimsSurroundingWhitespace(t *testing.T) {
 // Aliases collapse: "[x]" and "[X]" are one state, so a caller enumerating
 // states does not see "resolved" twice.
 func TestStateKeysCollapsesAliases(t *testing.T) {
-	keys := stateKeys()
+	var keys []string
+	for _, state := range distinctStates() {
+		keys = append(keys, state.Key)
+	}
 	seen := map[string]int{}
 	for _, k := range keys {
 		seen[k]++
@@ -69,20 +72,20 @@ func TestStateKeysCollapsesAliases(t *testing.T) {
 // silently, which is the failure mode this whole change exists to remove. This
 // is the guard a future "[_]" trips if only half the work is done.
 func TestEveryStateKeyIsWiredToTheCountStruct(t *testing.T) {
-	for _, key := range stateKeys() {
+	for _, state := range distinctStates() {
 		var severity TDStatsSeverity
-		severity.addState(key)
-		if got := severity.counts()[key]; got != 1 {
+		severity.addState(state.Key)
+		if got := severity.counts()[state.Key]; got != 1 {
 			t.Errorf("key %q: addState/counts not wired (got %d) — the state table "+
-				"declares a state TDStatsSeverity cannot hold", key, got)
+				"declares a state TDStatsSeverity cannot hold", state.Key, got)
 		}
 	}
 }
 
 func TestCountStructExposesNoUndeclaredKeys(t *testing.T) {
 	declared := make(map[string]bool)
-	for _, key := range stateKeys() {
-		declared[key] = true
+	for _, state := range distinctStates() {
+		declared[state.Key] = true
 	}
 	for key := range (TDStatsSeverity{}).counts() {
 		if !declared[key] {

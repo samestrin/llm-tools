@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -289,7 +290,7 @@ func parseTDStats(content string) (*TDStatsResult, error) {
 //
 // An opt-in state stays invisible until a row uses it, so adding a state to the
 // tool never rewrites a README that does not use it.
-func renderedStateKeys(result *TDStatsResult) []string {
+func renderedStates(result *TDStatsResult) []checkboxState {
 	used := make(map[string]bool)
 	for _, severity := range result.Severity {
 		for key, count := range severity.counts() {
@@ -299,43 +300,27 @@ func renderedStateKeys(result *TDStatsResult) []string {
 		}
 	}
 
-	seen := make(map[string]bool)
-	keys := make([]string, 0, len(checkboxStateOrder))
-	for _, state := range checkboxStateOrder {
-		if seen[state.Key] {
-			continue
-		}
+	states := make([]checkboxState, 0, len(checkboxStateOrder))
+	for _, state := range distinctStates() {
 		if !state.Always && !used[state.Key] {
 			continue
 		}
-		seen[state.Key] = true
-		keys = append(keys, state.Key)
+		states = append(states, state)
 	}
-	return keys
-}
-
-// columnFor maps a state key back to its display heading.
-func columnFor(key string) string {
-	for _, state := range checkboxStateOrder {
-		if state.Key == key {
-			return state.Column
-		}
-	}
-	return key
+	return states
 }
 
 func formatTDStatsMarkdown(result *TDStatsResult) string {
-	keys := renderedStateKeys(result)
+	states := renderedStates(result)
 
 	var header, separator strings.Builder
 	header.WriteString("| Severity |")
 	separator.WriteString("|----------|")
-	for _, key := range keys {
-		column := columnFor(key)
-		header.WriteString(fmt.Sprintf(" %s |", column))
+	for _, state := range states {
+		header.WriteString(fmt.Sprintf(" %s |", state.Column))
 		// The separator must be as wide as its heading or the table stops
 		// rendering as a table in some viewers.
-		separator.WriteString(strings.Repeat("-", len(column)+2) + "|")
+		separator.WriteString(strings.Repeat("-", len(state.Column)+2) + "|")
 	}
 
 	var sb strings.Builder
@@ -345,8 +330,8 @@ func formatTDStatsMarkdown(result *TDStatsResult) string {
 
 	writeRow := func(severity string, counts map[string]int) {
 		sb.WriteString(fmt.Sprintf("| %s |", severity))
-		for _, key := range keys {
-			sb.WriteString(fmt.Sprintf(" %d |", counts[key]))
+		for _, state := range states {
+			sb.WriteString(fmt.Sprintf(" %d |", counts[state.Key]))
 		}
 		sb.WriteString("\n")
 	}
@@ -355,18 +340,19 @@ func formatTDStatsMarkdown(result *TDStatsResult) string {
 		writeRow(sev, result.Severity[sev].counts())
 	}
 
-	// Include any non-standard severities at the end
-	for sev, s := range result.Severity {
-		found := false
-		for _, std := range severityOrder {
-			if sev == std {
-				found = true
-				break
-			}
+	// Include any non-standard severities at the end, sorted — ranging over the
+	// map directly emitted them in Go's randomised order, so --write reordered
+	// the rows on most runs and was not idempotent for files that use one.
+	// Matches td-matrix, which already sorts its extra severity columns.
+	extras := make([]string, 0, len(result.Severity))
+	for sev := range result.Severity {
+		if !isSeverityValue(sev) {
+			extras = append(extras, sev)
 		}
-		if !found {
-			writeRow(sev, s.counts())
-		}
+	}
+	sort.Strings(extras)
+	for _, sev := range extras {
+		writeRow(sev, result.Severity[sev].counts())
 	}
 
 	return sb.String()
