@@ -36,9 +36,12 @@ func newTDCleanCmd() *cobra.Command {
 		Long: `Deterministically cleans a technical-debt README in place:
 
   1. Removes resolved table rows (a cell that is exactly "[x]" or "[X]").
-     Rows with "[ ]" (open) or "[/]" (deferred) are kept. A literal "[x]"
-     appearing inside a prose cell is NOT treated as a checkbox.
-  2. Removes "### ... From Sprint:" sections left with no data rows.
+     Rows with "[ ]" (open), "[/]" (deferred) or "[-]" (unreproducible —
+     closed without a fix) are kept: only a fix retires a row from the file.
+     A literal "[x]" appearing inside a prose cell is NOT treated as a
+     checkbox.
+  2. Removes "### ... From Sprint:" sections left with no data rows. A row in
+     any state counts as data, so a section holding only "[-]" rows survives.
   3. Regenerates the "## Stats" section.
   4. Updates the "**Last Modified:**" summary line.
 

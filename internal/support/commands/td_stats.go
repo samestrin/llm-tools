@@ -85,9 +85,18 @@ Checkbox states:
   [ ]  = Open
   [/]  = Deferred
   [x]  = Resolved
+  [-]  = Unreproducible (closed without a fix)
 
-Columns are detected by header name (looks for a column containing checkbox
-markers and a column named "Severity").
+Total counts every state. Unreproducible is reported separately from Resolved:
+nothing was changed, so folding them together overstates what the work closed.
+
+Its column appears only in files that actually use [-], so a README on the
+other three states renders byte-identically.
+
+Columns are detected per row: a row carrying a checkbox cell is data, and the
+severity column is taken from a "Severity" header when there is one, or
+auto-detected from the row when there is not. Headerless tables are read; a
+table using a non-standard severity needs its header row to name the column.
 
 Output includes both structured severity counts and a pre-rendered markdown
 table in the "markdown" field.
