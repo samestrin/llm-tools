@@ -25,6 +25,7 @@ type TDCleanResult struct {
 	Open            int `json:"open"`
 	Deferred        int `json:"deferred"`
 	Resolved        int `json:"resolved"`
+	Unreproducible  int `json:"unreproducible"`
 	Total           int `json:"total"`
 }
 
