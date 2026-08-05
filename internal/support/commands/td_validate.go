@@ -249,8 +249,11 @@ func parseTDValidateRows(content string) []TDFilterRow {
 
 		checkbox := cells[1]
 
-		// Always skip resolved rows
-		if checkbox == "[x]" || checkbox == "[X]" {
+		// Always skip closed rows. Both states are closed — resolved by a fix,
+		// or unreproducible (closed without one) — and neither has anything
+		// left to ground. Validating them reports file_missing for paths
+		// already settled, burying the open rows a caller is looking for.
+		if state, ok := stateOf(checkbox); ok && (state.Key == "resolved" || state.Key == "unreproducible") {
 			continue
 		}
 

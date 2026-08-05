@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,19 +29,50 @@ type TDStatsResult struct {
 	Written  bool                       `json:"written"`
 }
 
-// TDStatsTotals holds aggregate counts across all severities
+// TDStatsTotals holds aggregate counts across all severities.
+//
+// Fields are explicit rather than a map keyed by checkboxState.Key: this shape
+// is the MCP surface and existing consumers read it, so a new state is added
+// here as an additional field (safe) rather than by reshaping (not).
 type TDStatsTotals struct {
-	Open     int `json:"open"`
-	Deferred int `json:"deferred"`
-	Resolved int `json:"resolved"`
-	Total    int `json:"total"`
+	Open           int `json:"open"`
+	Deferred       int `json:"deferred"`
+	Resolved       int `json:"resolved"`
+	Unreproducible int `json:"unreproducible"`
+	Total          int `json:"total"`
 }
 
 // TDStatsSeverity holds counts for a single severity level
 type TDStatsSeverity struct {
-	Open     int `json:"open"`
-	Deferred int `json:"deferred"`
-	Resolved int `json:"resolved"`
+	Open           int `json:"open"`
+	Deferred       int `json:"deferred"`
+	Resolved       int `json:"resolved"`
+	Unreproducible int `json:"unreproducible"`
+}
+
+// counts returns the severity's tallies keyed by checkboxState.Key, so
+// rendering can walk the state table instead of naming fields.
+func (s TDStatsSeverity) counts() map[string]int {
+	return map[string]int{
+		"open":           s.Open,
+		"deferred":       s.Deferred,
+		"resolved":       s.Resolved,
+		"unreproducible": s.Unreproducible,
+	}
+}
+
+// addState increments the count for a state key.
+func (s *TDStatsSeverity) addState(key string) {
+	switch key {
+	case "open":
+		s.Open++
+	case "deferred":
+		s.Deferred++
+	case "resolved":
+		s.Resolved++
+	case "unreproducible":
+		s.Unreproducible++
+	}
 }
 
 func newTDStatsCmd() *cobra.Command {
@@ -54,9 +86,18 @@ Checkbox states:
   [ ]  = Open
   [/]  = Deferred
   [x]  = Resolved
+  [-]  = Unreproducible (closed without a fix)
 
-Columns are detected by header name (looks for a column containing checkbox
-markers and a column named "Severity").
+Total counts every state. Unreproducible is reported separately from Resolved:
+nothing was changed, so folding them together overstates what the work closed.
+
+Its column appears only in files that actually use [-], so a README on the
+other three states renders byte-identically.
+
+Columns are detected per row: a row carrying a checkbox cell is data, and the
+severity column is taken from a "Severity" header when there is one, or
+auto-detected from the row when there is not. Headerless tables are read; a
+table using a non-standard severity needs its header row to name the column.
 
 Output includes both structured severity counts and a pre-rendered markdown
 table in the "markdown" field.
@@ -137,12 +178,14 @@ func parseTDStats(content string) (*TDStatsResult, error) {
 
 	checkboxCol := -1
 	severityCol := -1
-	inTable := false
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "|") {
-			inTable = false
+			// Leaving a table invalidates the detected column positions: the
+			// next table may lay its columns out differently. The rows
+			// themselves are re-detected below, so nothing is lost by
+			// forgetting.
 			checkboxCol = -1
 			severityCol = -1
 			continue
@@ -150,31 +193,44 @@ func parseTDStats(content string) (*TDStatsResult, error) {
 
 		cells := splitTableRow(line)
 
-		// Detect header row
-		if !inTable {
-			for i, cell := range cells {
-				lower := strings.ToLower(strings.TrimSpace(cell))
-				if lower == "severity" {
-					severityCol = i
-				}
-			}
-			// Checkbox column won't have a recognizable header name,
-			// so we detect it from data rows. Mark that we're in a table.
-			inTable = true
-			continue
-		}
-
 		// Skip separator rows (|---|---|...)
 		if isSeparatorRow(cells) {
 			continue
 		}
 
-		// Auto-detect checkbox column from first data row if not found yet
+		// A row carrying a checkbox cell is data, always. Deciding "header" by
+		// position instead — first "|" line after a break — silently ate the
+		// first row of every table that has no header, and then, with no
+		// severity column detected, the rows after it as well.
+		if !rowHasCheckbox(cells) {
+			// A header row: take the severity column from it by name. Anything
+			// else without a checkbox (the file's own ## Stats block, a prose
+			// table) contributes no counts either way.
+			for i, cell := range cells {
+				if strings.EqualFold(strings.TrimSpace(cell), "severity") {
+					severityCol = i
+				}
+			}
+			continue
+		}
+
+		// Auto-detect the checkbox column from the data row itself.
 		if checkboxCol == -1 {
 			for i, cell := range cells {
-				trimmed := strings.TrimSpace(cell)
-				if trimmed == "[ ]" || trimmed == "[x]" || trimmed == "[X]" || trimmed == "[/]" {
+				if isCheckboxCell(cell) {
 					checkboxCol = i
+					break
+				}
+			}
+		}
+
+		// Auto-detect the severity column the same way, for tables that carry
+		// no header to name it. Symmetric with the checkbox detection above,
+		// and what makes a headerless table parse at all.
+		if severityCol == -1 {
+			for i, cell := range cells {
+				if isSeverityValue(cell) {
+					severityCol = i
 					break
 				}
 			}
@@ -198,13 +254,8 @@ func parseTDStats(content string) (*TDStatsResult, error) {
 			stats[severity] = &TDStatsSeverity{}
 		}
 
-		switch checkbox {
-		case "[ ]":
-			stats[severity].Open++
-		case "[/]":
-			stats[severity].Deferred++
-		case "[x]", "[X]":
-			stats[severity].Resolved++
+		if state, ok := stateOf(checkbox); ok {
+			stats[severity].addState(state.Key)
 		}
 	}
 
@@ -224,39 +275,84 @@ func parseTDStats(content string) (*TDStatsResult, error) {
 		totals.Open += v.Open
 		totals.Deferred += v.Deferred
 		totals.Resolved += v.Resolved
+		totals.Unreproducible += v.Unreproducible
 	}
-	totals.Total = totals.Open + totals.Deferred + totals.Resolved
+	// Total is every state, not just the three that close a row by fixing it.
+	// Omitting a state here under-reports the file's size.
+	totals.Total = totals.Open + totals.Deferred + totals.Resolved + totals.Unreproducible
 	result.Summary = totals
 
 	return result, nil
 }
 
-func formatTDStatsMarkdown(result *TDStatsResult) string {
-	var sb strings.Builder
-	sb.WriteString("## Stats\n\n")
-	sb.WriteString("| Severity | Open | Deferred | Resolved |\n")
-	sb.WriteString("|----------|------|----------|----------|\n")
-
-	for _, sev := range severityOrder {
-		s, ok := result.Severity[sev]
-		if !ok {
-			s = TDStatsSeverity{}
-		}
-		sb.WriteString(fmt.Sprintf("| %s | %d | %d | %d |\n", sev, s.Open, s.Deferred, s.Resolved))
-	}
-
-	// Include any non-standard severities at the end
-	for sev, s := range result.Severity {
-		found := false
-		for _, std := range severityOrder {
-			if sev == std {
-				found = true
-				break
+// renderedStateKeys returns the state keys whose columns this result should
+// carry: the always-on ones, plus any opt-in state the file actually uses.
+//
+// An opt-in state stays invisible until a row uses it, so adding a state to the
+// tool never rewrites a README that does not use it.
+func renderedStates(result *TDStatsResult) []checkboxState {
+	used := make(map[string]bool)
+	for _, severity := range result.Severity {
+		for key, count := range severity.counts() {
+			if count > 0 {
+				used[key] = true
 			}
 		}
-		if !found {
-			sb.WriteString(fmt.Sprintf("| %s | %d | %d | %d |\n", sev, s.Open, s.Deferred, s.Resolved))
+	}
+
+	states := make([]checkboxState, 0, len(checkboxStateOrder))
+	for _, state := range distinctStates() {
+		if !state.Always && !used[state.Key] {
+			continue
 		}
+		states = append(states, state)
+	}
+	return states
+}
+
+func formatTDStatsMarkdown(result *TDStatsResult) string {
+	states := renderedStates(result)
+
+	var header, separator strings.Builder
+	header.WriteString("| Severity |")
+	separator.WriteString("|----------|")
+	for _, state := range states {
+		header.WriteString(fmt.Sprintf(" %s |", state.Column))
+		// The separator must be as wide as its heading or the table stops
+		// rendering as a table in some viewers.
+		separator.WriteString(strings.Repeat("-", len(state.Column)+2) + "|")
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## Stats\n\n")
+	sb.WriteString(header.String() + "\n")
+	sb.WriteString(separator.String() + "\n")
+
+	writeRow := func(severity string, counts map[string]int) {
+		sb.WriteString(fmt.Sprintf("| %s |", severity))
+		for _, state := range states {
+			sb.WriteString(fmt.Sprintf(" %d |", counts[state.Key]))
+		}
+		sb.WriteString("\n")
+	}
+
+	for _, sev := range severityOrder {
+		writeRow(sev, result.Severity[sev].counts())
+	}
+
+	// Include any non-standard severities at the end, sorted — ranging over the
+	// map directly emitted them in Go's randomised order, so --write reordered
+	// the rows on most runs and was not idempotent for files that use one.
+	// Matches td-matrix, which already sorts its extra severity columns.
+	extras := make([]string, 0, len(result.Severity))
+	for sev := range result.Severity {
+		if !isSeverityValue(sev) {
+			extras = append(extras, sev)
+		}
+	}
+	sort.Strings(extras)
+	for _, sev := range extras {
+		writeRow(sev, result.Severity[sev].counts())
 	}
 
 	return sb.String()
