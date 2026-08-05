@@ -1015,6 +1015,7 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 	})
 
 	// Write rows — cells assembled to match the dynamic header.
+	dataStart := buf.Len()
 	for _, r := range rows {
 		cells := []string{r.group}
 		if checkbox {
@@ -1033,16 +1034,13 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		writeDataRow(&buf, cells)
 	}
 
-	// Verify row count against buffer before writing
+	// Verify row count against buffer before writing. writeDataRow emits
+	// exactly one line per call, so counting newlines written since
+	// dataStart equals the number of rows — independent of cell content
+	// (e.g. diff-fixture text containing "---" no longer causes a false
+	// row-count mismatch).
 	bufContent := buf.String()
-	bufLines := strings.Split(bufContent, "\n")
-	tableRowCount := 0
-	for _, line := range bufLines {
-		if strings.HasPrefix(line, "|") && !strings.Contains(line, "---") &&
-			!strings.HasPrefix(line, "| Group") {
-			tableRowCount++
-		}
-	}
+	tableRowCount := strings.Count(bufContent[dataStart:], "\n")
 	expectedRows := len(rows)
 	if tableRowCount != expectedRows {
 		return fmt.Errorf("row count mismatch: expected %d, written %d", expectedRows, tableRowCount)
@@ -1118,6 +1116,31 @@ func scanExistingActiveGroupNumbers(path string) (int, error) {
 		}
 	}
 	return max, nil
+}
+
+// isMarkdownSeparatorLine reports whether line is a markdown table separator
+// row (e.g. "|---|---|"), as opposed to a header or data row. Unlike a bare
+// substring check for "---", it requires the entire line — aside from pipes,
+// dashes, and spaces — to be separator syntax, so it won't misfire on a data
+// cell whose content merely contains "---" (e.g. a diff hunk header like
+// "--- a/file.go").
+func isMarkdownSeparatorLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "|") || !strings.HasSuffix(trimmed, "|") {
+		return false
+	}
+	hasDash := false
+	for _, r := range trimmed {
+		switch r {
+		case '-':
+			hasDash = true
+		case '|', ' ':
+			// allowed
+		default:
+			return false
+		}
+	}
+	return hasDash
 }
 
 // parseTableRowForGroupState parses one line of a markdown table row in the

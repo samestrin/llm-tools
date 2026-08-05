@@ -1624,7 +1624,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 58. Tech debt statistics
 		{
 			Name:        ToolPrefix + "td_stats",
-			Description: "Generate tech debt statistics from a markdown README with checkbox/severity table. With write=true, rewrites the ## Stats section and Last Modified line in place deterministically (no data rows added or removed — use td_clean for that).",
+			Description: "Generate tech debt statistics from a markdown README with checkbox/severity table. States: [ ] open, [/] deferred, [x] resolved, [-] unreproducible (closed without a fix, counted separately from resolved). Total counts every state. The Unreproducible column appears only in files that use [-], so a three-state README renders unchanged. With write=true, rewrites the ## Stats section and Last Modified line in place deterministically (no data rows added or removed — use td_clean for that).",
 			InputSchema: json.RawMessage(`{
 						"type": "object",
 						"properties": {
@@ -1660,7 +1660,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 58a. Tech debt README cleanup
 		{
 			Name:        ToolPrefix + "td_clean",
-			Description: "Clean a technical-debt README in place: strip resolved [x] rows (whole-cell match, not prose substrings), remove sprint sections left empty, regenerate the Stats section, and refresh the Last Modified line. Returns counts of rows/sections removed and post-cleanup totals. No-op (file untouched) when no resolved rows exist. Deterministic replacement for in-model row stripping.",
+			Description: "Clean a technical-debt README in place: strip resolved [x] rows (whole-cell match, not prose substrings), remove sprint sections left empty, regenerate the Stats section, and refresh the Last Modified line. Only a fix retires a row: [ ] open, [/] deferred and [-] unreproducible rows are all kept, and a section holding only [-] rows is not treated as empty. Returns counts of rows/sections removed and post-cleanup totals. No-op (file untouched) when no resolved rows exist. Deterministic replacement for in-model row stripping.",
 			InputSchema: json.RawMessage(`{
 						"type": "object",
 						"properties": {
@@ -1709,7 +1709,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 58c-2. Technical debt file/symbol validation
 		{
 			Name:        ToolPrefix + "td_validate",
-			Description: "Validate open (and optionally deferred) technical-debt rows by checking whether the cited file and symbol still exist in the repository. Returns per-item status: valid, file_missing, symbol_not_found, or no_file. Use to identify stale TD items that can be closed as won't-fix.",
+			Description: "Validate open (and optionally deferred) technical-debt rows by checking whether the cited file and symbol still exist in the repository. Closed rows are skipped — both [x] resolved and [-] unreproducible — since neither has anything left to ground. Returns per-item status: valid, file_missing, symbol_not_found, or no_file. Use to identify stale TD items that can be closed as won't-fix.",
 			InputSchema: json.RawMessage(`{
 						"type": "object",
 						"properties": {

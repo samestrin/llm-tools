@@ -25,6 +25,7 @@ type TDCleanResult struct {
 	Open            int `json:"open"`
 	Deferred        int `json:"deferred"`
 	Resolved        int `json:"resolved"`
+	Unreproducible  int `json:"unreproducible"`
 	Total           int `json:"total"`
 }
 
@@ -35,9 +36,12 @@ func newTDCleanCmd() *cobra.Command {
 		Long: `Deterministically cleans a technical-debt README in place:
 
   1. Removes resolved table rows (a cell that is exactly "[x]" or "[X]").
-     Rows with "[ ]" (open) or "[/]" (deferred) are kept. A literal "[x]"
-     appearing inside a prose cell is NOT treated as a checkbox.
-  2. Removes "### ... From Sprint:" sections left with no data rows.
+     Rows with "[ ]" (open), "[/]" (deferred) or "[-]" (unreproducible —
+     closed without a fix) are kept: only a fix retires a row from the file.
+     A literal "[x]" appearing inside a prose cell is NOT treated as a
+     checkbox.
+  2. Removes "### ... From Sprint:" sections left with no data rows. A row in
+     any state counts as data, so a section holding only "[-]" rows survives.
   3. Regenerates the "## Stats" section.
   4. Updates the "**Last Modified:**" summary line.
 
@@ -77,8 +81,16 @@ func runTDClean(cmd *cobra.Command, args []string) error {
 	formatter := output.New(tdCleanJSON, tdCleanMin, cmd.OutOrStdout())
 	return formatter.Print(result, func(w io.Writer, data interface{}) {
 		r := data.(*TDCleanResult)
-		fmt.Fprintf(w, "Removed %d resolved row(s), %d empty section(s) — %d open / %d deferred / %d resolved\n",
-			r.RemovedRows, r.RemovedSections, r.Open, r.Deferred, r.Resolved)
+		// Report unreproducible only when the file has any, matching the
+		// rendered Stats block: a three-state README's summary line is
+		// unchanged, and a file that uses [-] does not have those rows go
+		// unmentioned while the JSON counts them.
+		unreproducible := ""
+		if r.Unreproducible > 0 {
+			unreproducible = fmt.Sprintf(" / %d unreproducible", r.Unreproducible)
+		}
+		fmt.Fprintf(w, "Removed %d resolved row(s), %d empty section(s) — %d open / %d deferred / %d resolved%s\n",
+			r.RemovedRows, r.RemovedSections, r.Open, r.Deferred, r.Resolved, unreproducible)
 	})
 }
 
@@ -118,6 +130,7 @@ func cleanTDReadme(content, today string) (string, *TDCleanResult) {
 	result.Open = stats.Summary.Open
 	result.Deferred = stats.Summary.Deferred
 	result.Resolved = stats.Summary.Resolved
+	result.Unreproducible = stats.Summary.Unreproducible
 	result.Total = stats.Summary.Total
 
 	finalLines := strings.Split(cleaned, "\n")
@@ -149,7 +162,12 @@ func isResolvedRow(line string) bool {
 }
 
 // hasCheckboxCell reports whether a line is a table data row carrying any
-// checkbox marker. After stripping, surviving markers are "[ ]" / "[/]".
+// checkbox marker — which is what makes a section non-empty.
+//
+// Recognition comes from the shared state table rather than a local list. The
+// local list omitted "[-]", so a section whose surviving rows were all
+// unreproducible read as empty and was deleted, destroying rows isResolvedRow
+// had deliberately spared. Any state the table knows counts as data here.
 func hasCheckboxCell(line string) bool {
 	t := strings.TrimSpace(line)
 	if !strings.HasPrefix(t, "|") {
@@ -159,13 +177,7 @@ func hasCheckboxCell(line string) bool {
 	if isSeparatorRow(cells) {
 		return false
 	}
-	for _, c := range cells {
-		switch strings.TrimSpace(c) {
-		case "[ ]", "[/]", "[x]", "[X]":
-			return true
-		}
-	}
-	return false
+	return rowHasCheckbox(cells)
 }
 
 // isTableSeparator reports whether a line is a markdown table separator row.
@@ -276,9 +288,15 @@ func replaceStatsSection(lines []string, statsMarkdown string) []string {
 func updateLastModified(lines []string, today string, totals TDStatsTotals) []string {
 	for i, line := range lines {
 		if strings.HasPrefix(strings.TrimSpace(line), "**Last Modified:**") {
+			// Opt-in states appear only once the file uses them, so a README
+			// on the original three states keeps this line byte-identical.
+			optional := ""
+			if totals.Unreproducible > 0 {
+				optional = fmt.Sprintf(" | **Unreproducible Items:** %d", totals.Unreproducible)
+			}
 			lines[i] = fmt.Sprintf(
-				"**Last Modified:** %s | **Open Items:** %d | **Deferred Items:** %d | **Resolved Items:** %d | **Total Items:** %d",
-				today, totals.Open, totals.Deferred, totals.Resolved, totals.Total)
+				"**Last Modified:** %s | **Open Items:** %d | **Deferred Items:** %d | **Resolved Items:** %d%s | **Total Items:** %d",
+				today, totals.Open, totals.Deferred, totals.Resolved, optional, totals.Total)
 			break
 		}
 	}

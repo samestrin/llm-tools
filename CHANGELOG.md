@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+#### llm-support
+
+- **`td-clean` no longer deletes sections whose rows are all `[-]`** — `hasCheckboxCell` carried its own list of markers and omitted `[-]`, so `removeEmptySections` read a section holding only unreproducible rows as empty and deleted it, destroying rows `isResolvedRow` had deliberately spared. Silent data loss, triggered whenever any other row in the file was `[x]` (the ordinary `/resolve-td --cleanup` and `/finalize-td` case). Recognition now comes from the shared state table, so a section is non-empty if it holds a row in any known state. Genuinely empty sections are still removed and the byte-identical no-op guarantee is unchanged.
+- **`td-stats` no longer drops the first rows of a table that has no header** — any `|` line following a non-table line was treated as a header and skipped unconditionally. A headerless table therefore lost its first row, and with no cell named `Severity` the severity column stayed unset, so the rows after it were dropped too — reported as a smaller backlog rather than as a parse failure. A row carrying a checkbox cell is now data, always; header rows still supply the severity column by name, and tables without one auto-detect it from the row (standard severities; a non-standard severity still needs its header row to name the column).
+- **`td-validate` skips `[-]` rows alongside `[x]`** — both states are closed, and neither has anything left to ground. Validating them reported `file_missing` for paths already settled, burying the open rows a caller is looking for.
+
+### Added
+
+#### llm-support
+
+- **`[-]` (unreproducible) as a first-class checkbox state** — closed without a fix, counted separately from resolved: nothing was changed, so folding the two together overstates what the work closed. Previously these rows were dropped from every count, and a table whose rows were *all* `[-]` had no detectable checkbox column and vanished entirely. `Total` now counts every state. `td-stats` and `td-clean` expose an `unreproducible` field; `td-clean` keeps `[-]` rows (only a fix retires a row).
+- **Opt-in state columns** — the `Unreproducible` column and its `**Unreproducible Items:**` summary field appear only in files that actually use `[-]`, so a README on the original three states renders byte-identically. Separator width is derived from the heading, so the table cannot go ragged as columns are added.
+- **One shared checkbox-state table** (`internal/support/commands/checkbox_states.go`) — every command asked "is this a checkbox?" and "which state?" with its own literal switch, and those switches had drifted apart; both bugs above are that drift. Adding a further state (e.g. `[_]`) is one table entry plus one count field. `td-filter`, `td-matrix` and `group-td` still read the checkbox positionally and select with `!= "[ ]"`, which excludes every closed state correctly — now pinned by test, with the inconsistency recorded as a follow-up.
+
 ## [1.5.0] - 2026-06-14
 
 ### Added

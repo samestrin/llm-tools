@@ -897,11 +897,10 @@ func TestGroupTDOutputFile(t *testing.T) {
 	tableRows := 0
 	for _, line := range bytes.Split(data, []byte("\n")) {
 		lineStr := string(line)
-		if bytes.HasPrefix(line, []byte("|")) && !bytes.Contains(line, []byte("---")) &&
+		if bytes.HasPrefix(line, []byte("|")) && !isMarkdownSeparatorLine(lineStr) &&
 			!bytes.HasPrefix(line, []byte("| Group")) {
 			tableRows++
 		}
-		_ = lineStr
 	}
 	if tableRows != 3 {
 		t.Errorf("expected 3 table rows, got %d\nContent:\n%s", tableRows, content)
@@ -1255,7 +1254,7 @@ MEDIUM|src/api/x.ts:4|API issue|Fix API|performance|60
 	lines := strings.Split(content, "\n")
 	dataRows := 0
 	for _, line := range lines {
-		if strings.HasPrefix(line, "|") && !strings.Contains(line, "---") &&
+		if strings.HasPrefix(line, "|") && !isMarkdownSeparatorLine(line) &&
 			!strings.HasPrefix(line, "| Group") {
 			dataRows++
 		}
@@ -1326,6 +1325,42 @@ Items from code review.
 	oldIdx := bytes.Index(data, []byte("previous_sprint"))
 	if newIdx > oldIdx {
 		t.Error("new sprint section should appear before old sprint section (newest first)")
+	}
+}
+
+func TestGroupTDOutputFileRowCellContainingDashes(t *testing.T) {
+	// Regression test: a data cell whose content contains a literal "---"
+	// (e.g. a diff hunk header like "--- a/file.go" quoted inside PROBLEM
+	// or FIX text) must not be mistaken for a markdown table separator row
+	// during the internal row-count verification.
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	input := `[
+		{"FILE_LINE": "src/a.ts:1", "PROBLEM": "Diff shows --- a/file.go removed", "SEVERITY": "HIGH", "FIX": "Revert the --- hunk", "CATEGORY": "test", "EST_MINUTES": 20},
+		{"FILE_LINE": "src/b.ts:2", "PROBLEM": "Unrelated issue", "SEVERITY": "LOW", "FIX": "Fix it", "CATEGORY": "test", "EST_MINUTES": 10}
+	]`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", input, "--json", "--assign-numbers",
+		"--output-file", outputFile,
+		"--sprint-label", "1.0_test",
+		"--min-group-size", "1",
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("REGRESSION: row count mismatch triggered by '---' inside cell content: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+	if !bytes.Contains(data, []byte("--- a/file.go")) {
+		t.Error("expected diff-fixture text preserved verbatim in output")
 	}
 }
 
