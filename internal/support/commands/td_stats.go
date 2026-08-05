@@ -137,12 +137,14 @@ func parseTDStats(content string) (*TDStatsResult, error) {
 
 	checkboxCol := -1
 	severityCol := -1
-	inTable := false
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if !strings.HasPrefix(line, "|") {
-			inTable = false
+			// Leaving a table invalidates the detected column positions: the
+			// next table may lay its columns out differently. The rows
+			// themselves are re-detected below, so nothing is lost by
+			// forgetting.
 			checkboxCol = -1
 			severityCol = -1
 			continue
@@ -150,31 +152,44 @@ func parseTDStats(content string) (*TDStatsResult, error) {
 
 		cells := splitTableRow(line)
 
-		// Detect header row
-		if !inTable {
-			for i, cell := range cells {
-				lower := strings.ToLower(strings.TrimSpace(cell))
-				if lower == "severity" {
-					severityCol = i
-				}
-			}
-			// Checkbox column won't have a recognizable header name,
-			// so we detect it from data rows. Mark that we're in a table.
-			inTable = true
-			continue
-		}
-
 		// Skip separator rows (|---|---|...)
 		if isSeparatorRow(cells) {
 			continue
 		}
 
-		// Auto-detect checkbox column from first data row if not found yet
+		// A row carrying a checkbox cell is data, always. Deciding "header" by
+		// position instead — first "|" line after a break — silently ate the
+		// first row of every table that has no header, and then, with no
+		// severity column detected, the rows after it as well.
+		if !rowHasCheckbox(cells) {
+			// A header row: take the severity column from it by name. Anything
+			// else without a checkbox (the file's own ## Stats block, a prose
+			// table) contributes no counts either way.
+			for i, cell := range cells {
+				if strings.EqualFold(strings.TrimSpace(cell), "severity") {
+					severityCol = i
+				}
+			}
+			continue
+		}
+
+		// Auto-detect the checkbox column from the data row itself.
 		if checkboxCol == -1 {
 			for i, cell := range cells {
-				trimmed := strings.TrimSpace(cell)
-				if trimmed == "[ ]" || trimmed == "[x]" || trimmed == "[X]" || trimmed == "[/]" {
+				if isCheckboxCell(cell) {
 					checkboxCol = i
+					break
+				}
+			}
+		}
+
+		// Auto-detect the severity column the same way, for tables that carry
+		// no header to name it. Symmetric with the checkbox detection above,
+		// and what makes a headerless table parse at all.
+		if severityCol == -1 {
+			for i, cell := range cells {
+				if isSeverityValue(cell) {
+					severityCol = i
 					break
 				}
 			}

@@ -78,6 +78,63 @@ Some prose between the rows.
 	}
 }
 
+// Column positions are forgotten on leaving a table, so a second table may lay
+// them out differently. Carrying them over would misread it.
+func TestParseTDStatsHandlesSeverityColumnMovingBetweenTables(t *testing.T) {
+	content := `| Group | | Severity | File |
+|-------|---|----------|------|
+| 1 | [ ] | HIGH | a.py |
+
+| File | | Severity |
+|------|---|----------|
+| b.py | [ ] | LOW |
+`
+	result, err := parseTDStats(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Severity["HIGH"].Open != 1 || result.Severity["LOW"].Open != 1 {
+		t.Errorf("want HIGH open=1 LOW open=1, got HIGH=%d LOW=%d",
+			result.Severity["HIGH"].Open, result.Severity["LOW"].Open)
+	}
+}
+
+// Checkbox markers are matched against the whole trimmed cell. A prose cell
+// mentioning "[x]" is neither a resolved row nor evidence that the row it sits
+// in is data.
+func TestParseTDStatsIgnoresBracketMarkersInProse(t *testing.T) {
+	content := `| Group | | Severity | File | Problem |
+|-------|---|----------|------|---------|
+| 1 | [ ] | HIGH | a.py | the doc says [x] means resolved |
+`
+	result, err := parseTDStats(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Summary.Resolved != 0 {
+		t.Errorf("prose [x] counted as resolved: %+v", result.Summary)
+	}
+	if result.Summary.Open != 1 {
+		t.Errorf("want open=1, got %+v", result.Summary)
+	}
+}
+
+// Severity auto-detection reads the row, not a fixed index, so a headerless
+// table need not put severity in the usual column.
+func TestParseTDStatsFindsSeverityAtAnyColumn(t *testing.T) {
+	content := `| [ ] | a.py | HIGH | problem |
+| [x] | b.py | HIGH | problem |
+`
+	result, err := parseTDStats(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	high := result.Severity["HIGH"]
+	if high.Open != 1 || high.Resolved != 1 {
+		t.Errorf("want open=1 resolved=1, got %+v", high)
+	}
+}
+
 // The file's own "## Stats" block is a markdown table whose rows begin with a
 // severity name ("| CRITICAL | 0 | 0 | 1 |"). It carries no checkbox cell, so
 // it must contribute nothing — otherwise td-stats counts its own output and
