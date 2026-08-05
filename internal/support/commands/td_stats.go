@@ -275,18 +275,75 @@ func parseTDStats(content string) (*TDStatsResult, error) {
 	return result, nil
 }
 
+// renderedStateKeys returns the state keys whose columns this result should
+// carry: the always-on ones, plus any opt-in state the file actually uses.
+//
+// An opt-in state stays invisible until a row uses it, so adding a state to the
+// tool never rewrites a README that does not use it.
+func renderedStateKeys(result *TDStatsResult) []string {
+	used := make(map[string]bool)
+	for _, severity := range result.Severity {
+		for key, count := range severity.counts() {
+			if count > 0 {
+				used[key] = true
+			}
+		}
+	}
+
+	seen := make(map[string]bool)
+	keys := make([]string, 0, len(checkboxStateOrder))
+	for _, state := range checkboxStateOrder {
+		if seen[state.Key] {
+			continue
+		}
+		if !state.Always && !used[state.Key] {
+			continue
+		}
+		seen[state.Key] = true
+		keys = append(keys, state.Key)
+	}
+	return keys
+}
+
+// columnFor maps a state key back to its display heading.
+func columnFor(key string) string {
+	for _, state := range checkboxStateOrder {
+		if state.Key == key {
+			return state.Column
+		}
+	}
+	return key
+}
+
 func formatTDStatsMarkdown(result *TDStatsResult) string {
+	keys := renderedStateKeys(result)
+
+	var header, separator strings.Builder
+	header.WriteString("| Severity |")
+	separator.WriteString("|----------|")
+	for _, key := range keys {
+		column := columnFor(key)
+		header.WriteString(fmt.Sprintf(" %s |", column))
+		// The separator must be as wide as its heading or the table stops
+		// rendering as a table in some viewers.
+		separator.WriteString(strings.Repeat("-", len(column)+2) + "|")
+	}
+
 	var sb strings.Builder
 	sb.WriteString("## Stats\n\n")
-	sb.WriteString("| Severity | Open | Deferred | Resolved |\n")
-	sb.WriteString("|----------|------|----------|----------|\n")
+	sb.WriteString(header.String() + "\n")
+	sb.WriteString(separator.String() + "\n")
+
+	writeRow := func(severity string, counts map[string]int) {
+		sb.WriteString(fmt.Sprintf("| %s |", severity))
+		for _, key := range keys {
+			sb.WriteString(fmt.Sprintf(" %d |", counts[key]))
+		}
+		sb.WriteString("\n")
+	}
 
 	for _, sev := range severityOrder {
-		s, ok := result.Severity[sev]
-		if !ok {
-			s = TDStatsSeverity{}
-		}
-		sb.WriteString(fmt.Sprintf("| %s | %d | %d | %d |\n", sev, s.Open, s.Deferred, s.Resolved))
+		writeRow(sev, result.Severity[sev].counts())
 	}
 
 	// Include any non-standard severities at the end
@@ -299,7 +356,7 @@ func formatTDStatsMarkdown(result *TDStatsResult) string {
 			}
 		}
 		if !found {
-			sb.WriteString(fmt.Sprintf("| %s | %d | %d | %d |\n", sev, s.Open, s.Deferred, s.Resolved))
+			writeRow(sev, s.counts())
 		}
 	}
 

@@ -130,6 +130,105 @@ func TestWriteAddsUnreproducibleFieldToLastModified(t *testing.T) {
 	}
 }
 
+// Non-standard severities are a supported concept — formatTDStatsMarkdown has
+// always appended them after the standard four. They must trigger the opt-in
+// column like any other row, and render at the header's width.
+func TestFormatHandlesUnreproducibleUnderANonStandardSeverity(t *testing.T) {
+	content := `| Group | | Severity | File |
+|-------|---|----------|------|
+| 1 | [-] | URGENT | a.py |
+| 2 | [ ] | HIGH | b.py |
+`
+	result, err := parseTDStats(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	markdown := formatTDStatsMarkdown(result)
+	if !strings.Contains(markdown, "| Severity | Open | Deferred | Resolved | Unreproducible |") {
+		t.Errorf("a non-standard severity's [-] row must trigger the column:\n%s", markdown)
+	}
+	if !strings.Contains(markdown, "| URGENT | 0 | 0 | 0 | 1 |") {
+		t.Errorf("want a full-width URGENT row, got:\n%s", markdown)
+	}
+}
+
+// Headerless auto-detection covers the standard severities only; anything else
+// needs the header row that names the column. Pinned so the limitation is a
+// decision on record rather than a surprise.
+func TestHeaderlessTableRequiresAStandardSeverity(t *testing.T) {
+	withHeader, err := parseTDStats("| Group | | Severity | File |\n|---|---|---|---|\n| 1 | [-] | URGENT | a.py |\n")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if withHeader.Severity["URGENT"].Unreproducible != 1 {
+		t.Errorf("a header row names the column, so any severity counts: %+v", withHeader.Severity["URGENT"])
+	}
+
+	headerless, err := parseTDStats("| 1 | [-] | URGENT | a.py |\n")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if headerless.Summary.Total != 0 {
+		t.Errorf("headerless auto-detect should not guess a non-standard severity, got %+v", headerless.Summary)
+	}
+}
+
+// Every row must carry exactly as many cells as the header, in every shape.
+func TestStatsTableIsNeverRagged(t *testing.T) {
+	for _, content := range []string{
+		"| 1 | [ ] | HIGH | a.py |\n",
+		"| 1 | [-] | HIGH | a.py |\n",
+		"| Group | | Severity | File |\n|---|---|---|---|\n| 1 | [-] | URGENT | a.py |\n| 2 | [ ] | HIGH | b.py |\n",
+		"",
+	} {
+		result, err := parseTDStats(content)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		markdown := formatTDStatsMarkdown(result)
+		width := -1
+		for _, line := range strings.Split(strings.TrimRight(markdown, "\n"), "\n") {
+			if !strings.HasPrefix(line, "|") {
+				continue
+			}
+			if pipes := strings.Count(line, "|"); width == -1 {
+				width = pipes
+			} else if pipes != width {
+				t.Errorf("ragged table for %q:\n%s", content, markdown)
+				break
+			}
+		}
+	}
+}
+
+// The stats block is replaced in place; prose after the table is not part of it.
+// The README that prompted this change keeps its convention notes there.
+func TestReplaceStatsSectionPreservesNotesAfterTheTable(t *testing.T) {
+	original := `# T
+
+## Stats
+
+| Severity | Open | Deferred | Resolved |
+|----------|------|----------|----------|
+| HIGH | 0 | 0 | 0 |
+
+> A convention note that must not be eaten.
+
+### Backlog
+`
+	out := strings.Join(
+		replaceStatsSection(strings.Split(original, "\n"),
+			"## Stats\n\n| Severity | Open |\n|----------|------|\n| HIGH | 1 |\n"),
+		"\n")
+
+	if !strings.Contains(out, "A convention note that must not be eaten.") {
+		t.Errorf("note after the table was lost:\n%s", out)
+	}
+	if !strings.Contains(out, "### Backlog") {
+		t.Errorf("following heading was lost:\n%s", out)
+	}
+}
+
 // Writing twice must be identical to writing once, for both shapes.
 func TestWriteIsIdempotentWithUnreproducibleRows(t *testing.T) {
 	dir := t.TempDir()

@@ -276,9 +276,15 @@ func replaceStatsSection(lines []string, statsMarkdown string) []string {
 func updateLastModified(lines []string, today string, totals TDStatsTotals) []string {
 	for i, line := range lines {
 		if strings.HasPrefix(strings.TrimSpace(line), "**Last Modified:**") {
+			// Opt-in states appear only once the file uses them, so a README
+			// on the original three states keeps this line byte-identical.
+			optional := ""
+			if totals.Unreproducible > 0 {
+				optional = fmt.Sprintf(" | **Unreproducible Items:** %d", totals.Unreproducible)
+			}
 			lines[i] = fmt.Sprintf(
-				"**Last Modified:** %s | **Open Items:** %d | **Deferred Items:** %d | **Resolved Items:** %d | **Total Items:** %d",
-				today, totals.Open, totals.Deferred, totals.Resolved, totals.Total)
+				"**Last Modified:** %s | **Open Items:** %d | **Deferred Items:** %d | **Resolved Items:** %d%s | **Total Items:** %d",
+				today, totals.Open, totals.Deferred, totals.Resolved, optional, totals.Total)
 			break
 		}
 	}

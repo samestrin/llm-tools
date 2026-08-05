@@ -90,6 +90,11 @@ func rowHasCheckbox(cells []string) bool {
 // isSeverityValue reports whether a cell holds a severity level, letting a
 // table with no header row still be read. Kept in step with severityOrder,
 // which is the display order for the same set.
+//
+// Limited to the standard levels by necessity: in a headerless table nothing
+// distinguishes an arbitrary severity string from any other cell. A table that
+// uses a non-standard severity therefore needs its header row, which names the
+// column explicitly — that path counts and renders any severity.
 func isSeverityValue(cell string) bool {
 	trimmed := strings.ToUpper(strings.TrimSpace(cell))
 	for _, severity := range severityOrder {
