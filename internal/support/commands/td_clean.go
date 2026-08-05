@@ -119,6 +119,7 @@ func cleanTDReadme(content, today string) (string, *TDCleanResult) {
 	result.Open = stats.Summary.Open
 	result.Deferred = stats.Summary.Deferred
 	result.Resolved = stats.Summary.Resolved
+	result.Unreproducible = stats.Summary.Unreproducible
 	result.Total = stats.Summary.Total
 
 	finalLines := strings.Split(cleaned, "\n")
@@ -150,7 +151,12 @@ func isResolvedRow(line string) bool {
 }
 
 // hasCheckboxCell reports whether a line is a table data row carrying any
-// checkbox marker. After stripping, surviving markers are "[ ]" / "[/]".
+// checkbox marker — which is what makes a section non-empty.
+//
+// Recognition comes from the shared state table rather than a local list. The
+// local list omitted "[-]", so a section whose surviving rows were all
+// unreproducible read as empty and was deleted, destroying rows isResolvedRow
+// had deliberately spared. Any state the table knows counts as data here.
 func hasCheckboxCell(line string) bool {
 	t := strings.TrimSpace(line)
 	if !strings.HasPrefix(t, "|") {
@@ -160,13 +166,7 @@ func hasCheckboxCell(line string) bool {
 	if isSeparatorRow(cells) {
 		return false
 	}
-	for _, c := range cells {
-		switch strings.TrimSpace(c) {
-		case "[ ]", "[/]", "[x]", "[X]":
-			return true
-		}
-	}
-	return false
+	return rowHasCheckbox(cells)
 }
 
 // isTableSeparator reports whether a line is a markdown table separator row.
