@@ -57,6 +57,15 @@ func stateKeys() []string {
 	return keys
 }
 
+// Not yet universal: td-filter, td-matrix and group-td read the checkbox at a
+// fixed cells[1] and select with `!= "[ ]"`. That admits open rows only, so
+// they exclude every closed state correctly today (pinned by
+// td_open_only_consumers_test.go) — but they disagree with td-stats, which
+// detects the column from the row. A table whose columns are ordered
+// differently is read one way by one command and another way by the next.
+// Moving them onto stateOf is the follow-up; the tests are there so it cannot
+// regress silently.
+
 // stateOf returns the state a table cell denotes. The cell is trimmed and
 // matched whole — a substring match would classify prose mentioning "[x]" as a
 // resolved row.
