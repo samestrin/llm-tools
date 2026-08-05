@@ -36,6 +36,25 @@ var checkboxStateOrder = []checkboxState{
 	{Marker: "[/]", Key: "deferred", Column: "Deferred", Always: true},
 	{Marker: "[x]", Key: "resolved", Column: "Resolved", Always: true},
 	{Marker: "[X]", Key: "resolved", Column: "Resolved", Always: true},
+	// Closed without a fix — the problem could not be reproduced, or was ruled
+	// a misfire. Distinct from resolved: nothing was changed, so folding the
+	// two together overstates what the work closed.
+	{Marker: "[-]", Key: "unreproducible", Column: "Unreproducible", Always: false},
+}
+
+// stateKeys returns the distinct Keys in declaration order, collapsing aliases
+// ("[x]" and "[X]" are both "resolved") to a single entry.
+func stateKeys() []string {
+	seen := make(map[string]bool, len(checkboxStateOrder))
+	keys := make([]string, 0, len(checkboxStateOrder))
+	for _, state := range checkboxStateOrder {
+		if seen[state.Key] {
+			continue
+		}
+		seen[state.Key] = true
+		keys = append(keys, state.Key)
+	}
+	return keys
 }
 
 // stateOf returns the state a table cell denotes. The cell is trimmed and

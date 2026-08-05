@@ -64,6 +64,41 @@ func TestStateKeysCollapsesAliases(t *testing.T) {
 	}
 }
 
+// The state table and the typed counts must not drift. Adding a state to the
+// table without a matching struct field would make it count as nothing —
+// silently, which is the failure mode this whole change exists to remove. This
+// is the guard a future "[_]" trips if only half the work is done.
+func TestEveryStateKeyIsWiredToTheCountStruct(t *testing.T) {
+	for _, key := range stateKeys() {
+		var severity TDStatsSeverity
+		severity.addState(key)
+		if got := severity.counts()[key]; got != 1 {
+			t.Errorf("key %q: addState/counts not wired (got %d) — the state table "+
+				"declares a state TDStatsSeverity cannot hold", key, got)
+		}
+	}
+}
+
+func TestCountStructExposesNoUndeclaredKeys(t *testing.T) {
+	declared := make(map[string]bool)
+	for _, key := range stateKeys() {
+		declared[key] = true
+	}
+	for key := range (TDStatsSeverity{}).counts() {
+		if !declared[key] {
+			t.Errorf("counts() exposes %q, which no checkboxState declares", key)
+		}
+	}
+}
+
+func TestAddStateIgnoresAnUnknownKey(t *testing.T) {
+	var severity TDStatsSeverity
+	severity.addState("nonsense")
+	if severity.Open+severity.Deferred+severity.Resolved+severity.Unreproducible != 0 {
+		t.Errorf("an unknown key mutated a count: %+v", severity)
+	}
+}
+
 func TestIsSeverityValue(t *testing.T) {
 	for _, ok := range []string{"CRITICAL", "HIGH", "medium", " low "} {
 		if !isSeverityValue(ok) {

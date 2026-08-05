@@ -28,19 +28,50 @@ type TDStatsResult struct {
 	Written  bool                       `json:"written"`
 }
 
-// TDStatsTotals holds aggregate counts across all severities
+// TDStatsTotals holds aggregate counts across all severities.
+//
+// Fields are explicit rather than a map keyed by checkboxState.Key: this shape
+// is the MCP surface and existing consumers read it, so a new state is added
+// here as an additional field (safe) rather than by reshaping (not).
 type TDStatsTotals struct {
-	Open     int `json:"open"`
-	Deferred int `json:"deferred"`
-	Resolved int `json:"resolved"`
-	Total    int `json:"total"`
+	Open           int `json:"open"`
+	Deferred       int `json:"deferred"`
+	Resolved       int `json:"resolved"`
+	Unreproducible int `json:"unreproducible"`
+	Total          int `json:"total"`
 }
 
 // TDStatsSeverity holds counts for a single severity level
 type TDStatsSeverity struct {
-	Open     int `json:"open"`
-	Deferred int `json:"deferred"`
-	Resolved int `json:"resolved"`
+	Open           int `json:"open"`
+	Deferred       int `json:"deferred"`
+	Resolved       int `json:"resolved"`
+	Unreproducible int `json:"unreproducible"`
+}
+
+// counts returns the severity's tallies keyed by checkboxState.Key, so
+// rendering can walk the state table instead of naming fields.
+func (s TDStatsSeverity) counts() map[string]int {
+	return map[string]int{
+		"open":           s.Open,
+		"deferred":       s.Deferred,
+		"resolved":       s.Resolved,
+		"unreproducible": s.Unreproducible,
+	}
+}
+
+// addState increments the count for a state key.
+func (s *TDStatsSeverity) addState(key string) {
+	switch key {
+	case "open":
+		s.Open++
+	case "deferred":
+		s.Deferred++
+	case "resolved":
+		s.Resolved++
+	case "unreproducible":
+		s.Unreproducible++
+	}
 }
 
 func newTDStatsCmd() *cobra.Command {
@@ -213,13 +244,8 @@ func parseTDStats(content string) (*TDStatsResult, error) {
 			stats[severity] = &TDStatsSeverity{}
 		}
 
-		switch checkbox {
-		case "[ ]":
-			stats[severity].Open++
-		case "[/]":
-			stats[severity].Deferred++
-		case "[x]", "[X]":
-			stats[severity].Resolved++
+		if state, ok := stateOf(checkbox); ok {
+			stats[severity].addState(state.Key)
 		}
 	}
 
@@ -239,8 +265,11 @@ func parseTDStats(content string) (*TDStatsResult, error) {
 		totals.Open += v.Open
 		totals.Deferred += v.Deferred
 		totals.Resolved += v.Resolved
+		totals.Unreproducible += v.Unreproducible
 	}
-	totals.Total = totals.Open + totals.Deferred + totals.Resolved
+	// Total is every state, not just the three that close a row by fixing it.
+	// Omitting a state here under-reports the file's size.
+	totals.Total = totals.Open + totals.Deferred + totals.Resolved + totals.Unreproducible
 	result.Summary = totals
 
 	return result, nil
