@@ -81,8 +81,16 @@ func runTDClean(cmd *cobra.Command, args []string) error {
 	formatter := output.New(tdCleanJSON, tdCleanMin, cmd.OutOrStdout())
 	return formatter.Print(result, func(w io.Writer, data interface{}) {
 		r := data.(*TDCleanResult)
-		fmt.Fprintf(w, "Removed %d resolved row(s), %d empty section(s) — %d open / %d deferred / %d resolved\n",
-			r.RemovedRows, r.RemovedSections, r.Open, r.Deferred, r.Resolved)
+		// Report unreproducible only when the file has any, matching the
+		// rendered Stats block: a three-state README's summary line is
+		// unchanged, and a file that uses [-] does not have those rows go
+		// unmentioned while the JSON counts them.
+		unreproducible := ""
+		if r.Unreproducible > 0 {
+			unreproducible = fmt.Sprintf(" / %d unreproducible", r.Unreproducible)
+		}
+		fmt.Fprintf(w, "Removed %d resolved row(s), %d empty section(s) — %d open / %d deferred / %d resolved%s\n",
+			r.RemovedRows, r.RemovedSections, r.Open, r.Deferred, r.Resolved, unreproducible)
 	})
 }
 
