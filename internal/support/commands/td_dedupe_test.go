@@ -406,6 +406,58 @@ func TestDedupeTD_MemberOrderIsLineSorted(t *testing.T) {
 	}
 }
 
+// The binary must NOT back-fill an empty member field from the pooled row.
+// Deciding what a missing FIX falls back to is the caller's judgment; silently
+// substituting the cluster's pooled FIX here would reintroduce the exact
+// copy-pasted-FIX artifact this change exists to remove, only invisibly.
+func TestDedupeTD_EmptyMemberFieldNotBackFilled(t *testing.T) {
+	// 5-col legacy rows carry no EST; the second row's FIX is empty.
+	a := StreamInput{Tag: "a", Content: `HIGH|auth.go:45|Missing validation|Add zod schema|security`}
+	b := StreamInput{Tag: "b", Content: `HIGH|auth.go:46|Something else here||security`}
+	res, err := dedupeTD([]StreamInput{a, b}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	ms := res.Merged[0].Members
+	if len(ms) != 2 {
+		t.Fatalf("want 2 members, got %d", len(ms))
+	}
+	if ms[1].Fix != "" {
+		t.Errorf("members[1].fix = %q, want \"\" — an absent fix must not be back-filled from the pooled row", ms[1].Fix)
+	}
+	if ms[0].EstMinutes != 0 || ms[1].EstMinutes != 0 {
+		t.Errorf("5-col rows carry no est; got %v and %v", ms[0].EstMinutes, ms[1].EstMinutes)
+	}
+	// The pooled row still surfaces the one usable fix, so the caller has
+	// something to fall back TO when it decides that is appropriate.
+	if res.Merged[0].Fix != "Add zod schema" {
+		t.Errorf("pooled fix = %q, want the longest non-empty one", res.Merged[0].Fix)
+	}
+}
+
+// The production case: legacy 10-col claude rows clustered with 8-col
+// multi-agent rows. The two widths map FILE:LINE and FIX to different
+// positions, so a member built from the wrong offsets would cite ORIGIN as its
+// file or paste RISK_CLASS as its fix.
+func TestDedupeTD_MembersAcrossMixedStreamWidths(t *testing.T) {
+	tenCol := StreamInput{Tag: "claude", Content: `HIGH|impl|correctness|auth.go:45|Missing validation|Add zod schema|security|15|ev|code-review`}
+	eightCol := StreamInput{Tag: "multi-agent", Content: `MEDIUM|auth.go:47|No userId validation|Validate userId before query|performance|20|e|kai`}
+	res, err := dedupeTD([]StreamInput{tenCol, eightCol}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if len(res.Merged) != 1 {
+		t.Fatalf("want 1 cluster, got %d", len(res.Merged))
+	}
+	want := []MemberRef{
+		{Reviewer: "claude", Severity: "HIGH", FileLine: "auth.go:45", Problem: "Missing validation", Fix: "Add zod schema", Category: "security", EstMinutes: 15},
+		{Reviewer: "kai", Severity: "MEDIUM", FileLine: "auth.go:47", Problem: "No userId validation", Fix: "Validate userId before query", Category: "performance", EstMinutes: 20},
+	}
+	if !reflect.DeepEqual(res.Merged[0].Members, want) {
+		t.Errorf("mixed-width members =\n  %+v\nwant\n  %+v", res.Merged[0].Members, want)
+	}
+}
+
 // A singleton is not a split candidate and must stay free of member noise.
 func TestDedupeTD_SingletonHasNoMembers(t *testing.T) {
 	a := StreamInput{Tag: "a", Content: `HIGH|solo.go:1|p|f|security|5|e|bruce`}
