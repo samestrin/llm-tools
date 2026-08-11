@@ -1693,7 +1693,7 @@ func GetToolDefinitions() []ToolDefinition {
 		// 58c. Tech debt cross-reviewer dedupe/merge
 		{
 			Name:        ToolPrefix + "td_dedupe",
-			Description: "Cluster and merge technical-debt streams from multiple reviewers by (file, line +/- tolerance). Aggregates REVIEWERS union, SEVERITY max, CATEGORY modal, EST_MINUTES max, CONFIDENCE (HIGH for 2+ distinct reviewers), and severity-disagreement; flags multi-item clusters needs_review with members for model adjudication. Deterministic replacement for in-model reconcile clustering.",
+			Description: "Cluster and merge technical-debt streams from multiple reviewers by (file, line +/- tolerance). Aggregates REVIEWERS union, SEVERITY max, CATEGORY modal, EST_MINUTES max, CONFIDENCE (HIGH for 2+ distinct reviewers), and severity-disagreement; flags multi-item clusters needs_review with members for model adjudication. Each member carries its OWN severity, problem, fix, category, est_minutes and file_line, so a cluster the model splits emits one distinct, correctly-cited finding per member rather than reusing the pooled FIX. Deterministic replacement for in-model reconcile clustering.",
 			InputSchema: json.RawMessage(`{
 						"type": "object",
 						"properties": {
