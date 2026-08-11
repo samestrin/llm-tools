@@ -31,7 +31,9 @@ and merge each cluster deterministically: REVIEWERS union, SEVERITY max,
 CATEGORY modal, EST_MINUTES max, CONFIDENCE (HIGH for 2+ distinct reviewers),
 and a severity-disagreement annotation. Multi-item clusters are flagged
 needs_review with their members so the model can confirm or split the
-"same issue?" merge — the only step that needs judgment.
+"same issue?" merge — the only step that needs judgment. Each member keeps
+its own severity/problem/fix/category/est/file_line so a split emits one
+distinct, correctly-cited finding per member.
 
 Output is JSON: {merged:[...], summary:{...}}.`,
 		RunE: runTdDedupe,
@@ -103,10 +105,27 @@ type tdParsedRow struct {
 }
 
 // MemberRef is one finding inside a multi-item cluster (for model adjudication).
+//
+// It carries the member's OWN values, not the cluster's pooled ones, because
+// adjudication may SPLIT the cluster into one finding per member. A split row
+// needs its own FIX, CATEGORY, EST_MINUTES and FILE:LINE; if those are only
+// available pooled, the split can do nothing but paste one cluster-wide FIX
+// onto every row and cite the first member's line for all of them. FILE:LINE
+// especially: a cluster spans ±tolerance lines and the downstream td_validate
+// pass grounds on FILE:LINE, so a wrong citation propagates into validation.
+//
+// Values are verbatim from the member row (CATEGORY normalized, as for the
+// modal vote) — never back-filled from the pooled row. Deciding what an empty
+// member field should fall back to is the caller's judgment, not this
+// command's; inventing a value here would launder a gap into a fact.
 type MemberRef struct {
-	Reviewer string `json:"reviewer"`
-	Severity string `json:"severity"`
-	Problem  string `json:"problem"`
+	Reviewer   string  `json:"reviewer"`
+	Severity   string  `json:"severity"`
+	FileLine   string  `json:"file_line"`
+	Problem    string  `json:"problem"`
+	Fix        string  `json:"fix"`
+	Category   string  `json:"category"`
+	EstMinutes float64 `json:"est_minutes"`
 }
 
 // MergedRow is one deduped/aggregated finding.
@@ -382,7 +401,15 @@ func aggregateCluster(c []tdParsedRow, untrusted map[string]bool) MergedRow {
 
 	if out.NeedsReview {
 		for _, r := range c {
-			out.Members = append(out.Members, MemberRef{Reviewer: r.Reviewer, Severity: r.Severity, Problem: r.Problem})
+			out.Members = append(out.Members, MemberRef{
+				Reviewer:   r.Reviewer,
+				Severity:   r.Severity,
+				FileLine:   r.FileLine,
+				Problem:    r.Problem,
+				Fix:        r.Fix,
+				Category:   normalizeCategory(r.Category),
+				EstMinutes: r.EstMinutes,
+			})
 		}
 	}
 	return out

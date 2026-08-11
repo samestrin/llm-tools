@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"reflect"
 	"sort"
 	"testing"
@@ -274,6 +275,198 @@ func TestDedupeTD_CategoryVoteNotSplitByCasing(t *testing.T) {
 	}
 	if got := res.Merged[0].Category; got != "performance" {
 		t.Errorf("category = %q, want %q — case variants must not split the modal vote", got, "performance")
+	}
+}
+
+// --- Member fidelity (split adjudication) ---
+//
+// A needs_review cluster is handed to the model to confirm or SPLIT. A split
+// emits one finding per member, so each member must carry the columns that
+// finding needs. Pooling FIX/CATEGORY/EST to a single cluster-wide scalar and
+// dropping each member's own values leaves the model nothing to split WITH: it
+// can only paste the one pooled FIX onto every split row, which is how three
+// unrelated findings end up sharing one identical FIX cell in the TD README.
+// FILE:LINE matters just as much — a cluster spans ±tolerance lines, and the
+// downstream td_validate pass keys its VALIDATION_MAP on FILE:LINE, so a split
+// that cites the first member's line for all members mis-grounds the rest.
+
+func TestDedupeTD_MembersCarryOwnFixAndCitation(t *testing.T) {
+	// Two genuinely different concerns within the tolerance window: distinct
+	// fixes, distinct lines, distinct estimates.
+	a := StreamInput{Tag: "claude", Content: `HIGH|auth.go:45|Missing validation|Add zod schema|security|15|e|bruce`}
+	b := StreamInput{Tag: "multi-agent", Content: `MEDIUM|auth.go:47|No input validation on userId|Validate userId before query|security|20|e|kai`}
+
+	res, err := dedupeTD([]StreamInput{a, b}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if len(res.Merged) != 1 {
+		t.Fatalf("want 1 merged cluster, got %d", len(res.Merged))
+	}
+	r := res.Merged[0]
+	if !r.NeedsReview || len(r.Members) != 2 {
+		t.Fatalf("want a 2-member needs_review cluster; got needs_review=%v members=%d", r.NeedsReview, len(r.Members))
+	}
+
+	// Each member keeps its OWN fix, citation and estimate.
+	want := []MemberRef{
+		{Reviewer: "bruce", Severity: "HIGH", FileLine: "auth.go:45", Problem: "Missing validation", Fix: "Add zod schema", Category: "security", EstMinutes: 15},
+		{Reviewer: "kai", Severity: "MEDIUM", FileLine: "auth.go:47", Problem: "No input validation on userId", Fix: "Validate userId before query", Category: "security", EstMinutes: 20},
+	}
+	if !reflect.DeepEqual(r.Members, want) {
+		t.Errorf("members =\n  %+v\nwant\n  %+v", r.Members, want)
+	}
+
+	// The pooled row's own semantics are unchanged: longest FIX, max EST,
+	// first member's FILE:LINE.
+	if r.Fix != "Validate userId before query" {
+		t.Errorf("pooled fix = %q, want the longest one", r.Fix)
+	}
+	if r.EstMinutes != 20 {
+		t.Errorf("pooled est = %v, want 20 (max)", r.EstMinutes)
+	}
+	if r.FileLine != "auth.go:45" {
+		t.Errorf("pooled file_line = %q, want auth.go:45 (first member)", r.FileLine)
+	}
+}
+
+// The MCP caller reads JSON, not the Go struct. Guard the wire contract
+// separately so a rename of the struct field cannot silently break the skill.
+func TestDedupeTD_MemberJSONShape(t *testing.T) {
+	a := StreamInput{Tag: "claude", Content: `HIGH|auth.go:45|p1|Add zod schema|security|15|e|bruce`}
+	b := StreamInput{Tag: "multi-agent", Content: `LOW|auth.go:46|p2|Validate userId|performance|20|e|kai`}
+	res, err := dedupeTD([]StreamInput{a, b}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	blob, err := json.Marshal(res.Merged[0])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded struct {
+		Members []map[string]any `json:"members"`
+	}
+	if err := json.Unmarshal(blob, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(decoded.Members) != 2 {
+		t.Fatalf("members = %d, want 2", len(decoded.Members))
+	}
+	for i, m := range decoded.Members {
+		for _, key := range []string{"reviewer", "severity", "file_line", "problem", "fix", "category", "est_minutes"} {
+			if _, ok := m[key]; !ok {
+				t.Errorf("members[%d] missing key %q (have %v)", i, key, m)
+			}
+		}
+	}
+	if got := decoded.Members[0]["fix"]; got != "Add zod schema" {
+		t.Errorf("members[0].fix = %v, want its own fix", got)
+	}
+	if got := decoded.Members[1]["fix"]; got != "Validate userId" {
+		t.Errorf("members[1].fix = %v, want its own fix", got)
+	}
+}
+
+// A member's CATEGORY goes through the same normalization as the modal vote, so
+// a split row cannot reintroduce a raw spelling the merge already canonicalized.
+func TestDedupeTD_MemberCategoryNormalized(t *testing.T) {
+	a := StreamInput{Tag: "a", Content: `HIGH|db.go:10|N+1|Batch it|PERF|30|e|bruce`}
+	b := StreamInput{Tag: "b", Content: `HIGH|db.go:11|Slow scan|Add index|ERROR_HANDLING|10|e|kai`}
+	res, err := dedupeTD([]StreamInput{a, b}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if len(res.Merged[0].Members) != 2 {
+		t.Fatalf("want 2 members")
+	}
+	if got := res.Merged[0].Members[0].Category; got != "performance" {
+		t.Errorf("members[0].category = %q, want normalized %q", got, "performance")
+	}
+	if got := res.Merged[0].Members[1].Category; got != "error-handling" {
+		t.Errorf("members[1].category = %q, want normalized %q", got, "error-handling")
+	}
+}
+
+// Members follow the cluster's line sort regardless of stream order, so a split
+// is deterministic across runs.
+func TestDedupeTD_MemberOrderIsLineSorted(t *testing.T) {
+	// Stream order deliberately reversed relative to line order.
+	a := StreamInput{Tag: "a", Content: `HIGH|auth.go:47|later|fix late|security|5|e|kai`}
+	b := StreamInput{Tag: "b", Content: `HIGH|auth.go:45|earlier|fix early|security|5|e|bruce`}
+	res, err := dedupeTD([]StreamInput{a, b}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	ms := res.Merged[0].Members
+	if len(ms) != 2 {
+		t.Fatalf("want 2 members, got %d", len(ms))
+	}
+	if ms[0].FileLine != "auth.go:45" || ms[1].FileLine != "auth.go:47" {
+		t.Errorf("members not line-sorted: %q then %q", ms[0].FileLine, ms[1].FileLine)
+	}
+}
+
+// The binary must NOT back-fill an empty member field from the pooled row.
+// Deciding what a missing FIX falls back to is the caller's judgment; silently
+// substituting the cluster's pooled FIX here would reintroduce the exact
+// copy-pasted-FIX artifact this change exists to remove, only invisibly.
+func TestDedupeTD_EmptyMemberFieldNotBackFilled(t *testing.T) {
+	// 5-col legacy rows carry no EST; the second row's FIX is empty.
+	a := StreamInput{Tag: "a", Content: `HIGH|auth.go:45|Missing validation|Add zod schema|security`}
+	b := StreamInput{Tag: "b", Content: `HIGH|auth.go:46|Something else here||security`}
+	res, err := dedupeTD([]StreamInput{a, b}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	ms := res.Merged[0].Members
+	if len(ms) != 2 {
+		t.Fatalf("want 2 members, got %d", len(ms))
+	}
+	if ms[1].Fix != "" {
+		t.Errorf("members[1].fix = %q, want \"\" — an absent fix must not be back-filled from the pooled row", ms[1].Fix)
+	}
+	if ms[0].EstMinutes != 0 || ms[1].EstMinutes != 0 {
+		t.Errorf("5-col rows carry no est; got %v and %v", ms[0].EstMinutes, ms[1].EstMinutes)
+	}
+	// The pooled row still surfaces the one usable fix, so the caller has
+	// something to fall back TO when it decides that is appropriate.
+	if res.Merged[0].Fix != "Add zod schema" {
+		t.Errorf("pooled fix = %q, want the longest non-empty one", res.Merged[0].Fix)
+	}
+}
+
+// The production case: legacy 10-col claude rows clustered with 8-col
+// multi-agent rows. The two widths map FILE:LINE and FIX to different
+// positions, so a member built from the wrong offsets would cite ORIGIN as its
+// file or paste RISK_CLASS as its fix.
+func TestDedupeTD_MembersAcrossMixedStreamWidths(t *testing.T) {
+	tenCol := StreamInput{Tag: "claude", Content: `HIGH|impl|correctness|auth.go:45|Missing validation|Add zod schema|security|15|ev|code-review`}
+	eightCol := StreamInput{Tag: "multi-agent", Content: `MEDIUM|auth.go:47|No userId validation|Validate userId before query|performance|20|e|kai`}
+	res, err := dedupeTD([]StreamInput{tenCol, eightCol}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if len(res.Merged) != 1 {
+		t.Fatalf("want 1 cluster, got %d", len(res.Merged))
+	}
+	want := []MemberRef{
+		{Reviewer: "claude", Severity: "HIGH", FileLine: "auth.go:45", Problem: "Missing validation", Fix: "Add zod schema", Category: "security", EstMinutes: 15},
+		{Reviewer: "kai", Severity: "MEDIUM", FileLine: "auth.go:47", Problem: "No userId validation", Fix: "Validate userId before query", Category: "performance", EstMinutes: 20},
+	}
+	if !reflect.DeepEqual(res.Merged[0].Members, want) {
+		t.Errorf("mixed-width members =\n  %+v\nwant\n  %+v", res.Merged[0].Members, want)
+	}
+}
+
+// A singleton is not a split candidate and must stay free of member noise.
+func TestDedupeTD_SingletonHasNoMembers(t *testing.T) {
+	a := StreamInput{Tag: "a", Content: `HIGH|solo.go:1|p|f|security|5|e|bruce`}
+	res, err := dedupeTD([]StreamInput{a}, DedupeOpts{Tolerance: 3})
+	if err != nil {
+		t.Fatalf("dedupeTD: %v", err)
+	}
+	if res.Merged[0].Members != nil {
+		t.Errorf("singleton members = %+v, want nil (omitempty)", res.Merged[0].Members)
 	}
 }
 
