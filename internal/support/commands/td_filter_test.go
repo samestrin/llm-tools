@@ -293,3 +293,134 @@ func TestFilterTD_InvalidMode(t *testing.T) {
 		t.Fatal("invalid mode must error")
 	}
 }
+
+// ===== ATTEMPTS column (index 11) =====
+//
+// ATTEMPTS records how many times /resolve-td has SELECTED a row and failed to
+// fix it. It is deliberately not a count of how often a reviewer re-reported the
+// finding: a row filtered out before selection (by tier ceiling, severity, max,
+// or mode) has proven nothing, and escalating it would create planning work for
+// an item nobody ever attempted.
+
+// fixtureTDAttempts has a 12-column section carrying ATTEMPTS, plus the legacy
+// 8-column section from the main fixture so absent-column behaviour is covered.
+//
+// Unchecked rows:
+//
+//	g.go:70  HIGH  20  attempts 0
+//	h.go:80  HIGH  20  attempts 3   (exhausted — escalation candidate)
+//	i.go:90  HIGH  20  attempts 5
+//	j.go:99  HIGH  20  attempts ""  (malformed → 0)
+//	k.go:11  HIGH  20  (8-column legacy row, no ATTEMPTS column at all → 0)
+const fixtureTDAttempts = `# Technical Debt
+
+### [2026-08-01] From Sprint: 3.0_gamma
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes | Source | Reviewers | Confidence | Attempts |
+|-------|---|----------|------|---------|-----|----------|-------------|--------|-----------|------------|----------|
+| 1 | [ ] | HIGH | g.go:70 | prob g | fix g | correctness | 20 | post | claude | HIGH | 0 |
+| 1 | [ ] | HIGH | h.go:80 | prob h | fix h | correctness | 20 | post | claude | HIGH | 3 |
+| 1 | [ ] | HIGH | i.go:90 | prob i | fix i | correctness | 20 | post | claude | HIGH | 5 |
+| 1 | [ ] | HIGH | j.go:99 | prob j | fix j | correctness | 20 | post | claude | HIGH |  |
+
+### [2026-08-02] From Sprint: 3.1_delta
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes |
+|-------|---|----------|------|---------|-----|----------|-------------|
+| 1 | [ ] | HIGH | k.go:11 | prob k | fix k | correctness | 20 |
+`
+
+func runAttemptsFilter(t *testing.T, opts TDFilterOpts) *TDFilterResult {
+	t.Helper()
+	res, err := filterTD(fixtureTDAttempts, opts)
+	if err != nil {
+		t.Fatalf("filterTD: %v", err)
+	}
+	return res
+}
+
+func attemptsOf(items []TDFilterRow) map[string]int {
+	out := map[string]int{}
+	for _, it := range items {
+		out[it.FileLine] = it.Attempts
+	}
+	return out
+}
+
+// AC1: a row with no ATTEMPTS column, or an unparseable one, reads as 0 —
+// never as an error and never as a skipped row.
+func TestFilterTD_Attempts_AbsentOrMalformedIsZero(t *testing.T) {
+	res := runAttemptsFilter(t, TDFilterOpts{Mode: "all", Max: 100})
+	got := attemptsOf(res.Items)
+
+	if got["k.go:11"] != 0 {
+		t.Errorf("8-column legacy row attempts = %d, want 0", got["k.go:11"])
+	}
+	if got["j.go:99"] != 0 {
+		t.Errorf("blank attempts cell = %d, want 0", got["j.go:99"])
+	}
+	// The legacy row must still be SELECTED, not dropped for being short.
+	if _, ok := got["k.go:11"]; !ok {
+		t.Error("legacy 8-column row was dropped; adding a column must not break older rows")
+	}
+}
+
+func TestFilterTD_Attempts_ParsedFromColumn(t *testing.T) {
+	res := runAttemptsFilter(t, TDFilterOpts{Mode: "all", Max: 100})
+	got := attemptsOf(res.Items)
+	for file, want := range map[string]int{"g.go:70": 0, "h.go:80": 3, "i.go:90": 5} {
+		if got[file] != want {
+			t.Errorf("%s attempts = %d, want %d", file, got[file], want)
+		}
+	}
+}
+
+// AC2: --min-attempts selects exhausted rows (the escalation candidates).
+func TestFilterTD_MinAttempts(t *testing.T) {
+	res := runAttemptsFilter(t, TDFilterOpts{Mode: "all", Max: 100, MinAttempts: 3})
+	want := []string{"h.go:80", "i.go:90"}
+	if got := fileLinesOf(res.Items); !reflect.DeepEqual(got, want) {
+		t.Errorf("min-attempts=3 items = %v, want %v", got, want)
+	}
+	if res.Summary.ExcludedByAttempts != 3 {
+		t.Errorf("excluded_by_attempts = %d, want 3", res.Summary.ExcludedByAttempts)
+	}
+}
+
+// AC2: --max-attempts excludes rows that have already burned their attempts,
+// so a weak-tier resolve-td run stops re-attempting known-hard items.
+func TestFilterTD_MaxAttempts(t *testing.T) {
+	res := runAttemptsFilter(t, TDFilterOpts{Mode: "all", Max: 100, MaxAttempts: 2})
+	want := []string{"g.go:70", "j.go:99", "k.go:11"}
+	got := fileLinesOf(res.Items)
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("max-attempts=2 items = %v, want %v", got, want)
+	}
+}
+
+// AC2: callers passing neither flag must see byte-identical behaviour to before
+// the column existed. MaxAttempts=0 must mean "no ceiling", not "only zero".
+func TestFilterTD_Attempts_UnsetFlagsChangeNothing(t *testing.T) {
+	res := runAttemptsFilter(t, TDFilterOpts{Mode: "all", Max: 100})
+	want := []string{"g.go:70", "h.go:80", "i.go:90", "j.go:99", "k.go:11"}
+	got := fileLinesOf(res.Items)
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("no attempt flags = %v, want all %v", got, want)
+	}
+	if res.Summary.ExcludedByAttempts != 0 {
+		t.Errorf("excluded_by_attempts = %d, want 0 when no flag set", res.Summary.ExcludedByAttempts)
+	}
+}
+
+// Both bounds together select an exact band.
+func TestFilterTD_MinAndMaxAttempts(t *testing.T) {
+	res := runAttemptsFilter(t, TDFilterOpts{Mode: "all", Max: 100, MinAttempts: 3, MaxAttempts: 3})
+	want := []string{"h.go:80"}
+	if got := fileLinesOf(res.Items); !reflect.DeepEqual(got, want) {
+		t.Errorf("attempts band [3,3] = %v, want %v", got, want)
+	}
+}
