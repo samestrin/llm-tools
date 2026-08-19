@@ -280,6 +280,8 @@ func buildArgs(cmdName string, args map[string]interface{}) ([]string, error) {
 		return buildTDMatrixArgs(args), nil
 	case "td_filter":
 		return buildTDFilterArgs(args), nil
+	case "epic_number":
+		return buildEpicNumberArgs(args), nil
 	case "td_dedupe":
 		return buildTdDedupeArgs(args), nil
 	case "td_validate":
@@ -1953,9 +1955,35 @@ func buildTDFilterArgs(args map[string]interface{}) []string {
 	if v, ok := args["max"].(float64); ok {
 		cmdArgs = append(cmdArgs, "--max", strconv.Itoa(int(v)))
 	}
+	for _, key := range []string{"min_attempts", "max_attempts"} {
+		if v, ok := args[key].(float64); ok && v > 0 {
+			cmdArgs = append(cmdArgs, "--"+strings.ReplaceAll(key, "_", "-"), strconv.Itoa(int(v)))
+		}
+	}
 	// Full JSON (no --min): the consumer iterates complete item objects; minimal
 	// mode would omit zero/empty item fields. The filtered set is small, so the
 	// token cost is negligible.
+	cmdArgs = append(cmdArgs, "--json")
+	return cmdArgs
+}
+
+// buildEpicNumberArgs maps the epic_number tool call onto the CLI. dirs is a
+// comma-separated list because MCP arg shapes are flat, but the CLI takes one
+// --dir per directory: callers must pass BOTH active/ and completed/, since a
+// number belonging to a shipped epic is spent and reusing it would give two
+// plans the same execution position.
+func buildEpicNumberArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"epic-number"}
+	if v, ok := args["dirs"].(string); ok && v != "" {
+		for _, d := range strings.Split(v, ",") {
+			if d = strings.TrimSpace(d); d != "" {
+				cmdArgs = append(cmdArgs, "--dir", d)
+			}
+		}
+	}
+	if v, ok := args["parent"].(string); ok && v != "" {
+		cmdArgs = append(cmdArgs, "--parent", v)
+	}
 	cmdArgs = append(cmdArgs, "--json")
 	return cmdArgs
 }
