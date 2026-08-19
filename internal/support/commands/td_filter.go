@@ -13,15 +13,17 @@ import (
 )
 
 var (
-	tdFilterPath       string
-	tdFilterMode       string
-	tdFilterSeverity   string
-	tdFilterConfidence string
-	tdFilterGroup      string
-	tdFilterFocus      string
-	tdFilterMax        int
-	tdFilterJSON       bool
-	tdFilterMin        bool
+	tdFilterPath        string
+	tdFilterMode        string
+	tdFilterSeverity    string
+	tdFilterConfidence  string
+	tdFilterMinAttempts int
+	tdFilterMaxAttempts int
+	tdFilterGroup       string
+	tdFilterFocus       string
+	tdFilterMax         int
+	tdFilterJSON        bool
+	tdFilterMin         bool
 )
 
 func newTDFilterCmd() *cobra.Command {
@@ -38,6 +40,9 @@ mode threshold -> group (+ write-scope) -> severity -> confidence -> max.
 
   mode:        quick-wins (est < 30) | backlog (30 <= est < 2880) | all
   severity:    comma list (low,medium,high,critical); empty = all
+  attempts:    --min-attempts / --max-attempts bound the ATTEMPTS column
+               (times /resolve-td selected the row and failed). 0 = unbounded
+               on both. Rows with no ATTEMPTS column read as 0.
   confidence:  comma list (low,medium,high); empty = all. Rows with no
                Confidence column are excluded when this filter is set.
   group:       Group-column value (e.g. Solo,1,2,U; case-insensitive); empty = all
@@ -51,6 +56,8 @@ Output is JSON: {items:[...], summary:{...}}.`,
 	cmd.Flags().StringVar(&tdFilterMode, "mode", "quick-wins", "quick-wins | backlog | all")
 	cmd.Flags().StringVar(&tdFilterSeverity, "severity", "", "Comma-separated severities to keep (empty = all)")
 	cmd.Flags().StringVar(&tdFilterConfidence, "confidence", "", "Comma-separated confidences to keep (empty = all)")
+	cmd.Flags().IntVar(&tdFilterMinAttempts, "min-attempts", 0, "Keep only rows with at least N failed fix attempts (0 = no floor)")
+	cmd.Flags().IntVar(&tdFilterMaxAttempts, "max-attempts", 0, "Keep only rows with at most N failed fix attempts (0 = no ceiling)")
 	cmd.Flags().StringVar(&tdFilterGroup, "group", "", "Group-column value to keep (empty = all)")
 	cmd.Flags().StringVar(&tdFilterFocus, "focus", "", "Section header substring (case-insensitive)")
 	cmd.Flags().IntVar(&tdFilterMax, "max", 10, "Max items to return (first N in source order)")
@@ -66,12 +73,14 @@ func runTDFilter(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 	result, err := filterTD(string(content), TDFilterOpts{
-		Mode:       tdFilterMode,
-		Severity:   splitCSV(tdFilterSeverity),
-		Confidence: splitCSV(tdFilterConfidence),
-		Group:      strings.TrimSpace(tdFilterGroup),
-		Focus:      strings.TrimSpace(tdFilterFocus),
-		Max:        tdFilterMax,
+		Mode:        tdFilterMode,
+		Severity:    splitCSV(tdFilterSeverity),
+		Confidence:  splitCSV(tdFilterConfidence),
+		MinAttempts: tdFilterMinAttempts,
+		MaxAttempts: tdFilterMaxAttempts,
+		Group:       strings.TrimSpace(tdFilterGroup),
+		Focus:       strings.TrimSpace(tdFilterFocus),
+		Max:         tdFilterMax,
 	})
 	if err != nil {
 		return err
@@ -115,7 +124,11 @@ type TDFilterRow struct {
 	Source     string  `json:"source,omitempty"`
 	Reviewers  string  `json:"reviewers,omitempty"`
 	Confidence string  `json:"confidence,omitempty"`
-	Section    string  `json:"section"`
+	// Attempts counts how many times /resolve-td SELECTED this row and failed to
+	// fix it. It is not a count of how often a reviewer re-reported the finding:
+	// a row filtered out before selection has proven nothing about difficulty.
+	Attempts int    `json:"attempts,omitempty"`
+	Section  string `json:"section"`
 }
 
 // TDFilterOpts mirrors the /resolve-td selection flags.
@@ -126,6 +139,13 @@ type TDFilterOpts struct {
 	Group      string   // empty = all
 	Focus      string   // section substring, case-insensitive
 	Max        int      // default 10
+	// MinAttempts keeps only rows with at least this many failed attempts
+	// (0 = no floor). Used to select escalation candidates.
+	MinAttempts int
+	// MaxAttempts keeps only rows with at most this many failed attempts
+	// (0 = NO CEILING, not "only zero"), so a weak-tier run can skip rows that
+	// already burned their attempts.
+	MaxAttempts int
 }
 
 // TDFilterSummary reports the counts the skill displays (and the group write-scope).
@@ -139,6 +159,7 @@ type TDFilterSummary struct {
 	ExcludedByGroup      int      `json:"excluded_by_group"`
 	ExcludedBySeverity   int      `json:"excluded_by_severity"`
 	ExcludedByConfidence int      `json:"excluded_by_confidence"`
+	ExcludedByAttempts   int      `json:"excluded_by_attempts"`
 	GroupScope           []string `json:"group_scope,omitempty"`
 	Malformed            []string `json:"malformed,omitempty"`
 }
@@ -175,12 +196,20 @@ func filterTD(content string, opts TDFilterOpts) (*TDFilterResult, error) {
 	focusLower := strings.ToLower(opts.Focus)
 	currentSection := ""
 	inFocus := false // not inside any From-section yet
+	// attemptsIdx is resolved from each section's own header row. Column POSITION
+	// is not stable: group_td emits Source/Reviewers/Confidence only when some row
+	// carries a value, so a table with Attempts but no Reviewers puts Attempts at a
+	// lower index. A fixed index would read 0 for every row — indistinguishable
+	// from "never attempted", which is the one thing escalation must not get wrong.
+	// -1 means this section has no Attempts column.
+	attemptsIdx := -1
 
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "#") {
 			if tdFromSectionRe.MatchString(trimmed) {
 				currentSection = trimmed
+				attemptsIdx = -1 // each section carries its own header
 				if opts.Focus == "" {
 					inFocus = true
 				} else {
@@ -206,6 +235,15 @@ func filterTD(content string, opts TDFilterOpts) (*TDFilterResult, error) {
 			cells[i] = strings.TrimSpace(cells[i])
 		}
 		if len(cells) < 8 || strings.EqualFold(cells[0], "Group") {
+			if strings.EqualFold(cells[0], "Group") {
+				attemptsIdx = -1
+				for i, h := range cells {
+					if strings.EqualFold(strings.TrimSpace(h), "Attempts") {
+						attemptsIdx = i
+						break
+					}
+				}
+			}
 			continue // not a TD data row (or the header row)
 		}
 		if cells[1] != "[ ]" {
@@ -224,6 +262,13 @@ func filterTD(content string, opts TDFilterOpts) (*TDFilterResult, error) {
 		}
 		if len(cells) > 10 {
 			row.Confidence = strings.ToUpper(cells[10])
+		}
+		if attemptsIdx >= 0 && attemptsIdx < len(cells) {
+			// A blank or unparseable cell is 0, never an error: the column is
+			// optional and a malformed value must not drop the row.
+			if n, convErr := strconv.Atoi(strings.TrimSpace(cells[attemptsIdx])); convErr == nil {
+				row.Attempts = n
+			}
 		}
 		est, err := strconv.ParseFloat(cells[7], 64)
 		if err != nil {
@@ -306,13 +351,38 @@ func filterTD(content string, opts TDFilterOpts) (*TDFilterResult, error) {
 		working = kept
 	}
 
+	// 6. Attempts filter — bounds on how many times /resolve-td already tried and
+	// failed on the row. MaxAttempts == 0 means NO CEILING (not "only zero"), so
+	// callers that pass neither flag behave exactly as they did before the column
+	// existed.
+	excludedByAttempts := 0
+	if opts.MinAttempts > 0 && opts.MaxAttempts > 0 && opts.MinAttempts > opts.MaxAttempts {
+		// An impossible band must not masquerade as "nothing needs escalation".
+		return nil, fmt.Errorf("--min-attempts (%d) is greater than --max-attempts (%d): no row can satisfy both",
+			opts.MinAttempts, opts.MaxAttempts)
+	}
+	if opts.MinAttempts > 0 || opts.MaxAttempts > 0 {
+		kept := working[:0:0]
+		for _, r := range working {
+			if r.Attempts < opts.MinAttempts {
+				continue
+			}
+			if opts.MaxAttempts > 0 && r.Attempts > opts.MaxAttempts {
+				continue
+			}
+			kept = append(kept, r)
+		}
+		excludedByAttempts = len(working) - len(kept)
+		working = kept
+	}
+
 	matched := len(working)
 
 	// Data-loss guard: every mode-in row is either matched or excluded by exactly
 	// one sequential filter — no silent drops.
-	if len(modeIn) != matched+excludedByGroup+excludedBySeverity+excludedByConfidence {
-		return nil, fmt.Errorf("FATAL: filter accounting mismatch: mode_in=%d matched=%d excluded(group=%d severity=%d confidence=%d)",
-			len(modeIn), matched, excludedByGroup, excludedBySeverity, excludedByConfidence)
+	if len(modeIn) != matched+excludedByGroup+excludedBySeverity+excludedByConfidence+excludedByAttempts {
+		return nil, fmt.Errorf("FATAL: filter accounting mismatch: mode_in=%d matched=%d excluded(group=%d severity=%d confidence=%d attempts=%d)",
+			len(modeIn), matched, excludedByGroup, excludedBySeverity, excludedByConfidence, excludedByAttempts)
 	}
 
 	// 6. Max — first N in source order.
@@ -340,6 +410,7 @@ func filterTD(content string, opts TDFilterOpts) (*TDFilterResult, error) {
 			ExcludedByGroup:      excludedByGroup,
 			ExcludedBySeverity:   excludedBySeverity,
 			ExcludedByConfidence: excludedByConfidence,
+			ExcludedByAttempts:   excludedByAttempts,
 			GroupScope:           groupScope,
 			Malformed:            malformed,
 		},

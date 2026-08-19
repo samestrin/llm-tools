@@ -2611,3 +2611,85 @@ func TestWriteGroupedMarkdown_FrontendCommentDoesNotBreakRenumber(t *testing.T) 
 		t.Errorf("--renumber corrupted the markdown table:\n%s", string(after))
 	}
 }
+
+// The ATTEMPTS column must survive the write. Dropping it makes every row read
+// as never-attempted downstream, which is the one thing the escalation rule
+// must not get wrong: it would either escalate nothing, or escalate work nobody
+// ever tried.
+func TestGroupTDPipeFormatWithAttempts(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	pipeInput := `# TD_STREAM
+HIGH|src/a.ts:1|Prob a|Fix a|correctness|20|post|3
+LOW|src/b.ts:2|Prob b|Fix b|style|5|post|0
+`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES,SOURCE,ATTEMPTS",
+		"--json", "--assign-numbers", "--checkbox",
+		"--output-file", outputFile,
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	if !bytes.Contains(data, []byte("| Attempts |")) {
+		t.Errorf("expected an Attempts column in the header, got:\n%s", data)
+	}
+	// A genuine zero is meaningful — "tried and it is fine" differs from
+	// "never tried" — so the column must appear even though one row is 0.
+	if !bytes.Contains(data, []byte("| 3 |")) {
+		t.Errorf("expected attempts cell '3', got:\n%s", data)
+	}
+	// The separator row must gain a cell too, or the table is malformed.
+	sepOK := bytes.Contains(data, []byte("|--------|\n")) || bytes.Contains(data, []byte("| -------- |"))
+	if !sepOK {
+		t.Errorf("separator row did not gain a cell for Attempts, got:\n%s", data)
+	}
+}
+
+// Absent ATTEMPTS must not add an empty column to every existing README.
+func TestGroupTDPipeFormatWithoutAttempts(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "README.md")
+
+	pipeInput := `# TD_STREAM
+HIGH|src/a.ts:1|Prob a|Fix a|correctness|20|post
+`
+
+	cmd := newGroupTDCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{
+		"--content", pipeInput,
+		"--format", "pipe",
+		"--headers", "SEVERITY,FILE_LINE,PROBLEM,FIX,CATEGORY,EST_MINUTES,SOURCE",
+		"--json", "--assign-numbers",
+		"--output-file", outputFile,
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	if bytes.Contains(data, []byte("Attempts")) {
+		t.Errorf("did not expect an Attempts column without ATTEMPTS header, got:\n%s", data)
+	}
+}

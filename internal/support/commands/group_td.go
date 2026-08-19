@@ -861,6 +861,12 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 	hasSource := hasField("SOURCE")
 	hasReviewers := hasField("REVIEWERS")
 	hasConfidence := hasField("CONFIDENCE")
+	// ATTEMPTS records how many times /resolve-td selected a row and failed. It
+	// must survive the write or the escalation rule reads every row as
+	// never-attempted. hasField is a non-empty test, so a stream where every row
+	// is "0" still emits the column — a genuine zero is meaningful here, it is
+	// the difference between "tried and it is fine" and "never tried".
+	hasAttempts := hasField("ATTEMPTS")
 
 	// Build markdown table
 	var buf strings.Builder
@@ -942,6 +948,10 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		headers = append(headers, "Confidence")
 		dashes = append(dashes, "----------")
 	}
+	if hasAttempts {
+		headers = append(headers, "Attempts")
+		dashes = append(dashes, "--------")
+	}
 	writeHeaderRow(&buf, headers)
 	buf.WriteString("|" + strings.Join(dashes, "|") + "|\n")
 
@@ -958,6 +968,7 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		source     string
 		reviewers  string
 		confidence string
+		attempts   string
 	}
 
 	mkRow := func(groupLabel string, sortKey int, item map[string]interface{}) rowData {
@@ -968,6 +979,7 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		source, _ := item["SOURCE"].(string)
 		reviewers, _ := item["REVIEWERS"].(string)
 		confidence, _ := item["CONFIDENCE"].(string)
+		attempts, _ := item["ATTEMPTS"].(string)
 		// REVIEWERS is stored comma-joined (e.g. "bruce,greta"); render
 		// with a space after each comma for readability in the table cell.
 		reviewers = strings.ReplaceAll(reviewers, ",", ", ")
@@ -983,6 +995,7 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 			source:     source,
 			reviewers:  reviewers,
 			confidence: confidence,
+			attempts:   attempts,
 		}
 	}
 
@@ -1030,6 +1043,9 @@ func writeGroupedMarkdown(result GroupTDResult, outputFile string, checkbox bool
 		}
 		if hasConfidence {
 			cells = append(cells, r.confidence)
+		}
+		if hasAttempts {
+			cells = append(cells, r.attempts)
 		}
 		writeDataRow(&buf, cells)
 	}
