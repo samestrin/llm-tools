@@ -3,6 +3,7 @@ package commands
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -422,5 +423,19 @@ func TestFilterTD_MinAndMaxAttempts(t *testing.T) {
 	want := []string{"h.go:80"}
 	if got := fileLinesOf(res.Items); !reflect.DeepEqual(got, want) {
 		t.Errorf("attempts band [3,3] = %v, want %v", got, want)
+	}
+}
+
+// Inverted bounds are a caller error, not an empty result set. Silently
+// returning nothing would read as "no rows need escalation" — the same
+// failure shape as an inverted tier config, which is worse than an error
+// because it looks like a clean run.
+func TestFilterTD_Attempts_InvertedBoundsError(t *testing.T) {
+	_, err := filterTD(fixtureTDAttempts, TDFilterOpts{Mode: "all", Max: 100, MinAttempts: 5, MaxAttempts: 2})
+	if err == nil {
+		t.Fatal("min-attempts > max-attempts returned no error; an impossible band must not look like an empty result")
+	}
+	if !strings.Contains(err.Error(), "min-attempts") {
+		t.Errorf("error should name the offending flags, got: %v", err)
 	}
 }
