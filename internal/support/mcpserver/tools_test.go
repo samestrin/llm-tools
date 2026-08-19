@@ -2,15 +2,16 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	// Expect exactly 76 tools
-	if len(tools) != 76 {
-		t.Errorf("Expected 76 tools, got %d", len(tools))
+	// Expect exactly 77 tools (76 + epic_number)
+	if len(tools) != 77 {
+		t.Errorf("Expected 77 tools, got %d", len(tools))
 	}
 
 	// Verify all tools have the correct prefix
@@ -183,5 +184,30 @@ func TestToolSchemaRequiredFields(t *testing.T) {
 				t.Errorf("Tool %s: missing required field %s", tool.Name, exp)
 			}
 		}
+	}
+}
+
+// epic_number must be exposed over MCP, not just as a CLI subcommand: the
+// planning skills follow an MCP-first tool hierarchy, and a CLI-only command
+// would force them to shell out against their own convention.
+func TestEpicNumberToolRegistered(t *testing.T) {
+	tools := GetToolDefinitions()
+	var found bool
+	for _, tool := range tools {
+		if tool.Name == ToolPrefix+"epic_number" {
+			found = true
+			if len(tool.InputSchema) == 0 {
+				t.Error("epic_number has an empty input schema")
+			}
+			if !strings.Contains(string(tool.InputSchema), "dirs") {
+				t.Error("epic_number schema must accept dirs")
+			}
+			if !strings.Contains(string(tool.InputSchema), "parent") {
+				t.Error("epic_number schema must accept parent")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("%sepic_number is not registered", ToolPrefix)
 	}
 }
