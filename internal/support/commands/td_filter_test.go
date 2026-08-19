@@ -439,3 +439,48 @@ func TestFilterTD_Attempts_InvertedBoundsError(t *testing.T) {
 		t.Errorf("error should name the offending flags, got: %v", err)
 	}
 }
+
+// Column POSITION is not stable: group_td emits Source/Reviewers/Confidence
+// only when some row has a non-empty value, so a table carrying Attempts but
+// no Reviewers puts Attempts at a lower index. Reading a fixed index 11 would
+// silently report 0 for every row — indistinguishable from "never attempted",
+// which is the one thing escalation must never get wrong.
+const fixtureTDAttemptsShifted = `# Technical Debt
+
+### [2026-08-03] From Sprint: 4.0_shifted
+
+| Group | | Severity | File | Problem | Fix | Category | Est Minutes | Source | Attempts |
+|-------|---|----------|------|---------|-----|----------|-------------|--------|----------|
+| 1 | [ ] | HIGH | m.go:10 | prob m | fix m | correctness | 20 | post | 4 |
+| 1 | [ ] | HIGH | n.go:20 | prob n | fix n | correctness | 20 | post | 1 |
+`
+
+func TestFilterTD_Attempts_FoundByHeaderNotPosition(t *testing.T) {
+	res, err := filterTD(fixtureTDAttemptsShifted, TDFilterOpts{Mode: "all", Max: 100})
+	if err != nil {
+		t.Fatalf("filterTD: %v", err)
+	}
+	got := attemptsOf(res.Items)
+	if got["m.go:10"] != 4 {
+		t.Errorf("m.go:10 attempts = %d, want 4 (Attempts is at index 9 here, not 11)", got["m.go:10"])
+	}
+	if got["n.go:20"] != 1 {
+		t.Errorf("n.go:20 attempts = %d, want 1", got["n.go:20"])
+	}
+}
+
+// Each section carries its own header, so a 12-column section and an 8-column
+// legacy section in one file must both resolve correctly.
+func TestFilterTD_Attempts_PerSectionHeaders(t *testing.T) {
+	res, err := filterTD(fixtureTDAttempts, TDFilterOpts{Mode: "all", Max: 100})
+	if err != nil {
+		t.Fatalf("filterTD: %v", err)
+	}
+	got := attemptsOf(res.Items)
+	if got["h.go:80"] != 3 {
+		t.Errorf("12-col section: h.go:80 attempts = %d, want 3", got["h.go:80"])
+	}
+	if got["k.go:11"] != 0 {
+		t.Errorf("8-col legacy section: k.go:11 attempts = %d, want 0", got["k.go:11"])
+	}
+}

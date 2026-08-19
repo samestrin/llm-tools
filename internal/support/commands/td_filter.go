@@ -196,12 +196,20 @@ func filterTD(content string, opts TDFilterOpts) (*TDFilterResult, error) {
 	focusLower := strings.ToLower(opts.Focus)
 	currentSection := ""
 	inFocus := false // not inside any From-section yet
+	// attemptsIdx is resolved from each section's own header row. Column POSITION
+	// is not stable: group_td emits Source/Reviewers/Confidence only when some row
+	// carries a value, so a table with Attempts but no Reviewers puts Attempts at a
+	// lower index. A fixed index would read 0 for every row — indistinguishable
+	// from "never attempted", which is the one thing escalation must not get wrong.
+	// -1 means this section has no Attempts column.
+	attemptsIdx := -1
 
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "#") {
 			if tdFromSectionRe.MatchString(trimmed) {
 				currentSection = trimmed
+				attemptsIdx = -1 // each section carries its own header
 				if opts.Focus == "" {
 					inFocus = true
 				} else {
@@ -227,6 +235,15 @@ func filterTD(content string, opts TDFilterOpts) (*TDFilterResult, error) {
 			cells[i] = strings.TrimSpace(cells[i])
 		}
 		if len(cells) < 8 || strings.EqualFold(cells[0], "Group") {
+			if strings.EqualFold(cells[0], "Group") {
+				attemptsIdx = -1
+				for i, h := range cells {
+					if strings.EqualFold(strings.TrimSpace(h), "Attempts") {
+						attemptsIdx = i
+						break
+					}
+				}
+			}
 			continue // not a TD data row (or the header row)
 		}
 		if cells[1] != "[ ]" {
@@ -246,10 +263,10 @@ func filterTD(content string, opts TDFilterOpts) (*TDFilterResult, error) {
 		if len(cells) > 10 {
 			row.Confidence = strings.ToUpper(cells[10])
 		}
-		if len(cells) > 11 {
+		if attemptsIdx >= 0 && attemptsIdx < len(cells) {
 			// A blank or unparseable cell is 0, never an error: the column is
 			// optional and a malformed value must not drop the row.
-			if n, convErr := strconv.Atoi(strings.TrimSpace(cells[11])); convErr == nil {
+			if n, convErr := strconv.Atoi(strings.TrimSpace(cells[attemptsIdx])); convErr == nil {
 				row.Attempts = n
 			}
 		}
