@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -317,10 +318,15 @@ func TestDedupeTD_MembersCarryOwnFixAndCitation(t *testing.T) {
 		t.Errorf("members =\n  %+v\nwant\n  %+v", r.Members, want)
 	}
 
-	// The pooled row's own semantics are unchanged: longest FIX, max EST,
-	// first member's FILE:LINE.
-	if r.Fix != "Validate userId before query" {
-		t.Errorf("pooled fix = %q, want the longest one", r.Fix)
+	// The pooled row keeps BOTH remedies. Longest-wins used to drop one, which
+	// is silent: the merged row still looks complete, and the discarded remedy
+	// is what someone working the TD README would have acted on. That loss hits
+	// the keep-merged path, which Members alone does not cover.
+	if r.Fix != "Add zod schema // Validate userId before query" {
+		t.Errorf("pooled fix = %q, want both remedies joined", r.Fix)
+	}
+	if r.Problem != "Missing validation // No input validation on userId" {
+		t.Errorf("pooled problem = %q, want both statements joined", r.Problem)
 	}
 	if r.EstMinutes != 20 {
 		t.Errorf("pooled est = %v, want 20 (max)", r.EstMinutes)
@@ -477,4 +483,60 @@ func splitSorted(csv string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Pooling must be lossless WITHOUT being noisy: two reviewers restating one
+// remedy should collapse to a single value, while two genuinely different
+// remedies must both survive. Longest-wins got the first case right by accident
+// and the second case wrong every time.
+func TestDedupeTD_PooledTextCollapsesRestatementsKeepsDistinct(t *testing.T) {
+	cases := []struct {
+		name    string
+		a, b    StreamInput
+		wantFix string
+	}{
+		{
+			name:    "identical remedies collapse",
+			a:       StreamInput{Tag: "claude", Content: `HIGH|a.go:10|prob one|Add a bounds check|correctness|5|e|bruce`},
+			b:       StreamInput{Tag: "multi-agent", Content: `HIGH|a.go:11|prob two|Add a bounds check|correctness|5|e|kai`},
+			wantFix: "Add a bounds check",
+		},
+		{
+			name:    "a restatement contained in the other collapses to the longer",
+			a:       StreamInput{Tag: "claude", Content: `HIGH|b.go:10|prob one|Add a bounds check|correctness|5|e|bruce`},
+			b:       StreamInput{Tag: "multi-agent", Content: `HIGH|b.go:11|prob two|Add a bounds check before the loop|correctness|5|e|kai`},
+			wantFix: "Add a bounds check before the loop",
+		},
+		{
+			name:    "distinct remedies are both kept",
+			a:       StreamInput{Tag: "claude", Content: `HIGH|c.go:10|prob one|Add a bounds check|correctness|5|e|bruce`},
+			b:       StreamInput{Tag: "multi-agent", Content: `HIGH|c.go:11|prob two|Type it as a Literal instead|correctness|5|e|kai`},
+			wantFix: "Add a bounds check // Type it as a Literal instead",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := dedupeTD([]StreamInput{tc.a, tc.b}, DedupeOpts{Tolerance: 3})
+			if err != nil {
+				t.Fatalf("dedupeTD: %v", err)
+			}
+			if len(res.Merged) != 1 {
+				t.Fatalf("want 1 cluster, got %d", len(res.Merged))
+			}
+			if got := res.Merged[0].Fix; got != tc.wantFix {
+				t.Errorf("pooled fix = %q, want %q", got, tc.wantFix)
+			}
+		})
+	}
+}
+
+// The separator lands in a markdown table cell and in a pipe-delimited stream.
+// If it ever becomes "|" both parse paths break silently.
+func TestDedupeTD_SeparatorIsDelimiterSafe(t *testing.T) {
+	if strings.Contains(clusterTextSeparator, "|") {
+		t.Fatalf("clusterTextSeparator %q contains the field delimiter", clusterTextSeparator)
+	}
+	if strings.TrimSpace(clusterTextSeparator) == "" {
+		t.Fatalf("clusterTextSeparator %q is blank; joined values would run together", clusterTextSeparator)
+	}
 }
