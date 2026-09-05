@@ -322,6 +322,50 @@ func normalizeRow(line, tag string) (tdParsedRow, bool) {
 	return r, true
 }
 
+// clusterTextSeparator joins distinct member text inside one pooled cell. It must
+// never be "|" (the stream field delimiter) and must survive a markdown table cell.
+const clusterTextSeparator = " // "
+
+// combineClusterText pools member PROBLEM/FIX values losslessly.
+//
+// This replaced a longest-wins pick. Longest-wins is safe only when members are
+// restatements of one another; when two reviewers propose DIFFERENT remedies for
+// the same issue, it silently discarded one. That loss is invisible downstream —
+// the merged row still looks complete — and it lands in the TD README, where the
+// discarded remedy is the thing someone would have acted on.
+//
+// Members that add nothing are still collapsed: a value already contained in a
+// kept value (or equal to one, ignoring case and surrounding space) is dropped,
+// so genuine duplicates do not inflate the cell. Order follows cluster order,
+// which is line-sorted, so the result is deterministic.
+func combineClusterText(vals []string) string {
+	var kept []string
+	for _, v := range vals {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		redundant := false
+		for i, k := range kept {
+			switch {
+			case strings.Contains(k, v) || strings.EqualFold(k, v):
+				redundant = true
+			case strings.Contains(v, k):
+				// v subsumes an earlier value: keep the longer, drop the shorter.
+				kept[i] = v
+				redundant = true
+			}
+			if redundant {
+				break
+			}
+		}
+		if !redundant {
+			kept = append(kept, v)
+		}
+	}
+	return strings.Join(kept, clusterTextSeparator)
+}
+
 // aggregateCluster merges a cluster deterministically.
 func aggregateCluster(c []tdParsedRow, untrusted map[string]bool) MergedRow {
 	out := MergedRow{ClusterSize: len(c), NeedsReview: len(c) >= 2}
@@ -334,6 +378,7 @@ func aggregateCluster(c []tdParsedRow, untrusted map[string]bool) MergedRow {
 	var catOrder []string
 	maxRank := 0
 	minRank := 1 << 30
+	var problems, fixes []string
 	for _, r := range c {
 		if r.Reviewer != "" && !seenRev[r.Reviewer] {
 			seenRev[r.Reviewer] = true
@@ -360,14 +405,12 @@ func aggregateCluster(c []tdParsedRow, untrusted map[string]bool) MergedRow {
 		if r.EstMinutes > out.EstMinutes {
 			out.EstMinutes = r.EstMinutes
 		}
-		if len(r.Problem) > len(out.Problem) {
-			out.Problem = r.Problem
-		}
-		if len(r.Fix) > len(out.Fix) {
-			out.Fix = r.Fix
-		}
+		problems = append(problems, r.Problem)
+		fixes = append(fixes, r.Fix)
 	}
 	out.Reviewers = strings.Join(revs, ",")
+	out.Problem = combineClusterText(problems)
+	out.Fix = combineClusterText(fixes)
 
 	// Severity: max; disagreement when min != max.
 	out.Severity = rankSeverity(maxRank)
