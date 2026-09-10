@@ -177,3 +177,44 @@ func TestDecodeFileReportsTheFileName(t *testing.T) {
 		t.Errorf("got %d rows, want 2", len(doc.Rows))
 	}
 }
+
+// --- findings from the hostile pass over this package's own diff
+
+func TestDuplicateFieldNamesAreAnError(t *testing.T) {
+	// Two columns sharing a name collapse to one map key, last value wins, and
+	// the caller loses a column with no signal. Silently-wrong is the failure
+	// mode this reader exists to remove, so it is an error.
+	_, err := Decode(strings.NewReader("r[1|]{a|b|a}:\n  1|2|3\n"))
+	if err == nil {
+		t.Fatal("a duplicate field name decoded cleanly, losing a column")
+	}
+	if !strings.Contains(err.Error(), "a") {
+		t.Errorf("error %q does not name the duplicated field", err)
+	}
+}
+
+func TestAnEmptyFieldNameIsAnError(t *testing.T) {
+	// `{}` with a non-zero count yields one field named "" — a key no consumer
+	// can ask for. The zero-row EMPTY FORM (`findings[0]:`) is the legitimate
+	// way to say "no fields", and it has no braces at all.
+	_, err := Decode(strings.NewReader("r[1|]{}:\n  x\n"))
+	if err == nil {
+		t.Fatal("an empty field name decoded cleanly")
+	}
+}
+
+func TestALongFieldSurvives(t *testing.T) {
+	// A PROBLEM or FIX can be long. bufio.Scanner's 64KB default token would
+	// truncate the line, and a truncated finding still looks like a finding.
+	long := strings.Repeat("x", 200_000)
+	doc, err := Decode(strings.NewReader("r[1|]{a|b}:\n  " + long + "|tail\n"))
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if got := doc.Rows[0]["a"]; len(got) != len(long) {
+		t.Errorf("field truncated to %d bytes, want %d", len(got), len(long))
+	}
+	if doc.Rows[0]["b"] != "tail" {
+		t.Errorf("b = %q, want tail", doc.Rows[0]["b"])
+	}
+}

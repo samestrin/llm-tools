@@ -46,8 +46,11 @@ type Document struct {
 	Fields    []string            // declared field names, in order, unquoted
 	Delimiter rune                // read from the header, never assumed
 	Rows      []map[string]string // one map per row, keyed by field name
-	Order     [][]string          // the same rows as ordered values, for re-encoding
 }
+
+// Fields is order-bearing and Rows is not, so a caller that needs positional
+// values rebuilds them from the two. That is lossless because duplicate field
+// names are rejected at parse time.
 
 // Decode reads one TOON tabular array from r.
 func Decode(r io.Reader) (*Document, error) {
@@ -97,7 +100,6 @@ func Decode(r io.Reader) (*Document, error) {
 			row[f] = values[i]
 		}
 		doc.Rows = append(doc.Rows, row)
-		doc.Order = append(doc.Order, values)
 	}
 	if err := sc.Err(); err != nil {
 		return nil, err
@@ -175,6 +177,21 @@ func parseHeader(header string, line int) (*Document, int, error) {
 	fields, err := splitRow(rest[1:len(rest)-1], doc.Delimiter, line)
 	if err != nil {
 		return nil, 0, err
+	}
+	// A field name has to be usable as a map key, and unique. An empty name is
+	// one no consumer can ask for; a repeat collapses two columns into one with
+	// last-value-wins and loses a column in silence — which is the failure mode
+	// this reader exists to remove.
+	seen := make(map[string]bool, len(fields))
+	for i, f := range fields {
+		if f == "" {
+			return nil, 0, fmt.Errorf("toon: line %d: field %d has an empty name", line, i+1)
+		}
+		if seen[f] {
+			return nil, 0, fmt.Errorf("toon: line %d: field %q is declared twice; "+
+				"two columns would collapse into one", line, f)
+		}
+		seen[f] = true
 	}
 	doc.Fields = fields
 	return doc, count, nil
