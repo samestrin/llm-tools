@@ -143,3 +143,85 @@ func TestEpicNumber_DoesNotFillGaps(t *testing.T) {
 		t.Errorf("next = %q, want 4.0 (gaps are not reused)", got)
 	}
 }
+
+// Epic numbers are not capped at three levels in practice: atcr carries a whole
+// 35.16.6.N family. A deeper name that the scan cannot PARSE is worse than a
+// rejected --parent flag, because the number stops being visible at all and the
+// tool will hand it out again to a second plan.
+func TestEpicNumber_FourLevelNamesAreVisible(t *testing.T) {
+	dir := writeEpics(t, "active", "35.16.6.4_a.md", "35.16.6.10_b.md")
+	nums, err := collectEpicNums([]string{dir})
+	if err != nil {
+		t.Fatalf("collectEpicNums: %v", err)
+	}
+	if len(nums) != 2 {
+		t.Fatalf("collected %d epic number(s) from two four-level names, want 2 — a name the scan cannot parse is a number it will re-issue", len(nums))
+	}
+}
+
+// The reason this matters: a four-level child must be derivable, or urgent
+// follow-on work lands at the BACK of its family's queue. Observed in atcr:
+// residue from 35.16.6.4 was numbered 35.16.12 and scheduled seventh, behind
+// 35.16.6.5, .7, .8, .9, .10 and .11.
+func TestEpicNumber_NextChildOfFourLevelParent(t *testing.T) {
+	active, completed := siblingDirs(t,
+		[]string{"35.16.6.4_a.md", "35.16.6.5_b.md", "35.16.7_c.md"},
+		[]string{"35.16.6.1_done.md", "35.16.6.2_done.md"})
+	got, err := nextEpicNumber([]string{active, completed}, "35.16.6")
+	if err != nil {
+		t.Fatalf("nextEpicNumber: %v", err)
+	}
+	if got != "35.16.6.6" {
+		t.Errorf("next child of 35.16.6 = %q, want 35.16.6.6", got)
+	}
+}
+
+// Depth is not capped anywhere, so a five-level parent works the same way.
+func TestEpicNumber_ArbitraryDepth(t *testing.T) {
+	dir := writeEpics(t, "active", "1.2.3.4.5_a.md", "1.2.3.4.9_b.md")
+	got, err := nextEpicNumber([]string{dir}, "1.2.3.4")
+	if err != nil {
+		t.Fatalf("nextEpicNumber: %v", err)
+	}
+	if got != "1.2.3.4.10" {
+		t.Errorf("next child of 1.2.3.4 = %q, want 1.2.3.4.10", got)
+	}
+}
+
+// Backward compatibility: a shallower parent must still count deeper
+// descendants at ITS level. 35.16.6.4 contributes 6 to the level under 35.16,
+// exactly as 35.16.6 would, so a queued 35.16.11 still yields 35.16.12.
+func TestEpicNumber_DeepDescendantsCountAtTheParentLevel(t *testing.T) {
+	dir := writeEpics(t, "active", "35.16.6.4_a.md", "35.16.11_b.md")
+	got, err := nextEpicNumber([]string{dir}, "35.16")
+	if err != nil {
+		t.Fatalf("nextEpicNumber: %v", err)
+	}
+	if got != "35.16.12" {
+		t.Errorf("next child of 35.16 = %q, want 35.16.12", got)
+	}
+}
+
+// A parent with no descendant deeper than itself still yields a first child.
+func TestEpicNumber_FirstChildOfDeepParent(t *testing.T) {
+	dir := writeEpics(t, "active", "35.16.6_a.md", "35.17_b.md")
+	got, err := nextEpicNumber([]string{dir}, "35.16.6")
+	if err != nil {
+		t.Fatalf("nextEpicNumber: %v", err)
+	}
+	if got != "35.16.6.1" {
+		t.Errorf("first child of 35.16.6 = %q, want 35.16.6.1", got)
+	}
+}
+
+// A non-numeric parent is still an error; removing the depth cap must not
+// remove the validation with it.
+func TestEpicNumber_RejectsNonNumericParent(t *testing.T) {
+	dir := writeEpics(t, "active", "1.0_a.md")
+	if _, err := nextEpicNumber([]string{dir}, "3.x"); err == nil {
+		t.Fatal("expected an error for a non-numeric parent component")
+	}
+	if _, err := nextEpicNumber([]string{dir}, ""); err != nil {
+		t.Fatalf("empty parent is not an error: %v", err)
+	}
+}

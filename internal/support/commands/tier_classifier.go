@@ -67,11 +67,32 @@ func init() {
 	RootCmd.AddCommand(newTierClassifierCmd())
 }
 
-// loadTierConfig reads package-tiers.yaml into a TierConfig. `packages` is a
-// name->tier map. `patterns` and `categories` may each be either an ordered
-// YAML sequence (of {pattern|keyword, tier} maps) or a map (glob/keyword ->
-// tier), in which case rules are ordered most-specific-first (longer key wins
-// the tie) for deterministic first-match.
+// nestedTierSections maps a tier-keyed package-tiers.yaml section name to the
+// tier it assigns. "patterns" here is the nested schema's tier bucket (named
+// after the "pattern" tier), not the flat schema's glob-rule list of the same
+// name — the two schemas are told apart by whether "packages" is present.
+var nestedTierSections = map[string]string{
+	"critical":  "critical",
+	"important": "important",
+	"patterns":  "pattern",
+	"utility":   "utility",
+	"skip":      "skip",
+}
+
+// loadTierConfig reads package-tiers.yaml into a TierConfig, supporting two
+// schemas, told apart by whether a top-level "packages" key is present:
+//
+//   - flat: `packages` is a name->tier map. `patterns` and `categories` may
+//     each be either an ordered YAML sequence (of {pattern|keyword, tier}
+//     maps) or a map (glob/keyword -> tier), in which case rules are ordered
+//     most-specific-first (longer key wins the tie) for deterministic
+//     first-match.
+//   - nested: tier names (critical/important/patterns/utility/skip) are the
+//     top-level keys, with package names nested arbitrarily deep underneath
+//     as category headers (e.g. critical.frameworks.frontend: [react, vue]).
+//     Every leaf package name is assigned Pass 1 (exact match) at its
+//     section's tier. `version` and `framework_overrides` are ignored — they
+//     carry no tier data.
 func loadTierConfig(path string) (TierConfig, error) {
 	raw, err := readYAMLAsMap(path)
 	if err != nil {
@@ -82,10 +103,35 @@ func loadTierConfig(path string) (TierConfig, error) {
 		for name, tier := range pm {
 			cfg.Explicit[name] = fmt.Sprintf("%v", tier)
 		}
+		cfg.Patterns = toTierRules(raw["patterns"], "pattern")
+		cfg.Categories = toTierRules(raw["categories"], "keyword")
+		return cfg, nil
 	}
-	cfg.Patterns = toTierRules(raw["patterns"], "pattern")
-	cfg.Categories = toTierRules(raw["categories"], "keyword")
+	for section, tier := range nestedTierSections {
+		if val, ok := raw[section]; ok {
+			collectNestedPackages(val, tier, cfg.Explicit)
+		}
+	}
 	return cfg, nil
+}
+
+// collectNestedPackages walks a nested tier section (maps of category name ->
+// sub-map, or a list of package names) and assigns every leaf string to tier
+// in dst. Non-package leaves (e.g. utility's "description" string) have no
+// matching case and are silently skipped.
+func collectNestedPackages(val interface{}, tier string, dst map[string]string) {
+	switch v := val.(type) {
+	case []interface{}:
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				dst[s] = tier
+			}
+		}
+	case map[string]interface{}:
+		for _, sub := range v {
+			collectNestedPackages(sub, tier, dst)
+		}
+	}
 }
 
 // toTierRules normalizes the patterns/categories config value into ordered

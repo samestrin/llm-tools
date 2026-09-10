@@ -1695,12 +1695,12 @@ func GetToolDefinitions() []ToolDefinition {
 		// 58b-2. Epic Plan numbering
 		{
 			Name:        ToolPrefix + "epic_number",
-			Description: "Pick the next free Epic Plan number across one or more directories. Epic numbers are N, N.M or N.M.P and execute in ascending order, so a number is an execution POSITION, not just an identity. Pass BOTH active/ and completed/: a number used by a shipped epic is spent, and reusing it gives two plans the same position. Gaps are never filled. With parent, returns the next free CHILD, which is how urgent work is slotted between existing plans (parent=3 yields 3.1, executing before a queued 4.0). Use instead of `highest`, which is integer-only and non-recursive.",
+			Description: "Pick the next free Epic Plan number across one or more directories. Epic numbers are dot-separated to ANY depth (N, N.M, N.M.P, N.M.P.Q ...) and execute in ascending order, so a number is an execution POSITION, not just an identity. Pass BOTH active/ and completed/: a number used by a shipped epic is spent, and reusing it gives two plans the same position. Gaps are never filled. With parent, returns the next free CHILD, which is how urgent work is slotted between existing plans (parent=3 yields 3.1, executing before a queued 4.0). Match parent to the family the work belongs to: for follow-on work under a 35.16.6.N family pass parent=35.16.6, since a shallower parent=35.16 returns 35.16.N and lands at the BACK of that queue. Use instead of `highest`, which is integer-only and non-recursive.",
 			InputSchema: json.RawMessage(`{
 						"type": "object",
 						"properties": {
 							"dirs": {"type": "string", "description": "Comma-separated directories holding epic plans. Pass BOTH .planning/epics/active and .planning/epics/completed."},
-							"parent": {"type": "string", "description": "Return the next free child of this epic (e.g. 3 or 3.1). Omit for the next free top-level N.0."}
+							"parent": {"type": "string", "description": "Return the next free child of this epic, at any depth (e.g. 3, 3.1, 35.16.6). Omit for the next free top-level N.0."}
 						},
 						"required": ["dirs"]
 					}`),

@@ -88,7 +88,13 @@ func TestEpicNumberCmd_RejectsBadParent(t *testing.T) {
 	if _, err := runEpicNumberCmd(t, "--dir", active, "--parent", "not-a-number"); err == nil {
 		t.Error("non-numeric --parent should be an error")
 	}
-	if _, err := runEpicNumberCmd(t, "--dir", active, "--parent", "1.2.3.4"); err == nil {
-		t.Error("four-level --parent should be an error (epics are at most N.M.P)")
+	// Depth is uncapped by design: atcr carries a 35.16.6.N family, and a cap
+	// here forced its follow-on work to the back of the queue. Only the
+	// components must be numeric.
+	if _, err := runEpicNumberCmd(t, "--dir", active, "--parent", "1.2.3.4"); err != nil {
+		t.Errorf("four-level --parent must be accepted: %v", err)
+	}
+	if _, err := runEpicNumberCmd(t, "--dir", active, "--parent", "1.2.x"); err == nil {
+		t.Error("a non-numeric level should still be an error")
 	}
 }
