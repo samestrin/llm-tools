@@ -172,10 +172,33 @@ func getParseStreamInput(cmd *cobra.Command) (string, error) {
 	return "", fmt.Errorf("no input provided: specify --file, --content, or pipe data to stdin")
 }
 
+// toonHeaderPattern matches a TOON tabular-array header: `name[N delim]{fields}:`
+// or the empty `name[0]:` form.
+//
+// Detection has to run BEFORE the pipe check and cannot be folded into it: a
+// TOON header contains its own declared delimiter, so "contains a |" matches
+// every TOON payload ever written.
+var toonHeaderPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\[[0-9]+[^\]]*\](\{[^}]*\})?:[ \t]*$`)
+
 func detectFormat(content string) string {
 	lines := strings.Split(content, "\n")
 	if len(lines) == 0 {
 		return "pipe" // default
+	}
+
+	// TOON first, and on the first non-blank line only. Parsing a TOON payload
+	// as pipe does not error — it splits the header into nonsense column names
+	// and keeps every quote — so an undetected payload looks like a successful
+	// parse that read nothing correctly.
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		if toonHeaderPattern.MatchString(t) {
+			return "toon"
+		}
+		break
 	}
 
 	// Check for markdown checklist pattern
