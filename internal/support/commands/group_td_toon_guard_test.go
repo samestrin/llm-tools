@@ -71,3 +71,44 @@ func TestValidateLinesGuardsTOONInputToo(t *testing.T) {
 		t.Error("the quarantined row lost its PROBLEM text")
 	}
 }
+
+// The SECOND instance of the same root cause, found while fixing the first.
+//
+// detectFrontendItem also reads item["FILE_LINE"] directly, so on TOON input it
+// sees nothing and reports every row as non-frontend. The consequence is
+// quieter than the guard's but the same shape: reconcile stops suggesting
+// --visual for frontend findings that came from atcr, and nothing says so.
+//
+// extractFileLine already handles FILE:LINE, FILE_LINE and FILE. Both narrow
+// readers should use it rather than each re-implementing a subset.
+func TestFrontendDetectionSeesTOONFieldNames(t *testing.T) {
+	payload := `findings[1|]{severity|"file:line"|problem|category|est_minutes}:
+  LOW|"src/components/LimitBar.tsx:42"|bar does not re-render after mutation|ui|30
+`
+	cmd := newGroupTDCmd()
+	out := new(bytes.Buffer)
+	cmd.SetOut(out)
+	cmd.SetErr(new(bytes.Buffer))
+	// validate-lines off: this test is about frontend detection, and the .tsx
+	// path does not exist on disk here.
+	cmd.SetArgs([]string{"--content", payload, "--format", "toon", "--json",
+		"--validate-lines=false"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	var res GroupTDResult
+	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+
+	frontend := false
+	for _, g := range res.Groups {
+		if g.Frontend {
+			frontend = true
+		}
+	}
+	if !frontend {
+		t.Error("no group flagged Frontend for a .tsx finding — detectFrontendItem " +
+			"read FILE_LINE only, so TOON rows look like they have no path at all")
+	}
+}
