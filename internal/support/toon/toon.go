@@ -46,6 +46,15 @@ type Document struct {
 	Fields    []string            // declared field names, in order, unquoted
 	Delimiter rune                // read from the header, never assumed
 	Rows      []map[string]string // one map per row, keyed by field name
+
+	// Declared is the row count the HEADER states. It is not always len(Rows):
+	// atcr's paginated payload caps the emitted rows while keeping the true
+	// total in the header, and says so with a `truncated` sibling.
+	Declared int
+
+	// Meta holds `key: value` sibling lines that follow the array at column 0 —
+	// `truncated: false` is the one atcr emits today.
+	Meta map[string]string
 }
 
 // Fields is order-bearing and Rows is not, so a caller that needs positional
@@ -80,12 +89,27 @@ func Decode(r io.Reader) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
+	doc.Meta = map[string]string{}
 
+	// INDENTATION is the discriminator, and it has to be. `atcr report --axi`
+	// appends `truncated: <bool>` at column 0 after the rows, and Epic 42.0 will
+	// append a whole `help[]` block. A reader that consumes every line to EOF
+	// swallows both and reports a column-count mismatch on real CLI output —
+	// which is what this package did until it was run against the binary rather
+	// than against the encoder's golden fixture.
 	for sc.Scan() {
 		line++
 		raw := sc.Text()
 		if strings.TrimSpace(raw) == "" {
 			continue
+		}
+		if raw[0] != ' ' && raw[0] != '\t' {
+			// End of this array's rows. A scalar `key: value` is sibling metadata
+			// worth keeping; anything else is a following block and not ours.
+			if k, v, ok := siblingKV(raw); ok {
+				doc.Meta[k] = v
+			}
+			break
 		}
 		values, err := splitRow(strings.TrimLeft(raw, " \t"), doc.Delimiter, line)
 		if err != nil {
@@ -105,12 +129,17 @@ func Decode(r io.Reader) (*Document, error) {
 		return nil, err
 	}
 
-	// The gate. A truncated payload is indistinguishable from a complete one
-	// without it, and the caller would act on a short list that looks whole.
-	if len(doc.Rows) != count {
+	// The gate, in ONE direction only. More rows than the header declares is a
+	// disagreement no contract allows. FEWER is legitimate and load-bearing:
+	// atcr's paginated payload is "intentionally NOT length-round-trippable —
+	// the header declares N (the true total) while fewer than N rows are
+	// physically present", and it says so with `truncated`. A hard equality gate
+	// cannot read that output at all, so the caller gets both numbers and decides.
+	if len(doc.Rows) > count {
 		return nil, fmt.Errorf("toon: header declares %d row(s) but the payload carries %d",
 			count, len(doc.Rows))
 	}
+	doc.Declared = count
 	return doc, nil
 }
 
@@ -169,6 +198,7 @@ func parseHeader(header string, line int) (*Document, int, error) {
 		if count != 0 {
 			return nil, 0, fmt.Errorf("toon: line %d: header declares %d row(s) but no fields", line, count)
 		}
+		doc.Fields = []string{}
 		return doc, 0, nil
 	}
 	if !strings.HasPrefix(rest, "{") || !strings.HasSuffix(rest, "}") {
@@ -253,4 +283,21 @@ func splitRow(s string, delim rune, line int) ([]string, error) {
 		return nil, fmt.Errorf("toon: line %d: not valid UTF-8", line)
 	}
 	return out, nil
+}
+
+// siblingKV reads a `key: value` metadata line that follows an array at column
+// 0. atcr emits exactly one today, `truncated: <bool>`, deliberately as a bare
+// TOON scalar rather than an array row. A line that is not scalar `key: value`
+// — a following block header, say — is not metadata and is left alone.
+func siblingKV(raw string) (string, string, bool) {
+	i := strings.IndexByte(raw, ':')
+	if i <= 0 {
+		return "", "", false
+	}
+	key := strings.TrimSpace(raw[:i])
+	val := strings.TrimSpace(raw[i+1:])
+	if key == "" || val == "" || strings.ContainsAny(key, " \t[]{}") {
+		return "", "", false
+	}
+	return key, val, true
 }
