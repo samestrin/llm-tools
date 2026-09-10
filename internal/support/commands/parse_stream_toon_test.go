@@ -118,3 +118,26 @@ func TestParseStreamReadsTOON(t *testing.T) {
 		t.Errorf("PROBLEM = %q — the pipe inside the finding did not survive", got)
 	}
 }
+
+// --- the gap left by wiring toon in as an explicit format only
+
+func TestParseStreamAutoDetectsTOON(t *testing.T) {
+	// `--format` defaults to "auto", and detectFormat knows only pipe and
+	// markdown-checklist. So a TOON payload arriving on default flags is parsed
+	// as pipe: the header line "findings[1|]{SEVERITY|FILE_LINE|...}" splits on
+	// '|' into nonsense column names, and every quoted value keeps its quotes.
+	//
+	// It does not error. It returns rows. That is the failure class this whole
+	// change exists to remove — looking successful while doing nothing.
+	res := execParseStreamCmd(t, "--content", toonPayload, "--json")
+	if res.Format != "toon" {
+		t.Fatalf("Format = %q, want toon — a TOON payload was parsed as %s",
+			res.Format, res.Format)
+	}
+	if len(res.Rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(res.Rows))
+	}
+	if got, _ := res.Rows[0]["PROBLEM"].(string); got != "Rejects a|b input" {
+		t.Errorf("PROBLEM = %q — the pipe inside the finding did not survive", got)
+	}
+}
