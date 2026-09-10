@@ -12,6 +12,8 @@ import (
 
 	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
+
+	"github.com/samestrin/llm-tools/internal/support/toon"
 )
 
 // Flag variables
@@ -221,8 +223,8 @@ Examples:
 	cmd.Flags().BoolVar(&groupTDCheckbox, "checkbox", false, "Add checkbox column (requires --output-file)")
 	cmd.Flags().StringVar(&groupTDSprintLabel, "sprint-label", "", "Sprint name for section header")
 	cmd.Flags().StringVar(&groupTDDateLabel, "date-label", "", "Date for section header")
-	cmd.Flags().StringVar(&groupTDFormat, "format", "json", "Input format: json or pipe")
-	cmd.Flags().StringVar(&groupTDHeaders, "headers", "", "Comma-separated headers for pipe format (required with --format=pipe)")
+	cmd.Flags().StringVar(&groupTDFormat, "format", "json", "Input format: json, pipe, or toon")
+	cmd.Flags().StringVar(&groupTDHeaders, "headers", "", "Comma-separated headers for pipe format (required with --format=pipe; not used by toon, which declares its own fields)")
 	cmd.Flags().StringVar(&groupTDDelimiter, "delimiter", "|", "Field delimiter for pipe format")
 	cmd.Flags().BoolVar(&groupTDRenumber, "renumber", false, "Renumber active groups in --output-file so each globally-active group number is unique. No input needed. Inactive ([x]-only) sections keep their numbers.")
 
@@ -361,6 +363,9 @@ func parseGroupTDInput(input string, format string, headers string, delimiter st
 	if format == "pipe" {
 		return parsePipeInput(input, headers, delimiter)
 	}
+	if format == "toon" {
+		return parseTOONInput(input)
+	}
 
 	// JSON format (default) - try parsing with items/rows wrapper
 	var wrapped GroupTDInput
@@ -380,6 +385,52 @@ func parseGroupTDInput(input string, format string, headers string, delimiter st
 	}
 
 	return nil, fmt.Errorf("could not parse input as {items:[...]}, {rows:[...]}, or raw array")
+}
+
+// parseTOONInput reads a TOON tabular array, the shape `atcr report --format
+// axi` emits.
+//
+// No headers argument: a TOON payload DECLARES its own field names, and its
+// delimiter, in the header line. That is the difference that matters — eight
+// call sites currently hand-maintain a headers list which has to be kept in
+// sync with seven pipe layouts by hand, and a wrong list silently mis-keys
+// every row.
+//
+// It is also the only input format here that survives a pipe INSIDE a finding.
+// The pipe format has no quoting, so a '|' in PROBLEM or FIX shifts every column
+// after it; TOON quotes, so the character stays data.
+//
+// Values arrive as strings, exactly as parsePipeInput produces them, so the
+// grouping code downstream sees no difference between the two.
+func parseTOONInput(input string) ([]map[string]interface{}, error) {
+	doc, err := toon.Decode(strings.NewReader(input))
+	if err != nil {
+		return nil, err
+	}
+	items := make([]map[string]interface{}, 0, len(doc.Rows))
+	for _, row := range doc.Rows {
+		item := make(map[string]interface{}, len(row))
+		for k, v := range row {
+			// Field names are UPPER-CASED to the canonical form. atcr emits them
+			// lower case ("file:line", "est_minutes"), while every reader here
+			// looks for FILE:LINE, FILE_LINE, SEVERITY, EST_MINUTES. Decoded
+			// verbatim, a real atcr payload yields rows that key to NOTHING:
+			// total_items still reports 22 while grouping, minute totals and
+			// severity handling all quietly do nothing. Verified against a real
+			// 22-finding review, not a fixture.
+			//
+			// Plain upper-casing is enough for both spellings: "file:line"
+			// becomes FILE:LINE, and a cadence-authored FILE_LINE is unchanged.
+			key := strings.ToUpper(k)
+			if _, clash := item[key]; clash {
+				return nil, fmt.Errorf("toon payload declares %q twice once "+
+					"upper-cased; two columns would collapse into one", key)
+			}
+			item[key] = v
+		}
+		items = append(items, item)
+	}
+	return items, nil
 }
 
 func parsePipeInput(input string, headersStr string, delimiter string) ([]map[string]interface{}, error) {

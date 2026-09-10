@@ -11,6 +11,8 @@ import (
 
 	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
+
+	"github.com/samestrin/llm-tools/internal/support/findings"
 )
 
 var (
@@ -159,6 +161,12 @@ type DedupeSummary struct {
 	MergedRows       int `json:"merged_rows"`
 	NeedsReviewCount int `json:"needs_review_count"`
 	Skipped          int `json:"skipped"` // malformed rows (<5 columns) — surfaced, not silently dropped
+
+	// Warnings names each stream that carried no `# atcr-findings/v1` header and
+	// was therefore parsed permissively. Silence is how seven incompatible
+	// formats accumulated unnoticed, so a legacy stream is accepted but never
+	// accepted QUIETLY.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // DedupeResult is the full payload.
@@ -184,14 +192,33 @@ func dedupeTD(streams []StreamInput, opts DedupeOpts) (*DedupeResult, error) {
 	}
 
 	var rows []tdParsedRow
+	var warnings []string
 	skipped := 0
 	for _, s := range streams {
+		cols, warn, err := streamColumns(s)
+		if err != nil {
+			return nil, err
+		}
+		if warn != "" {
+			warnings = append(warnings, warn)
+		}
 		for _, line := range strings.Split(s.Content, "\n") {
 			t := strings.TrimSpace(line)
 			if t == "" || strings.HasPrefix(t, "#") {
 				continue
 			}
-			r, ok := normalizeRow(t, s.Tag)
+			// By NAME when the stream declares its columns; by width only when it
+			// declares nothing. Width cannot tell three different 8-column
+			// layouts apart, which is how a BLOCKING flag became a reviewer.
+			var (
+				r  tdParsedRow
+				ok bool
+			)
+			if cols != nil {
+				r, ok = rowByColumns(t, cols, s.Tag)
+			} else {
+				r, ok = normalizeRow(t, s.Tag)
+			}
 			if !ok {
 				skipped++ // malformed (<5 columns): surfaced in summary, not silently dropped
 				continue
@@ -271,8 +298,116 @@ func dedupeTD(streams []StreamInput, opts DedupeOpts) (*DedupeResult, error) {
 			MergedRows:       len(merged),
 			NeedsReviewCount: needsReview,
 			Skipped:          skipped,
+			Warnings:         warnings,
 		},
 	}, nil
+}
+
+// streamColumns decides how one stream's rows should be read.
+//
+// It returns the declared column NAMES, a warning when the stream carries no
+// version header, or nil names to mean "fall back to width-guessing". A stream
+// that declares its columns is read by name, which is the whole point: three of
+// the layouts in use are eight columns wide with different columns, and width
+// cannot tell them apart.
+//
+// An unknown or malformed version is fatal, per the v1 contract — a consumer
+// must never silently parse incompatible data. A MISSING header is not.
+func streamColumns(s StreamInput) ([]string, string, error) {
+	res, err := findings.Inspect(strings.NewReader(s.Content))
+	if err != nil {
+		return nil, "", fmt.Errorf("stream %q: %w", s.Tag, err)
+	}
+	warn := ""
+	if res.Legacy {
+		warn = fmt.Sprintf("stream %q: %s", s.Tag, res.Warning)
+	}
+
+	// An explicit `# Format:` comment wins over the canonical order: it is what
+	// the stream actually claims about ITSELF, and every legacy layout carries
+	// one.
+	for _, line := range strings.Split(s.Content, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			// A blank line is not the end of the header block. findings.Inspect
+			// skips blanks before looking for the version, so breaking here made
+			// the two disagree about the same stream: Inspect saw the header
+			// while this scan gave up before the `# Format:` line and fell back
+			// to width-guessing. A leading newline is ordinary in a generated
+			// file, and it silently undid the whole fix.
+			continue
+		}
+		if !strings.HasPrefix(t, "#") {
+			break // past the header block
+		}
+		body := strings.TrimSpace(strings.TrimPrefix(t, "#"))
+		if !strings.HasPrefix(strings.ToUpper(body), "FORMAT:") {
+			continue
+		}
+		spec := strings.TrimSpace(body[len("FORMAT:"):])
+		cols := strings.Split(spec, "|")
+		for i := range cols {
+			cols[i] = strings.ToUpper(strings.TrimSpace(cols[i]))
+		}
+		if len(cols) >= 5 {
+			return cols, warn, nil
+		}
+	}
+
+	if res.HasHeader {
+		return findings.PerSourceNames, warn, nil
+	}
+	return nil, warn, nil
+}
+
+// rowByColumns maps a pipe row onto the canonical fields using the stream's own
+// declared column names.
+//
+// A name the canonical shape has no home for — ORIGIN, RISK_CLASS, BLOCKING —
+// is DROPPED rather than shifted into the next field. That is the fix: a
+// BLOCKING flag used to land in REVIEWER because the parser counted columns
+// instead of reading their names.
+func rowByColumns(line string, cols []string, tag string) (tdParsedRow, bool) {
+	f := strings.Split(line, "|")
+	for i := range f {
+		f[i] = strings.TrimSpace(f[i])
+	}
+	if len(f) < 5 {
+		return tdParsedRow{}, false
+	}
+	r := tdParsedRow{Source: tag}
+	for i, name := range cols {
+		if i >= len(f) {
+			break // short row: the remaining columns are simply absent
+		}
+		switch name {
+		case "SEVERITY":
+			r.Severity = strings.ToUpper(f[i])
+		case "FILE:LINE", "FILE_LINE", "FILE", "PATH":
+			r.FileLine = f[i]
+		case "PROBLEM", "DESCRIPTION":
+			r.Problem = f[i]
+		case "FIX", "RECOMMENDED_FIX":
+			r.Fix = f[i]
+		case "CATEGORY":
+			r.Category = f[i]
+		case "EST_MINUTES", "EST":
+			r.EstMinutes = parseFloatOr(f[i], 0)
+		case "EVIDENCE":
+			r.Evidence = f[i]
+		case "REVIEWER", "REVIEWERS":
+			r.Reviewer = f[i]
+		case "SOURCE":
+			r.Source = f[i]
+		}
+	}
+	if r.Severity == "" || r.FileLine == "" {
+		return tdParsedRow{}, false
+	}
+	if r.Reviewer == "" {
+		r.Reviewer = tag
+	}
+	return r, true
 }
 
 // normalizeRow maps a pipe row of any documented width onto the canonical
