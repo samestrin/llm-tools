@@ -156,3 +156,22 @@ func TestTdDedupeCmd_SurfacesTheLegacyWarning(t *testing.T) {
 		t.Error("the legacy warning did not reach the JSON output, so no caller can act on it")
 	}
 }
+
+func TestALeadingBlankLineDoesNotHideTheFormatComment(t *testing.T) {
+	// streamColumns stops scanning at the first line that is not a comment, but
+	// findings.Inspect skips blank lines before looking. So a stream that opens
+	// with a blank line makes the two disagree about the SAME content: Inspect
+	// still sees the version header, while the column scan gives up before
+	// reaching the `# Format:` line and silently falls back to width-guessing.
+	//
+	// A leading newline is the most ordinary thing in a generated file.
+	withBlank := "\n" + legacyNineCol
+	row := onlyRow(t, withBlank, "claude")
+	if row.FileLine == "sprint" {
+		t.Fatal(`FileLine = "sprint" — a leading blank line hid the # Format: ` +
+			`comment, so ORIGIN was read as the file path again`)
+	}
+	if row.FileLine != "app/src/components/GridDimensionControl.tsx:38" {
+		t.Errorf("FileLine = %q, want the real path", row.FileLine)
+	}
+}

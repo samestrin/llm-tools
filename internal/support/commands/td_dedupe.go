@@ -328,6 +328,15 @@ func streamColumns(s StreamInput) ([]string, string, error) {
 	// one.
 	for _, line := range strings.Split(s.Content, "\n") {
 		t := strings.TrimSpace(line)
+		if t == "" {
+			// A blank line is not the end of the header block. findings.Inspect
+			// skips blanks before looking for the version, so breaking here made
+			// the two disagree about the same stream: Inspect saw the header
+			// while this scan gave up before the `# Format:` line and fell back
+			// to width-guessing. A leading newline is ordinary in a generated
+			// file, and it silently undid the whole fix.
+			continue
+		}
 		if !strings.HasPrefix(t, "#") {
 			break // past the header block
 		}
