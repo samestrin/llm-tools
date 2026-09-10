@@ -218,3 +218,81 @@ func TestALongFieldSurvives(t *testing.T) {
 		t.Errorf("b = %q, want tail", doc.Rows[0]["b"])
 	}
 }
+
+// --- what `atcr report --format axi` ACTUALLY emits
+//
+// The golden fixture this package was first written against is the PURE encoder
+// output (report.Render(FormatAXI)). The shipping CLI goes through
+// RenderAXIPaginated, which appends a `truncated: <bool>` SIBLING line after the
+// array. Validating against the fixture instead of the command is the mistake
+// this project's own rule warns about: only the binary knows what ships.
+
+const atcrCLIOutput = `findings[2|]{severity|"file:line"|problem|fix}:
+  CRITICAL|"auth.go:42"|token never expires|check expiry
+  LOW|"util.go:7"|unused var|""
+truncated: false
+`
+
+func TestASiblingLineIsMetadataNotARow(t *testing.T) {
+	doc, err := Decode(strings.NewReader(atcrCLIOutput))
+	if err != nil {
+		t.Fatalf("real CLI output failed to parse: %v", err)
+	}
+	if len(doc.Rows) != 2 {
+		t.Fatalf("got %d rows, want 2 — a sibling line was eaten as a row", len(doc.Rows))
+	}
+	if got := doc.Meta["truncated"]; got != "false" {
+		t.Errorf("Meta[truncated] = %q, want false", got)
+	}
+}
+
+func TestATruncatedPayloadIsNotAnError(t *testing.T) {
+	// atcr's CONSUMER CONTRACT, verbatim: "when truncated, this payload is
+	// intentionally NOT length-round-trippable — the header declares N (the true
+	// total) while fewer than N rows are physically present ... A consumer must
+	// read `truncated` and the header N as authoritative rather than
+	// length-checking the array against its physical rows."
+	//
+	// So a hard equality gate cannot read atcr's paginated output at all.
+	src := "findings[9|]{a}:\n  one\n  two\ntruncated: true\n"
+	doc, err := Decode(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("a truncated payload must parse: %v", err)
+	}
+	if doc.Declared != 9 {
+		t.Errorf("Declared = %d, want 9 (the TRUE total, from the header)", doc.Declared)
+	}
+	if len(doc.Rows) != 2 {
+		t.Errorf("got %d rows, want the 2 physically present", len(doc.Rows))
+	}
+	if doc.Meta["truncated"] != "true" {
+		t.Errorf("the truncation signal was lost")
+	}
+}
+
+func TestMoreRowsThanDeclaredIsStillAnError(t *testing.T) {
+	// Fewer rows than declared is legitimate (truncation). MORE never is — it
+	// means the header and the body disagree in the direction no contract allows.
+	_, err := Decode(strings.NewReader("r[1|]{a}:\n  x\n  y\n"))
+	if err == nil {
+		t.Fatal("more rows than the header declares parsed cleanly")
+	}
+}
+
+func TestATrailingBlockIsNotEatenAsRows(t *testing.T) {
+	// atcr Epic 42.0 (AXI Contextual Disclosure, currently DEFERRED) appends a
+	// `help[]` block of next-step suggestions after command output. Its AC4 says
+	// existing content is unchanged and only appended to — so a reader that runs
+	// to EOF breaks the day that ships.
+	src := "findings[1|]{a}:\n  x\nhelp[1|]{cmd}:\n  atcr verify <id>\n"
+	doc, err := Decode(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("a trailing block must not break the first one: %v", err)
+	}
+	if len(doc.Rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(doc.Rows))
+	}
+	if doc.Rows[0]["a"] != "x" {
+		t.Errorf("a = %q, want x", doc.Rows[0]["a"])
+	}
+}
