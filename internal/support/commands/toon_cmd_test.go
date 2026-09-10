@@ -80,11 +80,14 @@ func TestTOONParseCmd_ZeroFindingsIsNotAnError(t *testing.T) {
 }
 
 func TestTOONParseCmd_MalformedPayloadFails(t *testing.T) {
-	_, _, err := execTOONCmd(t, "parse", writeAXI(t, "findings[2|]{a}:\n  x\n"))
+	// CORRECTED: the fixture used to be "fewer rows than declared", which the
+	// shipping atcr binary proved is LEGITIMATE (a truncated payload). More rows
+	// than declared is the direction no contract allows.
+	_, _, err := execTOONCmd(t, "parse", writeAXI(t, "findings[1|]{a}:\n  x\n  y\n"))
 	if err == nil {
-		t.Fatal("a payload whose row count disagrees with its header parsed cleanly")
+		t.Fatal("a payload carrying more rows than its header declares parsed cleanly")
 	}
-	if !strings.Contains(err.Error(), "2") {
+	if !strings.Contains(err.Error(), "1") {
 		t.Errorf("error %q does not name the declared count", err)
 	}
 }
@@ -96,5 +99,29 @@ func TestTOONParseCmd_MissingFileNamesIt(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "nope.axi") {
 		t.Errorf("error %q does not name the file", err)
+	}
+}
+
+func TestTOONParseCmd_RealCLIShapeWithTruncatedSibling(t *testing.T) {
+	// What `atcr report --format axi` actually emits. The command failed on this
+	// until it was run against the binary instead of the encoder's golden.
+	body := "findings[9|]{severity|problem}:\n  HIGH|a\n  LOW|b\ntruncated: true\n"
+	out, _, err := execTOONCmd(t, "parse", writeAXI(t, body))
+	if err != nil {
+		t.Fatalf("real CLI output failed to parse: %v", err)
+	}
+	var res TOONResult
+	if jerr := json.Unmarshal([]byte(out), &res); jerr != nil {
+		t.Fatalf("output is not valid JSON: %v", jerr)
+	}
+	if res.Declared != 9 {
+		t.Errorf("declared = %d, want 9 (the TRUE total)", res.Declared)
+	}
+	if res.Count != 2 {
+		t.Errorf("count = %d, want the 2 rows that arrived", res.Count)
+	}
+	if res.Meta["truncated"] != "true" {
+		t.Errorf("meta.truncated = %q, want true — the caller cannot tell a capped "+
+			"payload from a complete one without it", res.Meta["truncated"])
 	}
 }
