@@ -118,7 +118,11 @@ type GroupTDSummary struct {
 // Missing fields are tolerated: an item with only CATEGORY can match via
 // rule 3; an item with only FILE_LINE can match via rule 1.
 func detectFrontendItem(item map[string]interface{}) bool {
-	fileLine, _ := item["FILE_LINE"].(string)
+	// Read via extractFileLine, which already handles FILE:LINE, FILE_LINE
+	// and FILE. Reading one spelling directly made this blind to a TOON
+	// payload, where atcr declares "file:line" and the reader emits
+	// FILE:LINE with a COLON.
+	fileLine := extractFileLine(item)
 	category, _ := item["CATEGORY"].(string)
 	categoryLower := strings.ToLower(category)
 
@@ -475,7 +479,11 @@ func parseTOONInput(input string) ([]map[string]interface{}, error) {
 // downstream relocation), directories, and rows without a parseable :line are
 // never flagged. repoRoot anchors relative paths; "" means the current dir.
 func phantomLineItem(item map[string]interface{}, repoRoot string) (bool, string) {
-	fileLine, _ := item["FILE_LINE"].(string)
+	// Read via extractFileLine, which already handles FILE:LINE, FILE_LINE
+	// and FILE. Reading one spelling directly made this blind to a TOON
+	// payload, where atcr declares "file:line" and the reader emits
+	// FILE:LINE with a COLON.
+	fileLine := extractFileLine(item)
 	fileLine = strings.TrimSpace(fileLine)
 	if fileLine == "" {
 		return false, ""

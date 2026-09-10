@@ -82,15 +82,27 @@ func TestValidateLinesGuardsTOONInputToo(t *testing.T) {
 // extractFileLine already handles FILE:LINE, FILE_LINE and FILE. Both narrow
 // readers should use it rather than each re-implementing a subset.
 func TestFrontendDetectionSeesTOONFieldNames(t *testing.T) {
-	payload := `findings[1|]{severity|"file:line"|problem|category|est_minutes}:
-  LOW|"src/components/LimitBar.tsx:42"|bar does not re-render after mutation|ui|30
+	// CORRECTED after the first version proved nothing. Two defects in it:
+	//
+	//  1. it used CATEGORY "ui", which is in frontendCategoryKeywords — so
+	//     rule 3 matched on the category alone and the test passed whether or
+	//     not the path was ever read;
+	//  2. it asserted on res.Groups with a SINGLE item, which lands in
+	//     Ungrouped. Frontend is a group-level flag, so the loop checked
+	//     nothing at all.
+	//
+	// Now: CATEGORY "correctness" (no frontend keyword is a substring of it),
+	// .tsx paths so ONLY the file-extension rule can fire, and three items
+	// under one prefix so a group actually forms.
+	payload := `findings[3|]{severity|"file:line"|problem|category|est_minutes}:
+  LOW|"src/components/LimitBar.tsx:42"|bar does not re-render after mutation|correctness|30
+  LOW|"src/components/Header.tsx:10"|stale prop threaded through render|correctness|20
+  LOW|"src/components/Footer.tsx:7"|dead branch never evaluated|correctness|10
 `
 	cmd := newGroupTDCmd()
 	out := new(bytes.Buffer)
 	cmd.SetOut(out)
 	cmd.SetErr(new(bytes.Buffer))
-	// validate-lines off: this test is about frontend detection, and the .tsx
-	// path does not exist on disk here.
 	cmd.SetArgs([]string{"--content", payload, "--format", "toon", "--json",
 		"--validate-lines=false"})
 	if err := cmd.Execute(); err != nil {
@@ -100,7 +112,10 @@ func TestFrontendDetectionSeesTOONFieldNames(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}
-
+	if len(res.Groups) == 0 {
+		t.Fatalf("no group formed from 3 items under one prefix; ungrouped=%d",
+			len(res.Ungrouped))
+	}
 	frontend := false
 	for _, g := range res.Groups {
 		if g.Frontend {
@@ -108,7 +123,7 @@ func TestFrontendDetectionSeesTOONFieldNames(t *testing.T) {
 		}
 	}
 	if !frontend {
-		t.Error("no group flagged Frontend for a .tsx finding — detectFrontendItem " +
-			"read FILE_LINE only, so TOON rows look like they have no path at all")
+		t.Error("no group flagged Frontend for .tsx findings — detectFrontendItem " +
+			"could not see the path, so TOON rows look like they have none")
 	}
 }
