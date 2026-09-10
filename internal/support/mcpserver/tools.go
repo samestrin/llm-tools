@@ -1607,8 +1607,8 @@ func GetToolDefinitions() []ToolDefinition {
 							},
 							"format": {
 								"type": "string",
-								"enum": ["json", "pipe"],
-								"description": "Input format: json (default) or pipe (pipe-delimited text with # comments)"
+								"enum": ["json", "pipe", "toon"],
+								"description": "Input format: json (default), pipe (pipe-delimited text with # comments), or toon (a TOON tabular array, as atcr report --format axi emits). toon declares its own field names and delimiter, so headers is not needed, and it is the only format that survives a pipe inside a finding."
 							},
 							"headers": {
 								"type": "string",
