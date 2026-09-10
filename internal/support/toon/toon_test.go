@@ -143,11 +143,11 @@ func TestEmptyArrayFormIsNotAnError(t *testing.T) {
 
 func TestMalformedInputIsAnErrorNotAPanic(t *testing.T) {
 	for name, src := range map[string]string{
-		"no header":          "  just|a|row\n",
-		"unterminated quote": "r[1|]{a}:\n  \"never closed\n",
-		"count not a number": "r[x|]{a}:\n  v\n",
-		"missing colon":      "r[1|]{a}\n  v\n",
-		"empty input":        "",
+		"no header":            "  just|a|row\n",
+		"unterminated quote":   "r[1|]{a}:\n  \"never closed\n",
+		"count not a number":   "r[x|]{a}:\n  v\n",
+		"missing colon":        "r[1|]{a}\n  v\n",
+		"empty input":          "",
 		"header only, count>0": "r[2|]{a}:\n",
 	} {
 		t.Run(name, func(t *testing.T) {
