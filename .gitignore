@@ -49,3 +49,7 @@ ROADMAP.md
 benchmarks/*.exe
 llm-filesystem
 llm-filesystem-mcp
+
+# Scratch plan file. Committed by mistake in #60, untracked in #61, and
+# committed by mistake again — `git add -A` picks it up every time.
+/plan.md
