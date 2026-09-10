@@ -109,7 +109,6 @@ Recommended: [Download the latest binary](https://github.com/samestrin/llm-tools
 
 ```bash
 go install github.com/samestrin/llm-tools/cmd/llm-support@latest
-go install github.com/samestrin/llm-tools/cmd/llm-clarification@latest
 go install github.com/samestrin/llm-tools/cmd/llm-filesystem@latest
 go install github.com/samestrin/llm-tools/cmd/llm-semantic@latest
 ```
@@ -171,7 +170,6 @@ llm-support foreach --files "*.ts" --template refactor.md --parallel 4
 Detailed references for all 40+ commands:
 
 *   **[llm-support Commands](docs/llm-support-commands.md)** - File ops, search, analysis, and data processing.
-*   **[llm-clarification Commands](docs/llm-clarification-commands.md)** - Long-term memory and decision tracking system.
 *   **[llm-filesystem Commands](docs/llm-filesystem-commands.md)** - High-performance filesystem operations (drop-in replacement for fast-filesystem-mcp).
 *   **[llm-semantic Commands](docs/llm-semantic-commands.md)** - Semantic code search with local embeddings.
 *   **[MCP Setup Guide](docs/MCP_SETUP.md)** - Integration with Claude Desktop & Gemini.
@@ -182,7 +180,7 @@ Detailed references for all 40+ commands:
 **The Loop:**
 1. Agent receives a task.
 2. `llm-support` provides fast codebase context (files, structure, search results).
-3. `llm-clarification` recalls past decisions ("Use Jest, not Mocha") to prevent regression.
+3. `llm-semantic memory` recalls past decisions ("Use Jest, not Mocha") to prevent regression.
 4. Agent generates code with full context.
 
 ```mermaid
@@ -203,7 +201,7 @@ sequenceDiagram
     
     rect rgb(50, 20, 20)
         note right of A: Long-Term Memory
-        A->>M: match-clarification
+        A->>M: memory search
         M-->>A: ⚠ RECALL: "Use Jest"
     end
 

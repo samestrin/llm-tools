@@ -39,9 +39,7 @@ go.sum
 install.sh
 # Local binaries (installed to /usr/local/bin)
 llm-support
-llm-clarification
 llm-support-mcp
-llm-clarification-mcp
 
 # Demos (work in progress)
 demos/

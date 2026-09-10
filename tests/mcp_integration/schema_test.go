@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	clarifyserver "github.com/samestrin/llm-tools/internal/clarification/mcpserver"
 	filesystemserver "github.com/samestrin/llm-tools/internal/filesystem/mcpserver"
 	supportserver "github.com/samestrin/llm-tools/internal/support/mcpserver"
 )
@@ -15,15 +14,6 @@ func TestLLMSupportToolCount(t *testing.T) {
 	expected := 77 // llm-support has 77 tools (added epic_number)
 	if len(tools) != expected {
 		t.Errorf("Expected %d llm-support tools, got %d", expected, len(tools))
-	}
-}
-
-// TestLLMClarificationToolCount verifies the correct number of tools
-func TestLLMClarificationToolCount(t *testing.T) {
-	tools := clarifyserver.GetToolDefinitions()
-	expected := 13
-	if len(tools) != expected {
-		t.Errorf("Expected %d llm-clarification tools, got %d", expected, len(tools))
 	}
 }
 
@@ -49,23 +39,6 @@ func TestLLMSupportToolSchemas(t *testing.T) {
 	}
 }
 
-// TestLLMClarificationToolSchemas validates all tool schemas are valid JSON
-func TestLLMClarificationToolSchemas(t *testing.T) {
-	tools := clarifyserver.GetToolDefinitions()
-	for _, tool := range tools {
-		var schema map[string]interface{}
-		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
-			t.Errorf("Tool %s has invalid JSON schema: %v", tool.Name, err)
-		}
-
-		// Verify schema structure
-		schemaType, ok := schema["type"].(string)
-		if !ok || schemaType != "object" {
-			t.Errorf("Tool %s schema type should be 'object', got %v", tool.Name, schema["type"])
-		}
-	}
-}
-
 // TestToolPrefixes verifies tool naming conventions
 func TestToolPrefixes(t *testing.T) {
 	supportTools := supportserver.GetToolDefinitions()
@@ -74,25 +47,12 @@ func TestToolPrefixes(t *testing.T) {
 			t.Errorf("Tool %s should have 'llm_support_' prefix", tool.Name)
 		}
 	}
-
-	clarifyTools := clarifyserver.GetToolDefinitions()
-	for _, tool := range clarifyTools {
-		if len(tool.Name) < len("llm_clarification_") || tool.Name[:18] != "llm_clarification_" {
-			t.Errorf("Tool %s should have 'llm_clarification_' prefix", tool.Name)
-		}
-	}
 }
 
 // TestToolDescriptions verifies all tools have meaningful descriptions
 func TestToolDescriptions(t *testing.T) {
 	// Test support tools
 	for _, tool := range supportserver.GetToolDefinitions() {
-		if len(tool.Description) < 20 {
-			t.Errorf("Tool %s has too short description (%d chars)", tool.Name, len(tool.Description))
-		}
-	}
-	// Test clarify tools
-	for _, tool := range clarifyserver.GetToolDefinitions() {
 		if len(tool.Description) < 20 {
 			t.Errorf("Tool %s has too short description (%d chars)", tool.Name, len(tool.Description))
 		}
@@ -133,37 +93,6 @@ func TestExpectedSupportToolNames(t *testing.T) {
 	}
 
 	tools := supportserver.GetToolDefinitions()
-	toolMap := make(map[string]bool)
-	for _, tool := range tools {
-		toolMap[tool.Name] = true
-	}
-
-	for _, expected := range expectedNames {
-		if !toolMap[expected] {
-			t.Errorf("Missing expected tool: %s", expected)
-		}
-	}
-}
-
-// TestExpectedClarifyToolNames verifies all expected tools exist
-func TestExpectedClarifyToolNames(t *testing.T) {
-	expectedNames := []string{
-		"llm_clarification_match_clarification",
-		"llm_clarification_cluster_clarifications",
-		"llm_clarification_detect_conflicts",
-		"llm_clarification_validate_clarifications",
-		"llm_clarification_init_tracking",
-		"llm_clarification_add_clarification",
-		"llm_clarification_promote_clarification",
-		"llm_clarification_list_entries",
-		"llm_clarification_delete_clarification",
-		"llm_clarification_export_memory",
-		"llm_clarification_import_memory",
-		"llm_clarification_optimize_memory",
-		"llm_clarification_reconcile_memory",
-	}
-
-	tools := clarifyserver.GetToolDefinitions()
 	toolMap := make(map[string]bool)
 	for _, tool := range tools {
 		toolMap[tool.Name] = true

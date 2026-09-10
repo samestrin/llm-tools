@@ -39,8 +39,6 @@ coverage.html
 /llm-support-mcp
 /llm-filesystem
 /llm-filesystem-mcp
-/llm-clarification
-/llm-clarification-mcp
 
 # Indexes and local databases
 .llm-index/

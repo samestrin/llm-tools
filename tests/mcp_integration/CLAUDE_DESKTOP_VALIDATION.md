@@ -8,17 +8,14 @@ MCP servers use the official Go SDK (`github.com/modelcontextprotocol/go-sdk`).
 ## Build Information
 
 - **Go Version:** 1.23+
-- **Build Date:** 2025-12-28
 - **Binaries:**
   - `llm-support-mcp` (19 tools)
-  - `llm-clarification-mcp` (8 tools)
 
 ## Build Verification
 
 ```bash
-# Build both binaries
+# Build the binary
 go build -o llm-support-mcp ./cmd/llm-support-mcp/
-go build -o llm-clarification-mcp ./cmd/llm-clarification-mcp/
 ```
 
 ## Claude Desktop Configuration
@@ -30,10 +27,6 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "llm-support": {
       "command": "/path/to/llm-support-mcp",
-      "args": []
-    },
-    "llm-clarification": {
-      "command": "/path/to/llm-clarification-mcp",
       "args": []
     }
   }
@@ -66,24 +59,11 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 | 18 | llm_support_extract_relevant | Extract relevant content | ⬜ Pending |
 | 19 | llm_support_highest | Find highest numbered dir/file | ⬜ Pending |
 
-### llm-clarification Tools (8 total)
-
-| # | Tool | Test Command | Status |
-|---|------|--------------|--------|
-| 1 | llm_clarify_match | Match clarification to question | ⬜ Pending |
-| 2 | llm_clarify_cluster | Cluster similar questions | ⬜ Pending |
-| 3 | llm_clarify_detect_conflicts | Detect conflicting answers | ⬜ Pending |
-| 4 | llm_clarify_validate | Validate clarifications | ⬜ Pending |
-| 5 | llm_clarify_init | Initialize tracking file | ⬜ Pending |
-| 6 | llm_clarify_add | Add clarification entry | ⬜ Pending |
-| 7 | llm_clarify_promote | Promote clarification | ⬜ Pending |
-| 8 | llm_clarify_list | List clarifications | ⬜ Pending |
-
 ## Automated Test Results
 
 ### Unit Tests
 ```
-go test ./internal/support/... ./internal/clarification/...
+go test ./internal/support/...
 ```
 - **Status:** ✅ All passing
 - **Coverage:** See coverage report
@@ -98,7 +78,7 @@ go test ./tests/mcp_integration/...
 ## Notes
 
 - Go implementation has native subprocess execution for tool handlers
-- All tool handlers call the existing `llm-support` and `llm-clarification` CLI binaries
+- All tool handlers call the existing `llm-support` CLI binary
 - Error handling follows MCP spec (tool errors as TextContent, not JSON-RPC errors)
 - Graceful shutdown on SIGINT/SIGTERM
 
@@ -118,5 +98,4 @@ None currently identified.
 
 ---
 
-**Last Updated:** 2025-12-28
 **Validated By:** Pending Manual Testing

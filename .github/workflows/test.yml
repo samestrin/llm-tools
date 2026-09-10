@@ -53,14 +53,12 @@ jobs:
       matrix:
         include:
           - shard: 1
-            packages: "./internal/clarification/..."
-          - shard: 2
             packages: "./internal/filesystem/..."
-          - shard: 3
+          - shard: 2
             packages: "./internal/semantic/... ./internal/support/..."
-          - shard: 4
+          - shard: 3
             packages: "./pkg/... ./tests/..."
-          - shard: 5
+          - shard: 4
             packages: "./cmd/..."
     steps:
       - name: Checkout code
