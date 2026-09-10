@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"testing"
+
+	"github.com/samestrin/llm-tools/internal/support/findings"
 )
 
 // v1Stream is a findings stream in the atcr-findings/v1 shape. It carries NO
@@ -30,7 +32,7 @@ const toonPayload = `findings[1|]{SEVERITY|FILE_LINE|PROBLEM|FIX}:
   HIGH|"src/auth.ts:10"|"Rejects a|b input"|Split first
 `
 
-func runParseStream(t *testing.T, args ...string) ParseStreamResult {
+func execParseStreamCmd(t *testing.T, args ...string) ParseStreamResult {
 	t.Helper()
 	cmd := newParseStreamCmd()
 	buf := new(bytes.Buffer)
@@ -50,10 +52,10 @@ func runParseStream(t *testing.T, args ...string) ParseStreamResult {
 // --- the version header must never become a column name
 
 func TestParseStreamUsesCanonicalColumnsForAV1Stream(t *testing.T) {
-	res := runParseStream(t, "--content", v1PipeStream, "--json")
+	res := execParseStreamCmd(t, "--content", v1PipeStream, "--json")
 
 	for _, h := range res.Headers {
-		if h == Version1Header {
+		if h == findings.Version {
 			t.Fatalf("Headers = %v — the version header was read as a column name",
 				res.Headers)
 		}
@@ -77,7 +79,7 @@ func TestParseStreamUsesCanonicalColumnsForAV1Stream(t *testing.T) {
 }
 
 func TestParseStreamSkipsALegacyCommentBlock(t *testing.T) {
-	res := runParseStream(t, "--content", legacyCommented, "--json")
+	res := execParseStreamCmd(t, "--content", legacyCommented, "--json")
 	for _, h := range res.Headers {
 		if len(h) > 0 && h[0] == '#' {
 			t.Fatalf("Headers = %v — a comment line was read as a column name", res.Headers)
@@ -91,7 +93,7 @@ func TestParseStreamSkipsALegacyCommentBlock(t *testing.T) {
 // --- explicit headers still win, and existing behaviour is untouched
 
 func TestParseStreamExplicitHeadersStillOverride(t *testing.T) {
-	res := runParseStream(t, "--content", v1PipeStream,
+	res := execParseStreamCmd(t, "--content", v1PipeStream,
 		"--headers", "A,B,C,D,E,F,G,H", "--json")
 	if len(res.Headers) == 0 || res.Headers[0] != "A" {
 		t.Fatalf("Headers = %v, want the explicit list", res.Headers)
@@ -104,7 +106,7 @@ func TestParseStreamExplicitHeadersStillOverride(t *testing.T) {
 // --- AC 4: parse_stream reads TOON too
 
 func TestParseStreamReadsTOON(t *testing.T) {
-	res := runParseStream(t, "--content", toonPayload, "--format", "toon", "--json")
+	res := execParseStreamCmd(t, "--content", toonPayload, "--format", "toon", "--json")
 	if len(res.Rows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(res.Rows))
 	}

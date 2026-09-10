@@ -10,6 +10,9 @@ import (
 
 	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
+
+	"github.com/samestrin/llm-tools/internal/support/findings"
+	"github.com/samestrin/llm-tools/internal/support/toon"
 )
 
 // parseStreamMaxInputSize limits input to prevent OOM on large inputs (10MB)
@@ -67,7 +70,7 @@ Examples:
 
 	cmd.Flags().StringVar(&parseStreamFile, "file", "", "Input file path")
 	cmd.Flags().StringVar(&parseStreamContent, "content", "", "Direct content input (alternative to file/stdin)")
-	cmd.Flags().StringVar(&parseStreamFormat, "format", "auto", "Format: auto, pipe, markdown-checklist")
+	cmd.Flags().StringVar(&parseStreamFormat, "format", "auto", "Format: auto, pipe, markdown-checklist, toon")
 	cmd.Flags().StringVar(&parseStreamDelimiter, "delimiter", "|", "Delimiter for pipe format")
 	cmd.Flags().StringVar(&parseStreamHeaders, "headers", "", "Comma-separated header names (overrides auto-detection)")
 	cmd.Flags().BoolVar(&parseStreamJSON, "json", false, "Output as JSON")
@@ -92,6 +95,8 @@ func runParseStream(cmd *cobra.Command, args []string) error {
 	var result ParseStreamResult
 
 	switch format {
+	case "toon":
+		result, err = parseTOONStream(content)
 	case "pipe":
 		result, err = parsePipeDelimited(content)
 	case "markdown-checklist":
@@ -204,20 +209,65 @@ func parsePipeDelimited(content string) (ParseStreamResult, error) {
 		return result, nil
 	}
 
-	// Handle headers
-	var headers []string
-	startRow := 0
+	// Comments are never data. A findings stream opens with a `#` block — the
+	// version line, or a legacy `# Format:` description — and auto-detecting the
+	// column names from line 0 turned "# atcr-findings/v1" into the ONLY column,
+	// leaving every finding a row with eight values too many.
+	isV1 := false
+	var declaredCols []string
+	firstData := -1
+	for i, ln := range lines {
+		t := strings.TrimSpace(ln)
+		if t == "" {
+			continue
+		}
+		if strings.HasPrefix(t, "#") {
+			if t == findings.Version {
+				isV1 = true
+			}
+			// A legacy stream declares its columns in a `# Format:` comment and
+			// carries no header ROW, so its first data line is indistinguishable
+			// from a header. The comment is what the stream claims about itself,
+			// which is the same rule td_dedupe uses.
+			body := strings.TrimSpace(strings.TrimPrefix(t, "#"))
+			if strings.HasPrefix(strings.ToUpper(body), "FORMAT:") {
+				cols := splitByDelimiter(strings.TrimSpace(body[len("FORMAT:"):]), parseStreamDelimiter)
+				for j := range cols {
+					cols[j] = strings.TrimSpace(cols[j])
+				}
+				if len(cols) >= 5 {
+					declaredCols = cols
+				}
+			}
+			continue
+		}
+		firstData = i
+		break
+	}
+	if firstData < 0 {
+		return result, nil // comments only — nothing to report, and not an error
+	}
 
-	if parseStreamHeaders != "" {
-		// Use explicit headers
+	var headers []string
+	startRow := firstData
+
+	switch {
+	case parseStreamHeaders != "":
+		// Explicit headers still win over everything.
 		headers = strings.Split(parseStreamHeaders, ",")
 		for i := range headers {
 			headers[i] = strings.TrimSpace(headers[i])
 		}
-	} else {
-		// Auto-detect from first row
-		headers = splitByDelimiter(lines[0], parseStreamDelimiter)
-		startRow = 1
+	case declaredCols != nil:
+		// The stream named its own columns. Its first data line is data.
+		headers = declaredCols
+	case isV1:
+		// A v1 stream carries NO header row on purpose: the contract supplies
+		// the names. Consuming the first finding as a header would lose it.
+		headers = append([]string{}, findings.PerSourceNames...)
+	default:
+		headers = splitByDelimiter(lines[firstData], parseStreamDelimiter)
+		startRow = firstData + 1
 	}
 
 	result.Headers = headers
@@ -226,7 +276,9 @@ func parsePipeDelimited(content string) (ParseStreamResult, error) {
 	// Parse data rows
 	for i := startRow; i < len(lines); i++ {
 		line := lines[i]
-		if strings.TrimSpace(line) == "" {
+		// Indexing stays against the ORIGINAL slice so ParseError line numbers
+		// keep pointing at the real file.
+		if t := strings.TrimSpace(line); t == "" || strings.HasPrefix(t, "#") {
 			continue
 		}
 
@@ -271,6 +323,36 @@ func splitByDelimiter(line, delimiter string) []string {
 		result[i] = strings.TrimSpace(part)
 	}
 	return result
+}
+
+// parseTOONStream reads a TOON tabular array, the shape `atcr report --format
+// axi` emits.
+//
+// Field names are reported VERBATIM, unlike group_td which upper-cases them to
+// its canonical keys. parse_stream is a general-purpose reader: its job is to
+// say what the payload declared, not to reshape it for one consumer.
+func parseTOONStream(content string) (ParseStreamResult, error) {
+	result := ParseStreamResult{
+		Format:      "toon",
+		Headers:     []string{},
+		Rows:        []map[string]interface{}{},
+		ParseErrors: []ParseError{},
+	}
+	doc, err := toon.Decode(strings.NewReader(content))
+	if err != nil {
+		return result, err
+	}
+	result.Delimiter = string(doc.Delimiter)
+	result.Headers = doc.Fields
+	for _, row := range doc.Rows {
+		item := make(map[string]interface{}, len(row))
+		for k, v := range row {
+			item[k] = v
+		}
+		result.Rows = append(result.Rows, item)
+	}
+	result.RowCount = len(result.Rows)
+	return result, nil
 }
 
 func parseMarkdownChecklist(content string) (ParseStreamResult, error) {
