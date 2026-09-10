@@ -70,23 +70,37 @@ func TestDelimiterIsReadFromTheHeaderNotAssumed(t *testing.T) {
 
 // --- AC 2: the declared count and the column count are GATES
 
-func TestDeclaredCountIsAGate(t *testing.T) {
-	for _, tc := range []struct{ name, src string }{
-		{"too few", "findings[2|]{a}:\n  x\n"},
-		{"too many", "findings[1|]{a}:\n  x\n  y\n"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := Decode(strings.NewReader(tc.src))
-			if err == nil {
-				t.Fatal("a row count that disagrees with the header built cleanly")
-			}
-			// Both numbers, so the reader says what it expected AND what it got.
-			for _, want := range []string{"1", "2"} {
-				if !strings.Contains(err.Error(), want) {
-					t.Errorf("error %q does not name %q", err, want)
-				}
-			}
-		})
+func TestDeclaredCountIsAGateInOneDirection(t *testing.T) {
+	// CORRECTED, and the correction matters. This asserted that "too few rows"
+	// was an error as well. That was wrong, and the shipping binary proved it:
+	// atcr's paginated payload deliberately emits FEWER rows than the header
+	// declares and flags it with `truncated`. A hard equality gate could not read
+	// atcr's own CLI output at all.
+	//
+	// More rows than declared is still an error — that direction no contract
+	// allows.
+	_, err := Decode(strings.NewReader("findings[1|]{a}:\n  x\n  y\n"))
+	if err == nil {
+		t.Fatal("more rows than the header declares built cleanly")
+	}
+	// Both numbers, so the reader says what it expected AND what it got.
+	for _, want := range []string{"1", "2"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err, want)
+		}
+	}
+}
+
+func TestFewerRowsThanDeclaredSurfacesBothNumbers(t *testing.T) {
+	// The replacement for the half of the old gate that was wrong. Not an error,
+	// but never silent either: the caller gets the declared total AND the rows
+	// actually present, and decides — which is what atcr's contract asks for.
+	doc, err := Decode(strings.NewReader("findings[2|]{a}:\n  x\n"))
+	if err != nil {
+		t.Fatalf("a short payload must parse: %v", err)
+	}
+	if doc.Declared != 2 || len(doc.Rows) != 1 {
+		t.Errorf("Declared=%d rows=%d, want 2/1", doc.Declared, len(doc.Rows))
 	}
 }
 
@@ -143,12 +157,13 @@ func TestEmptyArrayFormIsNotAnError(t *testing.T) {
 
 func TestMalformedInputIsAnErrorNotAPanic(t *testing.T) {
 	for name, src := range map[string]string{
-		"no header":            "  just|a|row\n",
-		"unterminated quote":   "r[1|]{a}:\n  \"never closed\n",
-		"count not a number":   "r[x|]{a}:\n  v\n",
-		"missing colon":        "r[1|]{a}\n  v\n",
-		"empty input":          "",
-		"header only, count>0": "r[2|]{a}:\n",
+		"no header":          "  just|a|row\n",
+		"unterminated quote": "r[1|]{a}:\n  \"never closed\n",
+		"count not a number": "r[x|]{a}:\n  v\n",
+		"missing colon":      "r[1|]{a}\n  v\n",
+		"empty input":        "",
+		// REMOVED from this set: `r[2|]{a}:` with no rows. Under atcr's paginated
+		// contract that is a payload truncated to zero rows, not malformed input.
 	} {
 		t.Run(name, func(t *testing.T) {
 			defer func() {
@@ -216,5 +231,83 @@ func TestALongFieldSurvives(t *testing.T) {
 	}
 	if doc.Rows[0]["b"] != "tail" {
 		t.Errorf("b = %q, want tail", doc.Rows[0]["b"])
+	}
+}
+
+// --- what `atcr report --format axi` ACTUALLY emits
+//
+// The golden fixture this package was first written against is the PURE encoder
+// output (report.Render(FormatAXI)). The shipping CLI goes through
+// RenderAXIPaginated, which appends a `truncated: <bool>` SIBLING line after the
+// array. Validating against the fixture instead of the command is the mistake
+// this project's own rule warns about: only the binary knows what ships.
+
+const atcrCLIOutput = `findings[2|]{severity|"file:line"|problem|fix}:
+  CRITICAL|"auth.go:42"|token never expires|check expiry
+  LOW|"util.go:7"|unused var|""
+truncated: false
+`
+
+func TestASiblingLineIsMetadataNotARow(t *testing.T) {
+	doc, err := Decode(strings.NewReader(atcrCLIOutput))
+	if err != nil {
+		t.Fatalf("real CLI output failed to parse: %v", err)
+	}
+	if len(doc.Rows) != 2 {
+		t.Fatalf("got %d rows, want 2 — a sibling line was eaten as a row", len(doc.Rows))
+	}
+	if got := doc.Meta["truncated"]; got != "false" {
+		t.Errorf("Meta[truncated] = %q, want false", got)
+	}
+}
+
+func TestATruncatedPayloadIsNotAnError(t *testing.T) {
+	// atcr's CONSUMER CONTRACT, verbatim: "when truncated, this payload is
+	// intentionally NOT length-round-trippable — the header declares N (the true
+	// total) while fewer than N rows are physically present ... A consumer must
+	// read `truncated` and the header N as authoritative rather than
+	// length-checking the array against its physical rows."
+	//
+	// So a hard equality gate cannot read atcr's paginated output at all.
+	src := "findings[9|]{a}:\n  one\n  two\ntruncated: true\n"
+	doc, err := Decode(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("a truncated payload must parse: %v", err)
+	}
+	if doc.Declared != 9 {
+		t.Errorf("Declared = %d, want 9 (the TRUE total, from the header)", doc.Declared)
+	}
+	if len(doc.Rows) != 2 {
+		t.Errorf("got %d rows, want the 2 physically present", len(doc.Rows))
+	}
+	if doc.Meta["truncated"] != "true" {
+		t.Errorf("the truncation signal was lost")
+	}
+}
+
+func TestMoreRowsThanDeclaredIsStillAnError(t *testing.T) {
+	// Fewer rows than declared is legitimate (truncation). MORE never is — it
+	// means the header and the body disagree in the direction no contract allows.
+	_, err := Decode(strings.NewReader("r[1|]{a}:\n  x\n  y\n"))
+	if err == nil {
+		t.Fatal("more rows than the header declares parsed cleanly")
+	}
+}
+
+func TestATrailingBlockIsNotEatenAsRows(t *testing.T) {
+	// atcr Epic 42.0 (AXI Contextual Disclosure, currently DEFERRED) appends a
+	// `help[]` block of next-step suggestions after command output. Its AC4 says
+	// existing content is unchanged and only appended to — so a reader that runs
+	// to EOF breaks the day that ships.
+	src := "findings[1|]{a}:\n  x\nhelp[1|]{cmd}:\n  atcr verify <id>\n"
+	doc, err := Decode(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("a trailing block must not break the first one: %v", err)
+	}
+	if len(doc.Rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(doc.Rows))
+	}
+	if doc.Rows[0]["a"] != "x" {
+		t.Errorf("a = %q, want x", doc.Rows[0]["a"])
 	}
 }

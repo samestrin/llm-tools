@@ -14,11 +14,17 @@ import (
 // field name, and `fields` is kept alongside so the declared ORDER survives —
 // a map has none, and re-encoding needs it.
 type TOONResult struct {
-	Name      string              `json:"name"`
-	Delimiter string              `json:"delimiter"`
-	Count     int                 `json:"count"`
-	Fields    []string            `json:"fields"`
-	Rows      []map[string]string `json:"rows"`
+	Name      string   `json:"name"`
+	Delimiter string   `json:"delimiter"`
+	Count     int      `json:"count"`
+	Declared  int      `json:"declared"`
+	Fields    []string `json:"fields"`
+
+	// Meta carries sibling `key: value` lines that follow the array. atcr emits
+	// `truncated: <bool>` there, and a consumer needs it: when truncated,
+	// `declared` is the TRUE total and `count` is what physically arrived.
+	Meta map[string]string   `json:"meta"`
+	Rows []map[string]string `json:"rows"`
 }
 
 func newTOONCmd() *cobra.Command {
@@ -62,7 +68,9 @@ func runTOONParse(cmd *cobra.Command, args []string) error {
 		Name:      doc.Name,
 		Delimiter: string(doc.Delimiter),
 		Count:     len(doc.Rows),
+		Declared:  doc.Declared,
 		Fields:    doc.Fields,
+		Meta:      doc.Meta,
 		Rows:      doc.Rows,
 	}
 	// Never null: a zero-findings review is a well-formed payload, and a consumer
@@ -72,6 +80,9 @@ func runTOONParse(cmd *cobra.Command, args []string) error {
 	}
 	if res.Rows == nil {
 		res.Rows = []map[string]string{}
+	}
+	if res.Meta == nil {
+		res.Meta = map[string]string{}
 	}
 	// Compact, not indented. This binary exists to save tokens, a findings
 	// payload runs to hundreds of rows, and the reader is a model rather than a
