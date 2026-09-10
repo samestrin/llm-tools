@@ -113,3 +113,44 @@ func TestGroupTDTOONRejectsAMalformedPayload(t *testing.T) {
 		t.Fatal("a payload carrying more rows than its header declares parsed cleanly")
 	}
 }
+
+// atcrRealShape is what `atcr report --format axi` ACTUALLY emits: field names
+// in LOWER case, and "file:line" rather than "FILE_LINE". Verified through the
+// built binary against a real 22-finding review.
+//
+// group_td reads item["FILE:LINE"], item["FILE_LINE"], item["SEVERITY"] and so
+// on — all upper case. So a real atcr payload decoded verbatim produces 22 items
+// that group_td cannot key: grouping, minute totals and severity handling all
+// degrade silently while total_items still reads 22. Looking successful while
+// doing nothing is the failure this whole change exists to remove.
+const atcrRealShape = `findings[2|]{severity|"file:line"|problem|fix|category|est_minutes|evidence|reviewers|confidence}:
+  CRITICAL|"fanout.go:37"|Returning incomplete client|Use NewClient|correctness|15|lines 37-42|ronin|MEDIUM
+  HIGH|"src/lib.rs:4"|Function adds extra 1|Remove the +1|correctness|5|a + b + 1|ronin|MEDIUM
+`
+
+func TestGroupTDTOONNormalisesAtcrsRealFieldNames(t *testing.T) {
+	res := runGroupTDToon(t, "--content", atcrRealShape, "--format", "toon", "--json")
+	if res.Summary.TotalItems != 2 {
+		t.Fatalf("TotalItems = %d, want 2", res.Summary.TotalItems)
+	}
+	var keyed map[string]interface{}
+	for _, it := range allItems(res) {
+		fl, _ := it["FILE:LINE"].(string)
+		if fl == "fanout.go:37" {
+			keyed = it
+		}
+	}
+	if keyed == nil {
+		t.Fatal(`no item readable at item["FILE:LINE"] — a real atcr payload ` +
+			`decoded to keys group_td cannot read, so every row is inert`)
+	}
+	if got, _ := keyed["SEVERITY"].(string); got != "CRITICAL" {
+		t.Errorf("SEVERITY = %q, want CRITICAL", got)
+	}
+	if got, _ := keyed["EST_MINUTES"].(string); got != "15" {
+		t.Errorf("EST_MINUTES = %q, want 15", got)
+	}
+	if got, _ := keyed["PROBLEM"].(string); got != "Returning incomplete client" {
+		t.Errorf("PROBLEM = %q, want the real problem text", got)
+	}
+}
