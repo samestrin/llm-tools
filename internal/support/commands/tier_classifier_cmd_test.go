@@ -75,6 +75,50 @@ categories:
 	}
 }
 
+// Nested schema (critical:/important:/patterns:/utility:, packages buried
+// under category headers) must classify via Pass 1, same as the flat schema's
+// packages map — this is the shape produced by hand-authored package-tiers.yaml
+// files, distinct from the flat glob-rule "patterns" list of the same name.
+func TestTierClassifierCmd_NestedSchemaConfig(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "package-tiers.yaml")
+	os.WriteFile(cfg, []byte(`version: "1.0"
+critical:
+  frameworks:
+    frontend: [react, vue]
+important:
+  validation: [zod, yup]
+patterns:
+  component-libraries: [shadcn/ui, radix-ui]
+utility:
+  description: "Packages not explicitly listed are treated as utilities"
+framework_overrides:
+  nextjs:
+    promote_context: [react]
+`), 0o644)
+	cmd := newTierClassifierCmd()
+	cmd.SetArgs([]string{"--packages", "react,zod,radix-ui,unknownpkg", "--config", cfg, "--json"})
+	var out, errb bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errb)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v\n%s", err, errb.String())
+	}
+	var res TierResult
+	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
+		t.Fatalf("json: %v\n%s", err, out.String())
+	}
+	want := map[string]string{"react": "critical", "zod": "important", "radix-ui": "pattern"}
+	for pkg, tier := range want {
+		got := res.Assigned[pkg]
+		if got.Tier != tier || got.Pass != 1 {
+			t.Errorf("%s = %+v, want pass1/%s", pkg, got, tier)
+		}
+	}
+	if len(res.Unassigned) != 1 || res.Unassigned[0] != "unknownpkg" {
+		t.Errorf("unassigned = %v, want [unknownpkg]", res.Unassigned)
+	}
+}
+
 func TestTierClassifierCmd_MissingPackages(t *testing.T) {
 	cmd := newTierClassifierCmd()
 	cmd.SetArgs([]string{"--json"})
