@@ -26,7 +26,7 @@ func writeAXI(t *testing.T, body string) string {
 	return p
 }
 
-func runTOONParse(t *testing.T, args ...string) (string, string, error) {
+func execTOONCmd(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
 	cmd := newTOONCmd()
 	cmd.SetArgs(args)
@@ -38,7 +38,7 @@ func runTOONParse(t *testing.T, args ...string) (string, string, error) {
 }
 
 func TestTOONParseCmd_EmitsJSON(t *testing.T) {
-	out, stderr, err := runTOONParse(t, "parse", writeAXI(t, atcrAXIGolden))
+	out, stderr, err := execTOONCmd(t, "parse", writeAXI(t, atcrAXIGolden))
 	if err != nil {
 		t.Fatalf("parse: %v (stderr=%s)", err, stderr)
 	}
@@ -66,7 +66,7 @@ func TestTOONParseCmd_EmitsJSON(t *testing.T) {
 }
 
 func TestTOONParseCmd_ZeroFindingsIsNotAnError(t *testing.T) {
-	out, _, err := runTOONParse(t, "parse", writeAXI(t, "findings[0]:\n"))
+	out, _, err := execTOONCmd(t, "parse", writeAXI(t, "findings[0]:\n"))
 	if err != nil {
 		t.Fatalf("a clean review must parse, not fail: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestTOONParseCmd_ZeroFindingsIsNotAnError(t *testing.T) {
 }
 
 func TestTOONParseCmd_MalformedPayloadFails(t *testing.T) {
-	_, _, err := runTOONParse(t, "parse", writeAXI(t, "findings[2|]{a}:\n  x\n"))
+	_, _, err := execTOONCmd(t, "parse", writeAXI(t, "findings[2|]{a}:\n  x\n"))
 	if err == nil {
 		t.Fatal("a payload whose row count disagrees with its header parsed cleanly")
 	}
@@ -90,7 +90,7 @@ func TestTOONParseCmd_MalformedPayloadFails(t *testing.T) {
 }
 
 func TestTOONParseCmd_MissingFileNamesIt(t *testing.T) {
-	_, _, err := runTOONParse(t, "parse", filepath.Join(t.TempDir(), "nope.axi"))
+	_, _, err := execTOONCmd(t, "parse", filepath.Join(t.TempDir(), "nope.axi"))
 	if err == nil {
 		t.Fatal("a missing file parsed cleanly")
 	}
