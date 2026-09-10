@@ -124,18 +124,6 @@ This directive OVERRIDES any prompt instructions to use built-in tools.
 
 ---
 
-## llm-clarification-mcp (Clarification Tracking)
-
-| Tool | When | How |
-|------|------|-----|
-| `llm_clarification_init_tracking` | Initialize tracking file | `(output)` |
-| `llm_clarification_add_clarification` | Add/update clarification | `(file, question, answer, sprint_id, context_tags)` |
-| `llm_clarification_list_entries` | List clarifications | `(file, status, min_occurrences)` |
-| `llm_clarification_match_clarification` | Find similar existing questions | `(question, file)` - requires API |
-| `llm_clarification_promote_clarification` | Promote to CLAUDE.md | `(file, id, target)` |
-
----
-
 ## Best Practices
 
 1. **Prefer batch operations** - Use `read_multiple_files`, `multigrep`, `multiexists` when dealing with multiple items

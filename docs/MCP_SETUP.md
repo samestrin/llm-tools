@@ -2,12 +2,11 @@
 
 ## Overview
 
-This repository includes four MCP (Model Context Protocol) servers that make llm-tools commands available as native tools in Claude Desktop and other MCP-compatible clients:
+This repository includes three MCP (Model Context Protocol) servers that make llm-tools commands available as native tools in Claude Desktop and other MCP-compatible clients:
 
 1. **llm-support-mcp** - 50+ tools for file operations, search, LLM integration, and project analysis
-2. **llm-clarification-mcp** - 12 tools for the Clarification Learning System
-3. **llm-filesystem-mcp** - 15 batch/specialized tools for filesystem operations (single-file operations use Claude's native tools)
-4. **llm-semantic-mcp** - 4 tools for semantic code search with embeddings
+2. **llm-filesystem-mcp** - 15 batch/specialized tools for filesystem operations (single-file operations use Claude's native tools)
+3. **llm-semantic-mcp** - 4 tools for semantic code search with embeddings
 
 All servers are native Go binaries with no runtime dependencies.
 
@@ -88,29 +87,6 @@ All servers are native Go binaries with no runtime dependencies.
 |---------|--------------|
 | `llm-support multi_review` | Long-running (minutes), streams live progress to stdout, produces on-disk artifacts. MCP's single-payload response model would hide progress and offer no benefit. Invoke from a shell or slash-command `Bash` block. |
 
-### llm-clarification-mcp (12 tools)
-
-**Analysis Tools (require API):**
-| Tool | Description |
-|------|-------------|
-| `llm_clarification_match_clarification` | Match question against existing entries |
-| `llm_clarification_cluster_clarifications` | Group similar questions into clusters |
-| `llm_clarification_detect_conflicts` | Find conflicting answers |
-| `llm_clarification_validate_clarifications` | Check for stale entries |
-
-**Management Tools (no API needed):**
-| Tool | Description |
-|------|-------------|
-| `llm_clarification_init_tracking` | Initialize tracking file |
-| `llm_clarification_add_clarification` | Add or update a clarification entry |
-| `llm_clarification_delete_clarification` | Delete a clarification entry |
-| `llm_clarification_promote_clarification` | Promote entry to CLAUDE.md |
-| `llm_clarification_list_entries` | List entries with filtering |
-| `llm_clarification_import_memory` | Import clarifications from YAML |
-| `llm_clarification_export_memory` | Export clarifications to YAML |
-| `llm_clarification_optimize_memory` | Optimize storage (vacuum, prune) |
-| `llm_clarification_reconcile_memory` | Find stale file references |
-
 ### llm-filesystem-mcp (15 batch/specialized tools)
 
 Single-file operations (read, write, edit) should use Claude's native Read, Write, and Edit tools for better performance. The MCP server exposes batch and specialized operations only.
@@ -167,7 +143,7 @@ Single-file operations (read, write, edit) should use Claude's native Read, Writ
 
 ## Prerequisites
 
-1. **Go CLI binaries installed** - `llm-support`, `llm-clarification`, `llm-filesystem`, `llm-semantic` in your PATH
+1. **Go CLI binaries installed** - `llm-support`, `llm-filesystem`, `llm-semantic` in your PATH
 2. **Claude Desktop** or Claude Code installed
 3. **Go 1.21+** (only needed if building from source)
 4. **Ollama** (optional, for llm-semantic embeddings)
@@ -181,11 +157,10 @@ Single-file operations (read, write, edit) should use Claude's native Read, Writ
 git clone https://github.com/samestrin/llm-tools.git
 cd llm-tools
 make build
-sudo cp build/llm-support build/llm-clarification build/llm-filesystem build/llm-semantic /usr/local/bin/
+sudo cp build/llm-support build/llm-filesystem build/llm-semantic /usr/local/bin/
 
 # Option B: Using go install
 go install github.com/samestrin/llm-tools/cmd/llm-support@latest
-go install github.com/samestrin/llm-tools/cmd/llm-clarification@latest
 go install github.com/samestrin/llm-tools/cmd/llm-filesystem@latest
 go install github.com/samestrin/llm-tools/cmd/llm-semantic@latest
 ```
@@ -193,7 +168,6 @@ go install github.com/samestrin/llm-tools/cmd/llm-semantic@latest
 Verify installation:
 ```bash
 llm-support --version
-llm-clarification --version
 llm-filesystem --version
 llm-semantic --version
 ```
@@ -207,12 +181,11 @@ cd llm-tools
 
 # Build all MCP server binaries
 go build -o llm-support-mcp ./cmd/llm-support-mcp/
-go build -o llm-clarification-mcp ./cmd/llm-clarification-mcp/
 go build -o llm-filesystem-mcp ./cmd/llm-filesystem-mcp/
 go build -o llm-semantic-mcp ./cmd/llm-semantic-mcp/
 
 # Install to a location in PATH
-sudo cp llm-support-mcp llm-clarification-mcp llm-filesystem-mcp llm-semantic-mcp /usr/local/bin/
+sudo cp llm-support-mcp llm-filesystem-mcp llm-semantic-mcp /usr/local/bin/
 ```
 
 Verify installation:
@@ -237,9 +210,6 @@ Add the MCP server configurations:
     "llm-support": {
       "command": "/usr/local/bin/llm-support-mcp"
     },
-    "llm-clarification": {
-      "command": "/usr/local/bin/llm-clarification-mcp"
-    },
     "llm-filesystem": {
       "command": "/usr/local/bin/llm-filesystem-mcp"
     },
@@ -250,18 +220,7 @@ Add the MCP server configurations:
 }
 ```
 
-### Step 4: Configure API for Clarification Tools (Optional)
-
-The `llm_clarification_match_clarification`, `llm_clarification_cluster_clarifications`, `llm_clarification_detect_conflicts`, and `llm_clarification_validate_clarifications` tools require an OpenAI-compatible API.
-
-**Environment Variables:**
-```bash
-export OPENAI_API_KEY=your-api-key
-export OPENAI_BASE_URL=https://openrouter.ai/api/v1  # optional
-export OPENAI_MODEL=gpt-4o-mini                       # optional
-```
-
-### Step 5: Configure Embeddings for Semantic Tools (Optional)
+### Step 4: Configure Embeddings for Semantic Tools (Optional)
 
 The `llm_semantic_*` tools require an OpenAI-compatible embedding API. By default, they use local Ollama.
 
@@ -278,7 +237,7 @@ export LLM_SEMANTIC_API_URL=http://localhost:11434 # embedding server URL
 export LLM_SEMANTIC_MODEL=nomic-embed-text         # model name
 ```
 
-### Step 6: Restart Claude Desktop
+### Step 5: Restart Claude Desktop
 
 Completely quit and restart Claude Desktop for the changes to take effect.
 
@@ -288,7 +247,6 @@ Completely quit and restart Claude Desktop for the changes to take effect.
 2. Type: "What tools do you have available?"
 3. Claude should list:
    - 50+ `llm_support_*` tools
-   - 12 `llm_clarification_*` tools
    - 15 `llm_filesystem_*` tools (batch/specialized operations)
    - 4 `llm_semantic_*` tools
 
@@ -325,32 +283,6 @@ Claude will use `llm_support_count`.
 Show me the structure of the src/ directory
 ```
 Claude will use `llm_support_tree`.
-
-### llm-clarification Tools
-
-**Initialize tracking:**
-```
-Initialize a clarification tracking file for this project
-```
-Claude will use `llm_clarification_init_tracking`.
-
-**Record a clarification:**
-```
-Record this clarification: Q: "Should we use Tailwind or CSS modules?" A: "Use Tailwind for this project"
-```
-Claude will use `llm_clarification_add_clarification`.
-
-**List clarifications:**
-```
-Show me all clarifications that have been asked more than once
-```
-Claude will use `llm_clarification_list_entries` with `min_occurrences: 2`.
-
-**Find duplicate questions:**
-```
-Are there any clarifications in the tracking file that might be asking the same thing?
-```
-Claude will use `llm_clarification_cluster_clarifications`.
 
 ### llm-filesystem Tools
 
@@ -467,28 +399,6 @@ Summarize directory contents for LLM context.
 - `glob` (string): Glob pattern for files
 - `max_tokens` (integer): Maximum tokens in output
 
-### llm_clarify_add
-
-Add or update a clarification entry.
-
-**Parameters:**
-- `tracking_file` (string, required): Path to tracking file
-- `question` (string, required): The clarification question
-- `answer` (string): The answer/decision
-- `id` (string): Entry ID (auto-generated if not provided)
-- `sprint_id` (string): Sprint ID
-- `context_tags` (string): Comma-separated tags
-
-### llm_clarify_list
-
-List entries with optional filtering.
-
-**Parameters:**
-- `tracking_file` (string, required): Path to tracking file
-- `status` (string): Filter by status (`pending`, `promoted`, `expired`, `rejected`)
-- `min_occurrences` (integer): Minimum occurrences to show
-- `json_output` (boolean): Output as JSON
-
 ## Troubleshooting
 
 ### MCP server not showing up
@@ -500,7 +410,6 @@ List entries with optional filtering.
 2. **Check binaries exist:**
    ```bash
    ls -la /usr/local/bin/llm-support-mcp
-   ls -la /usr/local/bin/llm-clarification-mcp
    ls -la /usr/local/bin/llm-filesystem-mcp
    ls -la /usr/local/bin/llm-semantic-mcp
    ```
@@ -513,7 +422,7 @@ List entries with optional filtering.
 
 1. **Check Go binaries are installed:**
    ```bash
-   which llm-support llm-clarification llm-filesystem llm-semantic
+   which llm-support llm-filesystem llm-semantic
    llm-support --version
    ```
 
@@ -527,18 +436,6 @@ List entries with optional filtering.
 3. **Test MCP server directly:**
    ```bash
    echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | llm-support-mcp
-   ```
-
-### Clarification API tools failing
-
-1. **Check API configuration:**
-   ```bash
-   echo $OPENAI_API_KEY
-   ```
-
-2. **Test API connectivity:**
-   ```bash
-   llm-clarification match-clarification -q "test" --entries-json "[]"
    ```
 
 ### Semantic search not working
@@ -568,7 +465,7 @@ List entries with optional filtering.
 ## Security
 
 - MCP servers run locally on your machine
-- No network access required (except clarification API tools)
+- No network access required (except the embedding and LLM API tools)
 - Same security model as running binaries directly
 - All file operations use same permissions as your user
 
@@ -578,8 +475,8 @@ List entries with optional filtering.
 2. Restart Claude Desktop
 3. Optionally remove binaries:
    ```bash
-   sudo rm /usr/local/bin/llm-support-mcp /usr/local/bin/llm-clarification-mcp \
-           /usr/local/bin/llm-filesystem-mcp /usr/local/bin/llm-semantic-mcp
+   sudo rm /usr/local/bin/llm-support-mcp /usr/local/bin/llm-filesystem-mcp \
+           /usr/local/bin/llm-semantic-mcp
    ```
 
 ## See Also
