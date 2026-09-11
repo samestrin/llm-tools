@@ -271,4 +271,41 @@ func TestQdrantStorage_RefStorage(t *testing.T) {
 	if edges[0].FilePath != "a.go" || edges[0].StartLine != 10 {
 		t.Errorf("caller location = %s:%d, want a.go:10", edges[0].FilePath, edges[0].StartLine)
 	}
+
+	// Exercise the rest of the hand-off, so a delegation wired to the wrong
+	// place cannot pass on the strength of one method alone.
+	outgoing, err := rs.GetRefsByName(ctx, "Caller")
+	if err != nil {
+		t.Fatalf("GetRefsByName: %v", err)
+	}
+	if len(outgoing) != 1 || outgoing[0].RefName != "w.Process" {
+		t.Errorf("GetRefsByName(Caller) = %+v, want the single w.Process edge", outgoing)
+	}
+
+	byID, err := rs.GetRefs(ctx, "caller")
+	if err != nil {
+		t.Fatalf("GetRefs: %v", err)
+	}
+	if len(byID) != 1 {
+		t.Errorf("GetRefs(caller) = %+v, want 1 edge", byID)
+	}
+
+	incoming, err := rs.GetCallers(ctx, "target")
+	if err != nil {
+		t.Fatalf("GetCallers: %v", err)
+	}
+	if len(incoming) != 1 {
+		t.Errorf("GetCallers(target) = %+v, want 1 edge", incoming)
+	}
+
+	if err := rs.DeleteRefsByChunk(ctx, "caller"); err != nil {
+		t.Fatalf("DeleteRefsByChunk: %v", err)
+	}
+	remaining, err := rs.GetRefs(ctx, "caller")
+	if err != nil {
+		t.Fatalf("GetRefs after delete: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("GetRefs after delete = %+v, want none", remaining)
+	}
 }

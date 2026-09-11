@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -201,5 +202,19 @@ func TestFormatRefs_EmptyIsNotAnError(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "No references from Nobody") {
 		t.Errorf("expected a plain no-references message, got:\n%s", buf.String())
+	}
+}
+
+func TestOpenRefStorage_RejectsUnknownBackend(t *testing.T) {
+	restore := SetStorageTypeForTesting("nonsense")
+	defer restore()
+
+	_, cleanup, err := openRefStorage(context.Background())
+	if err == nil {
+		cleanup()
+		t.Fatal("an unknown storage backend should be an error, not a silent fallback")
+	}
+	if !strings.Contains(err.Error(), "nonsense") {
+		t.Errorf("error should name the unknown backend, got: %v", err)
 	}
 }
