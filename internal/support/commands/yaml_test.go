@@ -330,9 +330,104 @@ helper:
 	}
 }
 
+func TestYamlSet_PreservesCommentsWhenCreatingKey(t *testing.T) {
+	// Creating a key took a different path from replacing one. Replacement
+	// edited the syntax tree and kept the file intact, while anything new fell
+	// back to decoding the file into a map and re-encoding it, which drops
+	// every comment and reorders the keys that were already there.
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `# This is a header comment
+helper:
+  # LLM configuration
+  llm: gemini
+semantic:
+  # which collection to use
+  code_collection: demo-code
+  code_storage: qdrant
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"set", "--file", configPath, "semantic.code_include", "*.go"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	content, _ := os.ReadFile(configPath)
+	contentStr := string(content)
+
+	if !strings.Contains(contentStr, "*.go") {
+		t.Fatalf("the new key was not written:\n%s", contentStr)
+	}
+	for _, comment := range []string{
+		"# This is a header comment",
+		"# LLM configuration",
+		"# which collection to use",
+	} {
+		if !strings.Contains(contentStr, comment) {
+			t.Errorf("comment %q was lost when creating a key:\n%s", comment, contentStr)
+		}
+	}
+	// Keys that were already in the file must keep their original order.
+	if strings.Index(contentStr, "code_collection") > strings.Index(contentStr, "code_storage") {
+		t.Errorf("existing keys were reordered when creating a key:\n%s", contentStr)
+	}
+}
+
 // ============================================================================
 // US-03: Batch Operations Tests
 // ============================================================================
+
+func TestYamlMultiset_PreservesCommentsWhenCreatingKeys(t *testing.T) {
+	// multiset writes through its own path rather than the one `set` uses, so
+	// repairing `set` alone left this door open: it decoded the file into a map
+	// and re-encoded it, dropping every comment and reordering the keys.
+	dir := createTempDir(t)
+	configPath := createTestYAML(t, dir, `# This is a header comment
+helper:
+  # LLM configuration
+  llm: gemini
+semantic:
+  # which collection to use
+  code_collection: demo-code
+  code_storage: qdrant
+`)
+
+	cmd := newYamlCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetArgs([]string{"multiset", "--file", configPath,
+		"semantic.code_include", "*.go",
+		"semantic.code_exclude", "vendor,dist"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	content, _ := os.ReadFile(configPath)
+	contentStr := string(content)
+
+	for _, want := range []string{"*.go", "vendor,dist"} {
+		if !strings.Contains(contentStr, want) {
+			t.Fatalf("value %q was not written:\n%s", want, contentStr)
+		}
+	}
+	for _, comment := range []string{
+		"# This is a header comment",
+		"# LLM configuration",
+		"# which collection to use",
+	} {
+		if !strings.Contains(contentStr, comment) {
+			t.Errorf("comment %q was lost when creating keys:\n%s", comment, contentStr)
+		}
+	}
+	// Keys that were already in the file must keep their original order.
+	if strings.Index(contentStr, "code_collection") > strings.Index(contentStr, "code_storage") {
+		t.Errorf("existing keys were reordered:\n%s", contentStr)
+	}
+}
 
 func TestYamlMultiget_MultipleKeys(t *testing.T) {
 	// AC 03-01: yaml multiget retrieves multiple values in order
