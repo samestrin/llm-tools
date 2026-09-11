@@ -454,13 +454,16 @@ func sanitizeCollectionName(name string) string {
 // getFTSPath returns the path for a parallel FTS database.
 // dataDir should be the project's .index directory (e.g., {gitRoot}/.index/).
 // Returns empty string if dataDir is empty (caller should handle).
+// The file is named after its collection. A project routinely indexes several
+// collections from one directory, and a shared name lets each one destroy the
+// previous collection's lexical index and call graph.
 func getFTSPath(collection string, dataDir string) string {
 	if dataDir == "" {
 		// Return empty string to signal error - caller should handle
 		return ""
 	}
 
-	return filepath.Join(dataDir, "qdrant_fts.db")
+	return filepath.Join(dataDir, sanitizeCollectionName(collection)+"_fts.db")
 }
 
 // nullableInt64Lexical returns nil if value is 0, otherwise returns the value.
