@@ -418,12 +418,46 @@ func TestSanitizeCollectionName(t *testing.T) {
 // TestGetFTSPath verifies FTS database path generation.
 func TestGetFTSPath(t *testing.T) {
 	// Test with custom data dir (project-local .index/)
+	// The file is named after the collection: a single shared name lets one
+	// collection's index overwrite another's.
 	t.Run("CustomDataDir", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		path := getFTSPath("test_collection", tmpDir)
-		expected := filepath.Join(tmpDir, "qdrant_fts.db")
+		expected := filepath.Join(tmpDir, "test_collection_fts.db")
 		if path != expected {
 			t.Errorf("getFTSPath = %q, want %q", path, expected)
+		}
+	})
+
+	// Two collections in one directory must not share a file. They do share a
+	// working directory in every project that indexes both code and docs, and
+	// a shared file means indexing the second wipes the first collection's
+	// lexical index and its call graph.
+	t.Run("DistinctPerCollection", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		code := getFTSPath("proj-code", tmpDir)
+		docs := getFTSPath("proj-docs", tmpDir)
+		if code == docs {
+			t.Errorf("collections share the sidecar %q; one will overwrite the other", code)
+		}
+	})
+
+	// A collection name reaches the filesystem here, so it must not be able to
+	// point outside the data directory.
+	t.Run("NameCannotEscapeDataDir", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		path := getFTSPath("../../etc/passwd", tmpDir)
+		if filepath.Dir(path) != tmpDir {
+			t.Errorf("path escaped the data dir: %q", path)
+		}
+	})
+
+	t.Run("EmptyCollectionNamed", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		path := getFTSPath("", tmpDir)
+		expected := filepath.Join(tmpDir, "default_fts.db")
+		if path != expected {
+			t.Errorf("getFTSPath with empty collection = %q, want %q", path, expected)
 		}
 	})
 

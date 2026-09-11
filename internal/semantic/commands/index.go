@@ -477,6 +477,26 @@ func resolveIndexPath(rootPath string) string {
 	return filepath.Join(rootPath, ".index", "semantic.db")
 }
 
+// resolveFTSDataDir returns the directory holding a Qdrant collection's
+// parallel index, which carries its lexical index and its call graph.
+//
+// Qdrant keeps no local index file of its own, so this used to be derived from
+// an empty path and resolved to the working directory, leaving the database in
+// the repository root. It is anchored the same way the SQLite index is, so a
+// query finds the file the indexer wrote no matter where it runs from.
+func resolveFTSDataDir(indexPath string) string {
+	if indexPath != "" {
+		return filepath.Dir(indexPath)
+	}
+	if indexDir != "" && indexDir != ".index" {
+		return indexDir
+	}
+	if gitRoot, err := findGitRoot(); err == nil {
+		return filepath.Join(gitRoot, ".index")
+	}
+	return ".index"
+}
+
 func findGitRootFrom(startPath string) (string, error) {
 	dir := startPath
 	// Limit traversal depth to prevent infinite loops on unusual filesystems
@@ -506,7 +526,7 @@ func createStorage(indexPath string, embeddingDim int) (semantic.Storage, error)
 			URL:            strings.TrimSpace(os.Getenv("QDRANT_API_URL")),
 			CollectionName: collection,
 			EmbeddingDim:   embeddingDim,
-			FTSDataDir:     filepath.Dir(indexPath),
+			FTSDataDir:     resolveFTSDataDir(indexPath),
 		}
 		return semantic.NewQdrantStorage(config)
 	case "sqlite", "":
