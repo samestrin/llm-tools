@@ -190,8 +190,12 @@ func deleteRefsByChunkSQL(ctx context.Context, db *sql.DB, chunkID string) error
 	return err
 }
 
-// getCallersByNameSQL returns the edges arriving at any chunk with this name,
-// each carrying the location of the chunk the edge starts from.
+// getCallersByNameSQL returns the call edges arriving at any chunk with this
+// name, each carrying the location of the chunk the edge starts from.
+//
+// Only call edges count as callers. A single method call also records a
+// uses_type edge under the same name, so without this filter every caller of a
+// method would be reported twice.
 func getCallersByNameSQL(ctx context.Context, db *sql.DB, name string) ([]RefEdge, error) {
 	return queryRefEdgesSQL(ctx, db, `
 		SELECT r.chunk_id, r.ref_type, r.ref_name, COALESCE(r.ref_target_id, ''),
@@ -199,7 +203,8 @@ func getCallersByNameSQL(ctx context.Context, db *sql.DB, name string) ([]RefEdg
 		       COALESCE(c.start_line, 0), COALESCE(c.end_line, 0)
 		FROM chunk_refs r
 		JOIN chunks c ON c.id = r.chunk_id
-		WHERE r.ref_target_id IN (SELECT id FROM chunks WHERE name = ?)
+		WHERE r.ref_type = '`+string(RefCalls)+`'
+		  AND r.ref_target_id IN (SELECT id FROM chunks WHERE name = ?)
 		ORDER BY c.file_path, c.start_line
 	`, name)
 }

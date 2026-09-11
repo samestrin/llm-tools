@@ -785,6 +785,12 @@ func (s *SQLiteStorage) Clear(ctx context.Context) error {
 		return err
 	}
 
+	// Clear the call graph. The table declares a cascade, but foreign keys are
+	// not enabled on this connection, so the rows have to go explicitly.
+	if _, err := s.db.ExecContext(ctx, "DELETE FROM chunk_refs"); err != nil {
+		return err
+	}
+
 	// Also explicitly clear FTS to ensure consistency
 	if err := s.clearFTS5(); err != nil {
 		return err

@@ -202,11 +202,18 @@ func (m *IndexManager) Index(ctx context.Context, rootPath string, opts IndexOpt
 
 	// Use cross-file batching if EmbedBatchSize is set
 	if opts.EmbedBatchSize > 0 {
-		return m.indexWithCrossFileBatching(ctx, files, opts, result)
+		result, err = m.indexWithCrossFileBatching(ctx, files, opts, result)
+	} else {
+		// Original per-file approach
+		result, err = m.indexPerFile(ctx, files, opts, result)
+	}
+	if err != nil {
+		return result, err
 	}
 
-	// Original per-file approach
-	return m.indexPerFile(ctx, files, opts, result)
+	m.resolveRefs(ctx)
+
+	return result, nil
 }
 
 // indexPerFile processes files one at a time (original behavior)
@@ -686,6 +693,8 @@ func (m *IndexManager) Update(ctx context.Context, rootPath string, opts UpdateO
 		}
 	}
 
+	m.resolveRefs(ctx)
+
 	return result, nil
 }
 
@@ -740,6 +749,8 @@ func (m *IndexManager) UpdateGit(ctx context.Context, rootPath string, gitRef st
 			result.FilesRemoved++
 		}
 	}
+
+	m.resolveRefs(ctx)
 
 	return result, nil
 }
@@ -1107,6 +1118,21 @@ func (m *IndexManager) extractAndStoreRefs(ctx context.Context, chunker Chunker,
 	}
 
 	_ = rs.StoreRefs(ctx, refs)
+}
+
+// resolveRefs links stored references to the chunks they name. It runs after
+// every index and update, because an edge recorded earlier only becomes
+// resolvable once its target is indexed, and an edge already resolved has to
+// let go of a target that has since been renamed away.
+//
+// Resolution is best effort: failing here leaves edges unresolved but does not
+// invalidate the chunks that were just indexed.
+func (m *IndexManager) resolveRefs(ctx context.Context) {
+	rs, ok := m.storage.(RefStorage)
+	if !ok {
+		return
+	}
+	_ = rs.ResolveRefs(ctx)
 }
 
 // fileNeedsUpdate checks if a file has been modified since indexing
