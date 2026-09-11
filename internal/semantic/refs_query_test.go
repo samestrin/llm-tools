@@ -145,3 +145,42 @@ func TestGetRefsByName_UnknownSymbol(t *testing.T) {
 		t.Errorf("GetRefsByName(NoSuchSymbol) = %+v, want no edges", edges)
 	}
 }
+
+// TestGetCallersByName_ExcludesNonCallEdges proves a caller is reported once.
+// The extractor records a method call as both a call and a uses_type edge under
+// the same name, so counting every edge kind would double every caller.
+func TestGetCallersByName_ExcludesNonCallEdges(t *testing.T) {
+	storage, cleanup := createTestSQLiteStorage(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	if err := storage.CreateBatch(ctx, []ChunkWithEmbedding{
+		{Chunk: Chunk{ID: "caller", FilePath: "a.go", Type: ChunkFunction, Name: "Caller", Content: "x", StartLine: 1, EndLine: 5, Language: "go"}, Embedding: []float32{0.1}},
+		{Chunk: Chunk{ID: "target", FilePath: "b.go", Type: ChunkMethod, Name: "Process", Content: "x", StartLine: 9, EndLine: 10, Language: "go"}, Embedding: []float32{0.2}},
+	}); err != nil {
+		t.Fatalf("CreateBatch: %v", err)
+	}
+
+	rs := RefStorage(storage)
+	if err := rs.StoreRefs(ctx, []ChunkRef{
+		{ChunkID: "caller", RefType: RefCalls, RefName: "w.Process"},
+		{ChunkID: "caller", RefType: RefUsesType, RefName: "w.Process"},
+	}); err != nil {
+		t.Fatalf("StoreRefs: %v", err)
+	}
+	if err := rs.ResolveRefs(ctx); err != nil {
+		t.Fatalf("ResolveRefs: %v", err)
+	}
+
+	edges, err := rs.GetCallersByName(ctx, "Process")
+	if err != nil {
+		t.Fatalf("GetCallersByName: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("GetCallersByName(Process) = %d edges, want 1: %+v", len(edges), edges)
+	}
+	if edges[0].RefType != RefCalls {
+		t.Errorf("reported edge type = %q, want %q", edges[0].RefType, RefCalls)
+	}
+}

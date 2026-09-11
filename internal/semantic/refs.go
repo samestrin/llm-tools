@@ -48,9 +48,10 @@ type RefStorage interface {
 	// against chunk names in the database.
 	ResolveRefs(ctx context.Context) error
 
-	// GetCallersByName retrieves the edges arriving at any chunk with the
-	// given symbol name. Each edge carries the location of the chunk the
-	// edge starts from.
+	// GetCallersByName retrieves the call edges arriving at any chunk with the
+	// given symbol name. Each edge carries the location of the chunk the edge
+	// starts from. Only calls count: a method call also records a uses_type
+	// edge under the same name, which would otherwise double every caller.
 	GetCallersByName(ctx context.Context, name string) ([]RefEdge, error)
 
 	// GetRefsByName retrieves the edges leaving any chunk with the given

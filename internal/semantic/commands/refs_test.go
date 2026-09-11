@@ -205,6 +205,61 @@ func TestFormatRefs_EmptyIsNotAnError(t *testing.T) {
 	}
 }
 
+// TestFormatRefs_CollapsesDuplicateEdgeKinds proves one call is reported once.
+// The extractor records a method call as both a call and a uses_type edge under
+// the same name, so listing raw edges shows most references twice.
+func TestFormatRefs_CollapsesDuplicateEdgeKinds(t *testing.T) {
+	edges := []semantic.RefEdge{
+		// uses_type comes first, so the call edge has to win on merit.
+		{
+			ChunkRef:  semantic.ChunkRef{ChunkID: "caller", RefType: semantic.RefUsesType, RefName: "w.Process", RefTargetID: "target"},
+			FilePath:  "b.go",
+			Name:      "Process",
+			StartLine: 5,
+		},
+		{
+			ChunkRef:  semantic.ChunkRef{ChunkID: "caller", RefType: semantic.RefCalls, RefName: "w.Process", RefTargetID: "target"},
+			FilePath:  "b.go",
+			Name:      "Process",
+			StartLine: 5,
+		},
+		{
+			ChunkRef: semantic.ChunkRef{ChunkID: "caller", RefType: semantic.RefImports, RefName: "fmt"},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := formatRefs(&buf, "Run", edges, true, false); err != nil {
+		t.Fatalf("formatRefs: %v", err)
+	}
+
+	var got struct {
+		Count      int `json:"count"`
+		References []struct {
+			Ref  string `json:"ref"`
+			Type string `json:"type"`
+		} `json:"references"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, buf.String())
+	}
+
+	if got.Count != 2 {
+		t.Fatalf("count = %d, want 2 (the method call collapsed, the import kept): %+v", got.Count, got.References)
+	}
+
+	byRef := map[string]string{}
+	for _, r := range got.References {
+		byRef[r.Ref] = r.Type
+	}
+	if byRef["w.Process"] != string(semantic.RefCalls) {
+		t.Errorf("w.Process reported as %q, want %q", byRef["w.Process"], semantic.RefCalls)
+	}
+	if byRef["fmt"] != string(semantic.RefImports) {
+		t.Errorf("import should survive collapsing, got %q", byRef["fmt"])
+	}
+}
+
 func TestOpenRefStorage_RejectsUnknownBackend(t *testing.T) {
 	restore := SetStorageTypeForTesting("nonsense")
 	defer restore()

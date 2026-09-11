@@ -174,7 +174,32 @@ func writeCallersJSON(w io.Writer, symbol string, edges []semantic.RefEdge, mini
 	})
 }
 
+// collapseRefEdges reports each referenced name once. A method call records
+// both a call edge and a uses_type edge under the same name, so listing every
+// edge shows most references twice. The call edge wins where both exist;
+// distinct names, such as an import, are left alone.
+func collapseRefEdges(edges []semantic.RefEdge) []semantic.RefEdge {
+	position := make(map[string]int, len(edges))
+	out := make([]semantic.RefEdge, 0, len(edges))
+
+	for _, e := range edges {
+		i, seen := position[e.RefName]
+		if !seen {
+			position[e.RefName] = len(out)
+			out = append(out, e)
+			continue
+		}
+		if out[i].RefType != semantic.RefCalls && e.RefType == semantic.RefCalls {
+			out[i] = e
+		}
+	}
+
+	return out
+}
+
 func formatRefs(w io.Writer, symbol string, edges []semantic.RefEdge, jsonOutput, minOutput bool) error {
+	edges = collapseRefEdges(edges)
+
 	if jsonOutput || minOutput {
 		return writeRefsJSON(w, symbol, edges, minOutput)
 	}
