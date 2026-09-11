@@ -33,10 +33,7 @@ func (c *GoChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.FuncDecl:
-			chunk := c.extractFunction(fset, node, content)
-			chunk.FilePath = path
-			chunk.Language = "go"
-			chunks = append(chunks, chunk)
+			chunks = append(chunks, c.extractFunction(fset, node, path, content))
 			return false // Don't recurse into function body
 
 		case *ast.GenDecl:
@@ -44,10 +41,7 @@ func (c *GoChunker) Chunk(path string, content []byte) ([]Chunk, error) {
 			if node.Tok == token.TYPE {
 				for _, spec := range node.Specs {
 					if ts, ok := spec.(*ast.TypeSpec); ok {
-						chunk := c.extractType(fset, node, ts, content)
-						chunk.FilePath = path
-						chunk.Language = "go"
-						chunks = append(chunks, chunk)
+						chunks = append(chunks, c.extractType(fset, node, ts, path, content))
 					}
 				}
 			}
@@ -64,9 +58,16 @@ func (c *GoChunker) SupportedExtensions() []string {
 	return []string{"go"}
 }
 
-// extractFunction extracts a function or method chunk from an AST node
-func (c *GoChunker) extractFunction(fset *token.FileSet, fn *ast.FuncDecl, content []byte) Chunk {
+// extractFunction extracts a function or method chunk from an AST node.
+//
+// The path is set here rather than by the caller because the chunk id is
+// derived from it. Generating the id before the path is known collapses
+// same-named declarations on the same line in different files onto one id, and
+// the second one then fails to store.
+func (c *GoChunker) extractFunction(fset *token.FileSet, fn *ast.FuncDecl, path string, content []byte) Chunk {
 	chunk := Chunk{
+		FilePath:  path,
+		Language:  "go",
 		Name:      fn.Name.Name,
 		StartLine: fset.Position(fn.Pos()).Line,
 		EndLine:   fset.Position(fn.End()).Line,
@@ -99,9 +100,13 @@ func (c *GoChunker) extractFunction(fset *token.FileSet, fn *ast.FuncDecl, conte
 	return chunk
 }
 
-// extractType extracts a struct or interface chunk from an AST node
-func (c *GoChunker) extractType(fset *token.FileSet, decl *ast.GenDecl, ts *ast.TypeSpec, content []byte) Chunk {
+// extractType extracts a struct or interface chunk from an AST node. The path
+// is set here for the same reason as in extractFunction: the chunk id depends
+// on it.
+func (c *GoChunker) extractType(fset *token.FileSet, decl *ast.GenDecl, ts *ast.TypeSpec, path string, content []byte) Chunk {
 	chunk := Chunk{
+		FilePath:  path,
+		Language:  "go",
 		Name:      ts.Name.Name,
 		StartLine: fset.Position(ts.Pos()).Line,
 		EndLine:   fset.Position(ts.End()).Line,
