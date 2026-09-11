@@ -36,6 +36,12 @@ Use --since to specify a custom git ref (default: HEAD~1 for post-commit hooks).
 				path = args[0]
 			}
 
+			// Fall back to the profile's configured scope. A commit hook runs
+			// this command with no scope flags, so without this an update
+			// covers more than the rebuild did and adds back what the rebuild
+			// deliberately left out.
+			includes, excludes = resolveScope(cmd, includes, excludes)
+
 			// Expand path with glob support (e.g., "docs*/", "path/to/docs*")
 			matches, err := filepath.Glob(path)
 			if err != nil {

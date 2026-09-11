@@ -406,8 +406,12 @@ All MCP tools support the `profile` and `config` parameters for simplified confi
 semantic:
   code_collection: llm-tools-code
   code_storage: qdrant
+  code_include: "*.go"
+  code_exclude: "vendor,node_modules,.git,dist,build,coverage"
   docs_collection: llm-tools-docs
   docs_storage: sqlite
+  docs_include: "*.md,*.txt"
+  docs_exclude: "CHANGELOG.md,README.md"
   memory_collection: llm-tools-memory
   memory_storage: qdrant
 ```
@@ -415,9 +419,11 @@ semantic:
 **Supported Profiles:**
 | Profile | Config Keys Used |
 |---------|------------------|
-| `code` | `code_collection`, `code_storage` |
-| `docs` | `docs_collection`, `docs_storage` |
-| `memory` | `memory_collection`, `memory_storage` |
+| `code` | `code_collection`, `code_storage`, `code_include`, `code_exclude` |
+| `docs` | `docs_collection`, `docs_storage`, `docs_include`, `docs_exclude` |
+| `memory` | `memory_collection`, `memory_storage`, `memory_include`, `memory_exclude` |
+
+**Scope keys (`*_include` and `*_exclude`):** comma-separated glob patterns describing which files belong in that profile's collection. Both `index` and `index-update` read them, so a full rebuild and the incremental update a commit hook runs cover exactly the same files; when the two disagree, every commit quietly adds back what the rebuild deliberately left out. An explicit `--include` or `--exclude` on the command line overrides the configured value, and leaving these keys unset preserves the previous behaviour.
 
 **MCP Tool Usage:**
 ```json
