@@ -61,6 +61,10 @@ Walks the directory, parses code files, and generates embeddings.`,
 				path = args[0]
 			}
 
+			// Fall back to the profile's configured scope so a rebuild covers
+			// the same files the commit hook's update covers.
+			includes, excludes = resolveScope(cmd, includes, excludes)
+
 			// Expand path with glob support (e.g., "docs*/", "path/to/docs*")
 			// If no glob wildcard found, use path as-is
 			matches, err := filepath.Glob(path)

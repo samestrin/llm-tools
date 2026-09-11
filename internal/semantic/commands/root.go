@@ -222,6 +222,31 @@ func resolveStorageType(cmd *cobra.Command) string {
 	return storageType
 }
 
+// resolveScope returns the include and exclude patterns to index with.
+//
+// An explicit flag always wins. Otherwise the profile's configured scope is
+// used, so that a full rebuild and the incremental update a commit hook runs
+// cover exactly the same files. When the two disagree, each commit quietly adds
+// back the files the rebuild deliberately left out.
+func resolveScope(cmd *cobra.Command, includes, excludes []string) ([]string, []string) {
+	if loadedConfig == nil {
+		return includes, excludes
+	}
+
+	pc := loadedConfig.GetProfileConfig(profile)
+
+	// The exclude flag carries a non-empty default, so whether it was set can
+	// only be answered by asking the flag, not by inspecting its value.
+	if f := cmd.Flag("include"); (f == nil || !f.Changed) && len(pc.Include) > 0 {
+		includes = pc.Include
+	}
+	if f := cmd.Flag("exclude"); (f == nil || !f.Changed) && len(pc.Exclude) > 0 {
+		excludes = pc.Exclude
+	}
+
+	return includes, excludes
+}
+
 // deriveCollectionFromPath extracts a collection name from a path
 // Returns the last non-empty path component, sanitized for use as a collection name
 func deriveCollectionFromPath(path string) string {
