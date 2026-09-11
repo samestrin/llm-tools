@@ -223,21 +223,7 @@ func (s *SQLiteStorage) migrateContentHashColumn() error {
 
 // initChunkRefsSchema creates the chunk_refs table for dependency/call graph tracking.
 func (s *SQLiteStorage) initChunkRefsSchema() error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS chunk_refs (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		chunk_id TEXT NOT NULL,
-		ref_type TEXT NOT NULL,
-		ref_name TEXT NOT NULL,
-		ref_target_id TEXT,
-		FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
-	);
-	CREATE INDEX IF NOT EXISTS idx_chunk_refs_chunk_id ON chunk_refs(chunk_id);
-	CREATE INDEX IF NOT EXISTS idx_chunk_refs_ref_name ON chunk_refs(ref_name);
-	CREATE INDEX IF NOT EXISTS idx_chunk_refs_target ON chunk_refs(ref_target_id);
-	`
-	_, err := s.db.Exec(schema)
-	return err
+	return initChunkRefsTables(s.db)
 }
 
 // StoreRefs stores chunk references in a single transaction.
@@ -253,29 +239,7 @@ func (s *SQLiteStorage) StoreRefs(ctx context.Context, refs []ChunkRef) error {
 		return ErrStorageClosed
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO chunk_refs (chunk_id, ref_type, ref_name, ref_target_id)
-		VALUES (?, ?, ?, ?)
-	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	for _, ref := range refs {
-		_, err = stmt.ExecContext(ctx, ref.ChunkID, string(ref.RefType), ref.RefName, nullableString(ref.RefTargetID))
-		if err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit()
+	return storeRefsSQL(ctx, s.db, refs)
 }
 
 // GetRefs retrieves all references FROM a chunk (outgoing edges).
@@ -287,24 +251,7 @@ func (s *SQLiteStorage) GetRefs(ctx context.Context, chunkID string) ([]ChunkRef
 		return nil, ErrStorageClosed
 	}
 
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT chunk_id, ref_type, ref_name, COALESCE(ref_target_id, '')
-		FROM chunk_refs WHERE chunk_id = ?
-	`, chunkID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var refs []ChunkRef
-	for rows.Next() {
-		var r ChunkRef
-		if err := rows.Scan(&r.ChunkID, &r.RefType, &r.RefName, &r.RefTargetID); err != nil {
-			return nil, err
-		}
-		refs = append(refs, r)
-	}
-	return refs, rows.Err()
+	return getRefsSQL(ctx, s.db, chunkID)
 }
 
 // GetCallers retrieves all references TO a chunk (incoming edges).
@@ -316,24 +263,7 @@ func (s *SQLiteStorage) GetCallers(ctx context.Context, chunkID string) ([]Chunk
 		return nil, ErrStorageClosed
 	}
 
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT chunk_id, ref_type, ref_name, COALESCE(ref_target_id, '')
-		FROM chunk_refs WHERE ref_target_id = ?
-	`, chunkID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var refs []ChunkRef
-	for rows.Next() {
-		var r ChunkRef
-		if err := rows.Scan(&r.ChunkID, &r.RefType, &r.RefName, &r.RefTargetID); err != nil {
-			return nil, err
-		}
-		refs = append(refs, r)
-	}
-	return refs, rows.Err()
+	return getCallersSQL(ctx, s.db, chunkID)
 }
 
 // DeleteRefsByChunk removes all references from a chunk.
@@ -345,8 +275,7 @@ func (s *SQLiteStorage) DeleteRefsByChunk(ctx context.Context, chunkID string) e
 		return ErrStorageClosed
 	}
 
-	_, err := s.db.ExecContext(ctx, `DELETE FROM chunk_refs WHERE chunk_id = ?`, chunkID)
-	return err
+	return deleteRefsByChunkSQL(ctx, s.db, chunkID)
 }
 
 // ResolveRefs batch-resolves ref_name to ref_target_id by matching against chunk names.
@@ -358,16 +287,31 @@ func (s *SQLiteStorage) ResolveRefs(ctx context.Context) error {
 		return ErrStorageClosed
 	}
 
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE chunk_refs
-		SET ref_target_id = (
-			SELECT c.id FROM chunks c
-			WHERE c.name = chunk_refs.ref_name
-			LIMIT 1
-		)
-		WHERE ref_target_id IS NULL
-	`)
-	return err
+	return resolveRefsSQL(ctx, s.db)
+}
+
+// GetCallersByName returns the edges arriving at any chunk with this name.
+func (s *SQLiteStorage) GetCallersByName(ctx context.Context, name string) ([]RefEdge, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	return getCallersByNameSQL(ctx, s.db, name)
+}
+
+// GetRefsByName returns the edges leaving any chunk with this name.
+func (s *SQLiteStorage) GetRefsByName(ctx context.Context, name string) ([]RefEdge, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return nil, ErrStorageClosed
+	}
+
+	return getRefsByNameSQL(ctx, s.db, name)
 }
 
 // migrateDomainColumn adds domain column to existing databases if missing.
@@ -838,6 +782,12 @@ func (s *SQLiteStorage) Clear(ctx context.Context) error {
 
 	// Clear chunks (triggers will clear FTS automatically)
 	if _, err := s.db.ExecContext(ctx, "DELETE FROM chunks"); err != nil {
+		return err
+	}
+
+	// Clear the call graph. The table declares a cascade, but foreign keys are
+	// not enabled on this connection, so the rows have to go explicitly.
+	if _, err := s.db.ExecContext(ctx, "DELETE FROM chunk_refs"); err != nil {
 		return err
 	}
 
