@@ -625,7 +625,16 @@ func (m *IndexManager) processFileWithDiff(ctx context.Context, filePath string,
 		chunksCreated += len(cwes)
 	}
 
-	// Step 8: Update file hash
+	// Step 8: Refresh this file's references. The chunks it owns have just been
+	// rewritten, so edges recorded against the previous ones are stale and any
+	// call added by this edit has not been recorded at all.
+	if chunker, ok := m.factory.GetByExtension(filePath); ok {
+		if fileContent, err := os.ReadFile(filePath); err == nil {
+			m.extractAndStoreRefs(ctx, chunker, filePath, fileContent, chunks)
+		}
+	}
+
+	// Step 9: Update file hash
 	if err := m.storage.SetFileHash(ctx, filePath, fileHash); err != nil {
 		return 0, 0, fmt.Errorf("failed to set file hash: %w", err)
 	}

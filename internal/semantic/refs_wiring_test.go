@@ -201,3 +201,60 @@ func Renamed() {}
 		}
 	}
 }
+
+// TestIndexManager_UpdatePicksUpNewCalls covers the path people actually use
+// day to day. Editing a function to add a call and running an incremental
+// update has to record that call, otherwise the graph quietly goes stale while
+// still looking answerable.
+func TestIndexManager_UpdatePicksUpNewCalls(t *testing.T) {
+	storage, mgr, dir := newRefsHarness(t)
+	ctx := context.Background()
+	rs := RefStorage(storage)
+
+	writeGoFile(t, dir, "a.go", `package main
+
+func A() {
+}
+`)
+	writeGoFile(t, dir, "b.go", `package main
+
+func B() {}
+`)
+	if _, err := mgr.Index(ctx, dir, IndexOptions{}); err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+
+	if callers, err := rs.GetCallersByName(ctx, "B"); err != nil {
+		t.Fatalf("GetCallersByName(B) before edit: %v", err)
+	} else if len(callers) != 0 {
+		t.Fatalf("precondition: B already has callers %+v", callers)
+	}
+
+	// A is edited to call B.
+	writeGoFile(t, dir, "a.go", `package main
+
+func A() {
+	B()
+}
+`)
+	if _, err := mgr.Update(ctx, dir, UpdateOptions{}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	a := chunkByName(t, storage, "A")
+	b := chunkByName(t, storage, "B")
+
+	callers, err := rs.GetCallersByName(ctx, "B")
+	if err != nil {
+		t.Fatalf("GetCallersByName(B) after edit: %v", err)
+	}
+	if len(callers) != 1 {
+		t.Fatalf("GetCallersByName(B) = %d edges, want 1 after A was edited to call it: %+v", len(callers), callers)
+	}
+	if callers[0].ChunkID != a.ID {
+		t.Errorf("caller = %q, want A's chunk %q", callers[0].ChunkID, a.ID)
+	}
+	if callers[0].RefTargetID != b.ID {
+		t.Errorf("target = %q, want B's chunk %q", callers[0].RefTargetID, b.ID)
+	}
+}
