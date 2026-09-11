@@ -711,8 +711,15 @@ func setValuePreservingComments(filePath string, dotPath string, value interface
 		return writeYAMLFileRaw(filePath, []byte(file.String()))
 	}
 
-	// Path doesn't exist - fall back to map-based approach
-	// This handles creating new keys (less common case)
+	// Path doesn't exist. Insert it into the syntax tree as well, so that
+	// creating a key keeps the file intact the way replacing one already does.
+	if handled, insertErr := insertKeyPreservingComments(filePath, file, dotPath, value); handled {
+		return insertErr
+	}
+
+	// Fall back to the map-based approach for shapes the tree insert cannot
+	// express, such as creating an element inside an array. This rewrites the
+	// whole file, so comments and key order are lost.
 	data, mapErr := readYAMLAsMap(filePath)
 	if mapErr != nil {
 		return mapErr
@@ -721,6 +728,118 @@ func setValuePreservingComments(filePath string, dotPath string, value interface
 		return setErr
 	}
 	return writeYAMLFile(filePath, data)
+}
+
+// insertKeyPreservingComments adds a key that does not yet exist by merging it
+// into its parent node, which leaves the rest of the document untouched.
+//
+// The caller's alternative is to decode the file into a map and re-encode it,
+// which drops every comment and reorders the keys that were already there. That
+// is why creating a key used to damage hand-maintained configuration files
+// while replacing one did not.
+//
+// Returns handled=false when the path is not a plain map key, so the caller can
+// fall back rather than fail.
+func insertKeyPreservingComments(filePath string, file *ast.File, dotPath string, value interface{}) (bool, error) {
+	if handled := mergeKeyIntoAST(file, dotPath, value); !handled {
+		return false, nil
+	}
+	return true, writeYAMLFileRaw(filePath, []byte(file.String()))
+}
+
+// mergeKeyIntoAST adds a key that does not yet exist to an already-parsed
+// document, without writing anything. Returns false when the path is not a
+// plain map key whose parent already exists.
+func mergeKeyIntoAST(file *ast.File, dotPath string, value interface{}) bool {
+	parentPath, key := "", dotPath
+	if idx := strings.LastIndex(dotPath, "."); idx >= 0 {
+		parentPath, key = dotPath[:idx], dotPath[idx+1:]
+	}
+
+	// An array element is not a plain map key.
+	if key == "" || strings.ContainsAny(key, "[]") {
+		return false
+	}
+
+	// A new top-level key merges into the document root.
+	yamlPath := "$"
+	if parentPath != "" {
+		yamlPath = convertDotPathToYAMLPath(parentPath)
+	}
+
+	path, err := yaml.PathString(yamlPath)
+	if err != nil {
+		return false
+	}
+
+	// The parent has to exist already; creating intermediate levels is left to
+	// the caller's fallback.
+	if _, filterErr := path.FilterFile(file); filterErr != nil {
+		return false
+	}
+
+	// Marshalling a single-entry map quotes the key and the value correctly.
+	fragment, err := yaml.Marshal(map[string]interface{}{key: value})
+	if err != nil {
+		return false
+	}
+
+	return path.MergeFromReader(file, strings.NewReader(string(fragment))) == nil
+}
+
+// setValuesPreservingComments applies several keys to a file in one pass,
+// editing the syntax tree so comments and key order survive, and writing once.
+//
+// It reports handled=false, having changed nothing, when any key cannot be
+// expressed on the tree. The caller then takes its map-based path for the whole
+// batch, which keeps the operation all-or-nothing.
+func setValuesPreservingComments(filePath string, keys []string, values []interface{}) (bool, error) {
+	if len(keys) == 0 || len(keys) != len(values) {
+		return false, nil
+	}
+	if _, statErr := os.Stat(filePath); statErr != nil {
+		return false, nil
+	}
+
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return false, nil
+	}
+	file, err := parser.ParseBytes(content, parser.ParseComments)
+	if err != nil {
+		return false, nil
+	}
+
+	for i, key := range keys {
+		// A path containing a negative index needs resolving against the data,
+		// which the map path already handles.
+		if strings.Contains(key, "-") {
+			return false, nil
+		}
+
+		yamlPath, pathErr := yaml.PathString(convertDotPathToYAMLPath(key))
+		if pathErr != nil {
+			return false, nil
+		}
+
+		var existing interface{}
+		if yamlPath.Read(file, &existing) == nil {
+			valueBytes, marshalErr := yaml.Marshal(values[i])
+			if marshalErr != nil {
+				return false, nil
+			}
+			if yamlPath.ReplaceWithReader(file, strings.NewReader(strings.TrimSpace(string(valueBytes)))) != nil {
+				return false, nil
+			}
+			continue
+		}
+
+		if !mergeKeyIntoAST(file, key, values[i]) {
+			return false, nil
+		}
+	}
+
+	return true, writeYAMLFileRaw(filePath, []byte(file.String()))
 }
 
 // resolveNegativeIndices converts negative array indices to positive ones by examining the data

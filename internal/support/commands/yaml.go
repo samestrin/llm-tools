@@ -658,23 +658,38 @@ Examples:
 			}
 			defer lock.Unlock()
 
-			// Set all values
+			// Type the values once; both paths below need them.
 			var keys []string
+			var values []interface{}
 			for _, pair := range pairs {
 				var typedValue interface{} = pair.value
 				if num, parseErr := parseNumber(pair.value); parseErr == nil {
 					typedValue = num
 				}
-
-				if err := setValueAtPath(data, pair.key, typedValue); err != nil {
-					return fmt.Errorf("failed to set %s: %w", pair.key, err)
-				}
 				keys = append(keys, pair.key)
+				values = append(values, typedValue)
 			}
 
-			// Write file atomically
-			if err := writeYAMLFile(file, data); err != nil {
-				return fmt.Errorf("failed to write config file: %w", err)
+			// Edit the syntax tree so the file keeps its comments and its key
+			// order. This reports handled=false without changing anything when
+			// a key cannot be expressed that way, leaving the batch intact for
+			// the map path below, which rewrites the whole file.
+			handled, astErr := setValuesPreservingComments(file, keys, values)
+			if astErr != nil {
+				return fmt.Errorf("failed to write config file: %w", astErr)
+			}
+
+			if !handled {
+				for i, key := range keys {
+					if err := setValueAtPath(data, key, values[i]); err != nil {
+						return fmt.Errorf("failed to set %s: %w", key, err)
+					}
+				}
+
+				// Write file atomically
+				if err := writeYAMLFile(file, data); err != nil {
+					return fmt.Errorf("failed to write config file: %w", err)
+				}
 			}
 
 			// Skip success output if quiet
