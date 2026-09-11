@@ -631,13 +631,45 @@ func TestSQLiteStorage_PruneMemoryRetrievalLog(t *testing.T) {
 		}
 	}
 
-	// Pruning with 0 days should delete nothing (all are from "now")
-	deleted, err := storage.PruneMemoryRetrievalLog(ctx, 0)
+	// Age two entries well beyond any cutoff used below. Timestamps are stored
+	// at one-second resolution, so the test sets them explicitly rather than
+	// racing the clock: measuring entries written "now" against a cutoff of
+	// "now" turns on whichever side of a second tick each insert happens to
+	// land, which made this test fail intermittently.
+	_, err = storage.db.ExecContext(ctx, `
+		UPDATE retrieval_log
+		SET timestamp = datetime('now', '-10 days')
+		WHERE memory_id IN ('mem-000', 'mem-001')
+	`)
+	if err != nil {
+		t.Fatalf("Failed to age retrieval log entries: %v", err)
+	}
+
+	// A cutoff between the two ages removes only the aged entries.
+	deleted, err := storage.PruneMemoryRetrievalLog(ctx, 5)
+	if err != nil {
+		t.Fatalf("PruneMemoryRetrievalLog failed: %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("Expected 2 deleted, got %d", deleted)
+	}
+
+	// The recent entries survive.
+	var remaining int
+	if err := storage.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM retrieval_log`).Scan(&remaining); err != nil {
+		t.Fatalf("Failed to count retrieval log: %v", err)
+	}
+	if remaining != 3 {
+		t.Errorf("Expected 3 entries remaining, got %d", remaining)
+	}
+
+	// A cutoff older than every entry removes nothing.
+	deleted, err = storage.PruneMemoryRetrievalLog(ctx, 3650)
 	if err != nil {
 		t.Fatalf("PruneMemoryRetrievalLog failed: %v", err)
 	}
 	if deleted != 0 {
-		t.Errorf("Expected 0 deleted, got %d", deleted)
+		t.Errorf("Expected 0 deleted for a ten-year cutoff, got %d", deleted)
 	}
 }
 

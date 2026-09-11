@@ -47,6 +47,7 @@ var commandRegistry = map[string]argBuilder{
 	"memory_delete":     {build: buildMemoryDeleteArgs, validate: nil, profile: "memory"},
 	"memory_stats":      {build: buildMemoryStatsArgs, validate: nil, profile: "memory"},
 	"collection_delete": {build: buildCollectionDeleteArgs, validate: nil},
+	"callers":           {build: buildCallersArgs, validate: validateCallersArgs},
 }
 
 // RegisteredCommands returns a list of all registered command names.
@@ -279,6 +280,31 @@ func validateSearchArgs(args map[string]interface{}) error {
 	query, ok := args["query"].(string)
 	if !ok || strings.TrimSpace(query) == "" {
 		return fmt.Errorf("search requires a non-empty query")
+	}
+	return nil
+}
+
+func buildCallersArgs(args map[string]interface{}) []string {
+	cmdArgs := []string{"callers"}
+
+	if symbol, ok := args["symbol"].(string); ok && symbol != "" {
+		cmdArgs = append(cmdArgs, symbol)
+	}
+	if storage, ok := args["storage"].(string); ok && storage != "" {
+		cmdArgs = append(cmdArgs, "--storage", storage)
+	}
+	if collection, ok := args["collection"].(string); ok && collection != "" {
+		cmdArgs = append(cmdArgs, "--collection", collection)
+	}
+
+	return cmdArgs
+}
+
+// validateCallersArgs validates callers command arguments
+func validateCallersArgs(args map[string]interface{}) error {
+	symbol, ok := args["symbol"].(string)
+	if !ok || strings.TrimSpace(symbol) == "" {
+		return fmt.Errorf("callers requires a non-empty symbol")
 	}
 	return nil
 }

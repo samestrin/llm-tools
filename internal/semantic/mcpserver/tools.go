@@ -635,7 +635,19 @@ func GetToolDefinitions() []ToolDefinition {
 					}`),
 		},
 
-		// 11. Memory stats
+		// 11. Callers - query the indexed call graph
+		{
+			Name:        ToolPrefix + "callers",
+			Description: "List the functions and methods that call a symbol, using the call graph recorded while indexing.",
+			InputSchema: buildSchema(map[string]schemaProperty{
+				"symbol": {
+					Type:        "string",
+					Description: "Symbol name to find callers of (e.g., a function or method name)",
+				},
+			}, []string{"symbol"}),
+		},
+
+		// 12. Memory stats
 		{
 			Name:        ToolPrefix + "memory_stats",
 			Description: "Display retrieval statistics for stored memories.",

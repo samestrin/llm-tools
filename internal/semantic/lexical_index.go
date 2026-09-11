@@ -159,6 +159,13 @@ func (idx *LexicalIndex) initSchema() error {
 		return err
 	}
 
+	// Create the call graph tables. A vector backend cannot express the join a
+	// reference query needs, so it keeps its references here alongside the
+	// lexical index.
+	if err := initChunkRefsTables(idx.db); err != nil {
+		return fmt.Errorf("failed to create chunk reference tables: %w", err)
+	}
+
 	// Create memory stats tracking tables
 	return idx.initStatsSchema()
 }
@@ -397,6 +404,12 @@ func (idx *LexicalIndex) Clear(ctx context.Context) error {
 	// Delete from chunks table - the DELETE trigger will sync to FTS automatically
 	if _, err := idx.db.ExecContext(ctx, `DELETE FROM chunks`); err != nil {
 		return fmt.Errorf("failed to clear chunks: %w", err)
+	}
+
+	// Clear the call graph. The table declares a cascade, but foreign keys are
+	// not enabled on this connection, so the rows have to go explicitly.
+	if _, err := idx.db.ExecContext(ctx, `DELETE FROM chunk_refs`); err != nil {
+		return fmt.Errorf("failed to clear chunk references: %w", err)
 	}
 
 	return nil
