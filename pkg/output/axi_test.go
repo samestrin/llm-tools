@@ -174,6 +174,81 @@ func TestEncodeAXIReportsAnUnmarshalableValue(t *testing.T) {
 	}
 }
 
+// --- MED (review): --json and --axi disagreed about large integers
+
+type bigResult struct {
+	Total int64   `json:"total"`
+	Huge  uint64  `json:"huge"`
+	Small int     `json:"small"`
+	Ratio float64 `json:"ratio"`
+}
+
+func TestAXIPreservesIntegersBeyondFloat64(t *testing.T) {
+	// Measured before the fix:
+	//
+	//   --json  {"also":12345678901234567890,"big":9007199254740993}
+	//   --axi   also: 12345678901234567000
+	//           big:  9007199254740992
+	//
+	// The two flags disagreed about the DATA, silently. The cause was mine:
+	// projecting through JSON decodes every number into float64, and anything
+	// past 2^53 rounds. Encoding the struct directly preserves the digits — but
+	// then the column names become Go identifiers, which is why the projection
+	// exists at all.
+	//
+	// json.Number alone does NOT fix it: probed, go-axi re-parses it back into
+	// a number and the digits die again. Only the out-of-range values are
+	// carried across verbatim, which is also what toon-go does natively when it
+	// encodes a large int64.
+	buf := new(bytes.Buffer)
+	f := New(false, false, buf)
+	f.AXI = true
+	r := bigResult{Total: 9007199254740993, Huge: 12345678901234567890, Small: 42, Ratio: 1.5}
+	if err := f.Print(r, nil); err != nil {
+		t.Fatalf("Print: %v", err)
+	}
+	got := buf.String()
+	for _, want := range []string{"9007199254740993", "12345678901234567890"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("digits lost: %q missing from\n%s", want, got)
+		}
+	}
+	// Ordinary numbers must stay numeric, or --axi stops matching --json for
+	// every payload that is not huge.
+	if !strings.Contains(got, "small: 42") {
+		t.Errorf("an in-range integer was not left numeric:\n%s", got)
+	}
+	if !strings.Contains(got, "ratio: 1.5") {
+		t.Errorf("a float was not left numeric:\n%s", got)
+	}
+}
+
+// --- MED (review): the usage classifier matched bare substrings
+
+func TestExitCodeForDoesNotClassifyWrappedSubprocessErrors(t *testing.T) {
+	// cobra's real wording carries a flag or command reference:
+	//
+	//   invalid argument "nope" for "--depth" flag: ...
+	//   unknown command "nosuch" for "probe"
+	//
+	// A subprocess failure can contain the leading fragment alone. Classifying
+	// that as exit 2 tells the caller its invocation was malformed and that
+	// retrying is pointless, when the truth is a transient runtime failure.
+	for name, err := range map[string]error{
+		"git invalid argument":   errors.New(`fatal: invalid argument "HEAD~1" in rev-parse`),
+		"nested cli unknown cmd": errors.New(`docker: unknown command "buildx" was reported by the daemon`),
+		"path containing phrase": errors.New(`open /tmp/invalid argument "x": no such file or directory`),
+		"required flag in prose": errors.New(`the config declares required flag(s) "file" but the loader failed`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := ExitCodeFor(err); got != int(goaxi.ExitError) {
+				t.Errorf("ExitCodeFor(%q) = %d, want %d — a runtime failure was reported as a usage error",
+					err, got, int(goaxi.ExitError))
+			}
+		})
+	}
+}
+
 func TestNewAdoptsThePackageDefault(t *testing.T) {
 	// How the flag reaches 60-odd call sites without touching one of them.
 	// Every command builds its formatter with output.New(json, min, w); the

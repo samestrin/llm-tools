@@ -22,6 +22,11 @@ func captureStdout(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatalf("pipe: %v", err)
 	}
+	// Registered BEFORE the swap: a panic or t.Fatalf inside fn used to skip
+	// the restore, leaving every later test in the package writing to a closed
+	// pipe and failing for a reason that had nothing to do with the code under
+	// test.
+	t.Cleanup(func() { os.Stdout = orig })
 	os.Stdout = w
 	done := make(chan string, 1)
 	go func() {
