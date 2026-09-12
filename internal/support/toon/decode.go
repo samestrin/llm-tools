@@ -210,7 +210,7 @@ func synthesize(h *header, rows []string, headerAt int) string {
 	for i := 1; i < headerAt; i++ {
 		b.WriteByte('\n')
 	}
-	b.WriteString(h.name)
+	b.WriteString(h.nameText)
 	b.WriteByte('[')
 	b.WriteString(strconv.Itoa(len(rows)))
 	b.WriteString(delimiterSuffix(h.delimiter))

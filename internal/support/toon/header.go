@@ -14,7 +14,16 @@ import (
 // API. Reading the header here is structurally required, not a stylistic
 // preference.
 type header struct {
+	// name is the array name with any quoting removed, which is how toon-go
+	// keys it in the decoded document. A space or a colon forces quoting on an
+	// array name by exactly the rules that quote a field name, so a reader that
+	// keeps the quotes cannot find its own array.
 	name string
+
+	// nameText is the name exactly as written, quotes included. The synthesized
+	// document reuses it verbatim, because stripping the quotes there would
+	// produce a header toon-go rejects as an invalid unquoted key.
+	nameText string
 
 	// fields are the declared names, in order, unquoted.
 	fields []string
@@ -44,7 +53,12 @@ func parseHeader(line string, lineNo int) (*header, error) {
 	}
 	shut += open
 
-	h := &header{name: line[:open], delimiter: ','}
+	nameText := line[:open]
+	h := &header{
+		name:      unquoteFieldName(nameText),
+		nameText:  nameText,
+		delimiter: ',',
+	}
 	spec := line[open+1 : shut]
 
 	// A leading '#' is the optional length marker (`[#2]`). toon-go emits it
