@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -378,7 +377,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 	}
 
 	// Output results
-	if opts.jsonOutput {
+	if opts.jsonOutput || GlobalAXIOutput {
 		type jsonResult struct {
 			*semantic.IndexResult
 			Calibration *semantic.CalibrationMetadata `json:"calibration,omitempty"`
@@ -387,9 +386,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 			IndexResult: result,
 			Calibration: calibrationMeta,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(out)
+		return emitStdout(out)
 	}
 
 	fmt.Printf("Indexed %d files, created %d chunks\n", result.FilesProcessed, result.ChunksCreated)

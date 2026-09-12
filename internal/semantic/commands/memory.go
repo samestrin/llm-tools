@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -186,7 +185,7 @@ func runMemoryStore(ctx context.Context, opts memoryStoreOpts) error {
 	}
 
 	// Output result
-	if opts.jsonOutput || opts.minOutput {
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
 		result := map[string]interface{}{
 			"status": "stored",
 			"id":     entry.ID,
@@ -198,9 +197,7 @@ func runMemoryStore(ctx context.Context, opts memoryStoreOpts) error {
 		if opts.filePath != "" {
 			result["file_path"] = opts.filePath
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return emitStdout(result)
 	}
 
 	fmt.Printf("Memory stored: %s\n", entry.ID)
@@ -388,7 +385,7 @@ func runMemorySearch(ctx context.Context, opts memorySearchOpts) error {
 	}
 
 	// Output results
-	if opts.jsonOutput || opts.minOutput {
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
 		return outputMemoryJSON(results, opts.minOutput)
 	}
 	return outputMemoryText(results)
@@ -404,14 +401,10 @@ func outputMemoryJSON(results []semantic.MemorySearchResult, minimal bool) error
 				"s":  r.Score,
 			}
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(minResults)
+		return emitStdout(minResults)
 	}
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(results)
+	return emitStdout(results)
 }
 
 func outputMemoryText(results []semantic.MemorySearchResult) error {
@@ -580,16 +573,14 @@ func runMemoryPromote(ctx context.Context, opts memoryPromoteOpts) error {
 	}
 
 	// Output result
-	if opts.jsonOutput || opts.minOutput {
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
 		result := map[string]interface{}{
 			"status":   "promoted",
 			"id":       entry.ID,
 			"target":   opts.target,
 			"promoted": true,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return emitStdout(result)
 	}
 
 	fmt.Printf("Promoted memory %s to %s\n", opts.id, opts.target)
@@ -768,16 +759,14 @@ func runMemoryImport(ctx context.Context, opts memoryImportOpts) error {
 	}
 
 	// Output result
-	if opts.jsonOutput || opts.minOutput {
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
 		result := map[string]interface{}{
 			"imported": imported,
 			"skipped":  skipped,
 			"errors":   errors,
 			"total":    len(clarFile.Entries),
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return emitStdout(result)
 	}
 
 	fmt.Printf("Import complete: %d imported, %d skipped, %d errors (total: %d)\n",
@@ -865,7 +854,7 @@ func runMemoryList(ctx context.Context, opts memoryListOpts) error {
 	}
 
 	// Output results
-	if opts.jsonOutput || opts.minOutput {
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
 		if opts.minOutput {
 			minResults := make([]map[string]interface{}, len(entries))
 			for i, e := range entries {
@@ -875,13 +864,9 @@ func runMemoryList(ctx context.Context, opts memoryListOpts) error {
 					"status": e.Status,
 				}
 			}
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			return enc.Encode(minResults)
+			return emitStdout(minResults)
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(entries)
+		return emitStdout(entries)
 	}
 
 	if len(entries) == 0 {
@@ -977,15 +962,13 @@ func runMemoryDelete(ctx context.Context, opts memoryDeleteOpts) error {
 	}
 
 	// Output result
-	if opts.jsonOutput || opts.minOutput {
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
 		result := map[string]interface{}{
 			"status":  "deleted",
 			"id":      opts.id,
 			"deleted": true,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return emitStdout(result)
 	}
 
 	fmt.Printf("Deleted memory: %s\n", opts.id)
@@ -1199,12 +1182,9 @@ func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracke
 	}
 
 	// Handle JSON output
-	if opts.jsonOutput || opts.minOutput {
-		enc := json.NewEncoder(os.Stdout)
-		if !opts.minOutput {
-			enc.SetIndent("", "  ")
-		}
-
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
+		// Indent stays conditional on minOutput, carried per call so
+		// --json --min keeps emitting compact output.
 		if opts.minOutput {
 			// Minimal JSON output with abbreviated keys
 			minResults := make([]map[string]interface{}, len(filtered))
@@ -1225,7 +1205,7 @@ func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracke
 				"m": promotedCount,
 				"r": minResults,
 			}
-			return enc.Encode(output)
+			return emitJSON(os.Stdout, output, false)
 		}
 
 		// Full JSON output with summary
@@ -1248,7 +1228,7 @@ func runMemoryStatsTable(ctx context.Context, tracker semantic.MemoryStatsTracke
 			"promoted":       promotedCount,
 			"results":        results,
 		}
-		return enc.Encode(output)
+		return emitJSON(os.Stdout, output, true)
 	}
 
 	// Build display rows for table output
@@ -1343,12 +1323,9 @@ func runMemoryHistory(ctx context.Context, storage semantic.Storage, tracker sem
 	}
 
 	// Handle JSON output
-	if opts.jsonOutput || opts.minOutput {
-		enc := json.NewEncoder(os.Stdout)
-		if !opts.minOutput {
-			enc.SetIndent("", "  ")
-		}
-
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
+		// Indent stays conditional on minOutput, carried per call so
+		// --json --min keeps emitting compact output.
 		if opts.minOutput {
 			// Minimal JSON output with abbreviated keys
 			minEntries := make([]map[string]interface{}, len(history))
@@ -1365,7 +1342,7 @@ func runMemoryHistory(ctx context.Context, storage semantic.Storage, tracker sem
 				"rc": len(history),
 				"h":  minEntries,
 			}
-			return enc.Encode(result)
+			return emitJSON(os.Stdout, result, false)
 		}
 
 		// Full JSON output
@@ -1375,7 +1352,7 @@ func runMemoryHistory(ctx context.Context, storage semantic.Storage, tracker sem
 			"history_count": len(history),
 			"history":       history,
 		}
-		return enc.Encode(result)
+		return emitJSON(os.Stdout, result, true)
 	}
 
 	fmt.Printf("Memory: %s\n", mem.Question)
@@ -1439,25 +1416,23 @@ func runMemoryPrune(ctx context.Context, tracker semantic.MemoryStatsTracker, op
 	}
 
 	// Handle JSON output
-	if opts.jsonOutput || opts.minOutput {
-		enc := json.NewEncoder(os.Stdout)
-		if !opts.minOutput {
-			enc.SetIndent("", "  ")
-		}
-
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
+		// Indent was conditional on minOutput here, unlike the sites that
+		// always indent. The choice is carried through per call so --json --min
+		// keeps emitting compact output.
 		if opts.minOutput {
 			result := map[string]interface{}{
 				"c": count,
 				"o": opts.olderThan,
 			}
-			return enc.Encode(result)
+			return emitJSON(os.Stdout, result, false)
 		}
 
 		result := map[string]interface{}{
 			"deleted_count":   count,
 			"older_than_days": opts.olderThan,
 		}
-		return enc.Encode(result)
+		return emitJSON(os.Stdout, result, true)
 	}
 
 	if count > 0 {

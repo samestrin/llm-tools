@@ -2,9 +2,7 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/samestrin/llm-tools/internal/semantic"
@@ -200,10 +198,8 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 }
 
 func reportUpdateResult(result *semantic.UpdateResult, jsonOutput bool) error {
-	if jsonOutput {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+	if jsonOutput || GlobalAXIOutput {
+		return emitStdout(result)
 	}
 
 	fmt.Printf("Updated %d files, removed %d files (%s mode)\n", result.FilesUpdated, result.FilesRemoved, result.Mode)
