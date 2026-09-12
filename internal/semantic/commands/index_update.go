@@ -110,7 +110,7 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 		return fmt.Errorf("failed to check index lock: %w", err)
 	}
 	if !locked {
-		if !opts.jsonOutput {
+		if !opts.jsonOutput && !GlobalAXIOutput {
 			fmt.Println("Another index operation is in progress, skipping update")
 		}
 		return nil
@@ -169,7 +169,7 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 			// Fall back to full scan if we can't determine git root
 			useGit = false
 		} else {
-			if !opts.jsonOutput {
+			if !opts.jsonOutput && !GlobalAXIOutput {
 				fmt.Printf("Updating index for %s (git mode, since %s)...\n", absPath, opts.since)
 			}
 
@@ -184,7 +184,7 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 	}
 
 	// Full scan mode
-	if !opts.jsonOutput {
+	if !opts.jsonOutput && !GlobalAXIOutput {
 		fmt.Printf("Updating index for %s (full scan)...\n", absPath)
 	}
 
