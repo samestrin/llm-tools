@@ -59,6 +59,65 @@ func TestNoDirectJSONEncodersOutsideTheHelper(t *testing.T) {
 	}
 }
 
+// TestNoStdoutGateIgnoresAXI is the same technique one layer out.
+//
+// Routing every emit site through the helper was necessary and not sufficient:
+// the sites sit behind gates, and opening only the EMIT gate left the
+// surrounding text gates keyed on --json alone. Three reviewers caught it
+// independently on the highest-volume commands:
+//
+//	llm-semantic index --axi         ~15 progress prints, TTY escapes, then TOON
+//	llm-semantic index-update --axi  status text ahead of (or instead of) TOON
+//
+// The stream is unparseable, and the failure is silent — exit 0 with a payload
+// buried in prose.
+//
+// It cannot be reproduced in a unit test here: reaching those gates needs a
+// real index, which needs a live embedding API. So the guard is structural,
+// which is what caught the emit sites too.
+func TestNoStdoutGateIgnoresAXI(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading package dir: %v", err)
+	}
+
+	var offenders []string
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		if strings.HasSuffix(name, "_test.go") || name == helperFile {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Clean(name))
+		if err != nil {
+			t.Fatalf("reading %s: %v", name, err)
+		}
+		for i, line := range strings.Split(string(src), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "if ") {
+				continue
+			}
+			// A gate that tests jsonOutput must also admit AXI, or --axi
+			// output is interleaved with the text this gate exists to skip.
+			if !strings.Contains(trimmed, "jsonOutput") {
+				continue
+			}
+			if strings.Contains(trimmed, "GlobalAXIOutput") {
+				continue
+			}
+			offenders = append(offenders, name+":"+itoa(i+1)+": "+trimmed)
+		}
+	}
+
+	if len(offenders) > 0 {
+		t.Errorf("%d stdout gate(s) still key on --json alone, so --axi output "+
+			"is interleaved with text:\n  %s",
+			len(offenders), strings.Join(offenders, "\n  "))
+	}
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

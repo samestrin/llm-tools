@@ -22,13 +22,22 @@ func captureStdout(t *testing.T, fn func()) string {
 	if err != nil {
 		t.Fatalf("pipe: %v", err)
 	}
-	t.Cleanup(func() { os.Stdout = orig })
 	os.Stdout = w
 
 	done := make(chan string, 1)
 	go func() {
 		b, _ := io.ReadAll(r)
 		done <- string(b)
+	}()
+
+	// Both the restore AND the pipe close are deferred. fn calls t.Fatalf on
+	// failure, which unwinds through runtime.Goexit rather than returning, so
+	// the straight-line `w.Close()` never ran — leaving the reader goroutine
+	// blocked on a writer that is never closed, for the rest of the run.
+	// Closing twice is harmless; not closing at all leaks.
+	defer func() {
+		_ = w.Close()
+		os.Stdout = orig
 	}()
 	fn()
 	_ = w.Close()
