@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -198,6 +199,9 @@ Examples:
 				return err
 			}
 			res := EpicNumberResult{Next: next, Parent: epicNumberParent, InUse: len(nums), Dirs: epicNumberDirs}
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), res)
+			}
 			if epicNumberJSON {
 				b, err := json.MarshalIndent(res, "", "  ")
 				if err != nil {

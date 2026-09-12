@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -94,6 +95,13 @@ Examples:
 					}
 					keyCount := countKeys(data)
 
+					if GlobalAXIOutput {
+						return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+							"config_file": file,
+							"status":      status,
+							"keys":        keyCount,
+						})
+					}
 					if jsonOutput {
 						if minOutput {
 							// --json --min: minimal JSON
@@ -144,6 +152,13 @@ Examples:
 			data, _ := readYAMLAsMap(file)
 			keyCount := countKeys(data)
 
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+					"config_file": file,
+					"status":      status,
+					"keys":        keyCount,
+				})
+			}
 			if jsonOutput {
 				if minOutput {
 					// --json --min: minimal JSON
@@ -243,6 +258,9 @@ Examples:
 			}
 
 			// Format output
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{"key": key, "value": value})
+			}
 			if jsonOutput {
 				if minOutput {
 					// --json --min: just the value as JSON
@@ -373,6 +391,11 @@ Examples:
 			}
 
 			// Output
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+					"key": key, "value": value, "status": "set",
+				})
+			}
 			if jsonOutput {
 				if minOutput {
 					// --json --min: minimal JSON
@@ -508,6 +531,9 @@ Examples:
 			}
 
 			// Output
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), results)
+			}
 			if jsonOutput {
 				if minOutput {
 					// --json --min: values as JSON array (preserves order)
@@ -699,6 +725,11 @@ Examples:
 
 			// Output
 			// NOTE: Output format intentionally matches context_multiset for consistency
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+					"keys": keys, "count": len(keys), "status": "ok",
+				})
+			}
 			if jsonOutput {
 				if minOutput {
 					// --json --min: minimal JSON with count and status
@@ -792,13 +823,28 @@ Examples:
 				if m, ok := value.(map[string]interface{}); ok {
 					data = m
 				} else {
-					// Single value, output directly
+					// Single value, output directly.
+					//
+					// This early return sits BEFORE every format branch, so it
+					// ignored --axi. Note it ignores --json the same way — a
+					// scalar prefix prints `key=value` even with --json. That is
+					// a pre-existing bug and it is deliberately NOT fixed here:
+					// correcting it would change --json's output, which this
+					// change guarantees it does not touch.
+					if GlobalAXIOutput {
+						return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+							prefix: value,
+						})
+					}
 					fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", prefix, formatValue(value))
 					return nil
 				}
 			}
 
 			// Output
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), data)
+			}
 			if jsonOutput {
 				if minOutput {
 					// --json --min: flattened keys as JSON array
@@ -904,6 +950,11 @@ Examples:
 			}
 
 			// Output
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+					"key": key, "status": "deleted",
+				})
+			}
 			if jsonOutput {
 				if minOutput {
 					// --json --min: minimal JSON
@@ -989,6 +1040,13 @@ Examples:
 			sort.Strings(sections)
 
 			// Output
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+					"valid":    true,
+					"keys":     keyCount,
+					"sections": sections,
+				})
+			}
 			if jsonOutput {
 				if minOutput {
 					// --json --min: minimal JSON
@@ -1079,6 +1137,11 @@ Examples:
 			}
 
 			// Output
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+					"key": key, "value": value, "status": "pushed",
+				})
+			}
 			if jsonOutput {
 				if minOutput {
 					// --json --min: minimal JSON
@@ -1161,6 +1224,11 @@ Examples:
 			}
 
 			// Output
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+					"key": key, "value": value, "status": "popped",
+				})
+			}
 			if jsonOutput {
 				if minOutput {
 					// --json --min: just the value as JSON

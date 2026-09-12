@@ -16,10 +16,11 @@ import (
 	"strings"
 )
 
-// Formatter handles output formatting with support for JSON and minimal modes.
+// Formatter handles output formatting with support for AXI, JSON and minimal modes.
 type Formatter struct {
 	JSON    bool // Output as JSON
 	Minimal bool // Output in minimal/token-optimized mode
+	AXI     bool // Output as TOON (AXI token-dense format)
 	Writer  io.Writer
 }
 
@@ -31,7 +32,11 @@ func New(jsonOutput, minimal bool, w io.Writer) *Formatter {
 	return &Formatter{
 		JSON:    jsonOutput,
 		Minimal: minimal,
-		Writer:  w,
+		// Adopted from the package default rather than taken as a fourth
+		// argument, so every existing call site gains --axi without being
+		// edited. See SetDefaultAXI.
+		AXI:    defaultAXI,
+		Writer: w,
 	}
 }
 
@@ -62,6 +67,14 @@ var KeyAbbreviations = map[string]string{
 // For JSON mode, it marshals the data. For text mode, it uses the textFunc if provided.
 // textFunc is called for default text output; if nil, JSON is used as fallback.
 func (f *Formatter) Print(data interface{}, textFunc func(io.Writer, interface{})) error {
+	// AXI is checked first, so it wins when both flags are given: --json is the
+	// older, broader request and --axi the more specific one. Minimal is NOT
+	// applied on top — TOON is already the token-dense encoding, and
+	// abbreviating its keys as well would publish a second column contract that
+	// nothing documents and no consumer could predict from the flags alone.
+	if f.AXI {
+		return EncodeAXI(f.Writer, data)
+	}
 	if f.JSON {
 		return f.printJSON(data)
 	}
@@ -320,6 +333,17 @@ func (f *Formatter) PrintSection(title string) {
 // In JSON mode, outputs to stdout for parsing. In text mode, outputs to stderr.
 // Returns the exit code (always 1 for errors).
 func (f *Formatter) PrintError(err error) int {
+	if f.AXI {
+		// Emitted in the same encoding as a success, so a consumer reading one
+		// stream never has to switch parsers to learn that the command failed.
+		// The exit code is classified independently of the output mode: a
+		// display flag must not change the process status.
+		_ = EncodeAXI(f.Writer, map[string]interface{}{
+			"error":   true,
+			"message": err.Error(),
+		})
+		return ExitCodeFor(err)
+	}
 	if f.JSON {
 		if f.Minimal {
 			// Minimal JSON: abbreviated keys, single line
@@ -352,7 +376,9 @@ func (f *Formatter) PrintError(err error) int {
 			fmt.Fprintf(w, "Error: %v\n", err)
 		}
 	}
-	return 1
+	// Classified rather than always 1: AXI requires a malformed invocation to
+	// exit 2, and this return value is what every CLI hands to os.Exit.
+	return ExitCodeFor(err)
 }
 
 // ErrorResult is a helper for creating error responses in handlers.

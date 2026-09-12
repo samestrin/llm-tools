@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -186,6 +187,22 @@ func parseGitStatus(output string, pathFilter string, includeUntracked bool, sta
 func outputGitChanges(cmd *cobra.Command, result GitChangesResult) {
 	out := cmd.OutOrStdout()
 
+	// AXI first, with the same nil-slice normalisation the JSON branch does:
+	// `files` must be an empty list rather than null, or a consumer iterating
+	// it has to guard a case the schema never announced.
+	if GlobalAXIOutput {
+		if result.Files == nil {
+			result.Files = []string{}
+		}
+		// Reported rather than discarded: an encode failure that printed
+		// nothing and still exited 0 is the silent-empty-success trap this
+		// whole change exists to close. This helper returns nothing, so stderr
+		// is the only channel available without reshaping its callers.
+		if err := output.EncodeAXI(out, result); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Error: %v\n", err)
+		}
+		return
+	}
 	if gitChangesJSON && gitChangesMin {
 		// Compact JSON with only count
 		fmt.Fprintf(out, "{\"count\":%d}\n", result.Count)

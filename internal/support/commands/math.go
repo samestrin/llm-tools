@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/expr-lang/expr"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -123,6 +124,16 @@ func runMath(cmd *cobra.Command, args []string) error {
 		resultStr = fmt.Sprintf("%v", v)
 	}
 
+	// AXI first. This command prints its JSON by hand rather than through an
+	// output.Formatter, so without this branch it would ACCEPT --axi (a
+	// persistent root flag) and silently emit JSON — a consumer parsing TOON
+	// would get JSON with no error and exit 0.
+	if GlobalAXIOutput {
+		return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+			"expression": expression,
+			"result":     result,
+		})
+	}
 	// Output based on format flags
 	if mathJSON {
 		output := map[string]interface{}{
