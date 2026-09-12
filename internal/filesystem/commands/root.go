@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -121,6 +122,10 @@ func OutputError(err error) {
 // Execute runs the root command
 func Execute() {
 	if err := RootCmd().Execute(); err != nil {
-		os.Exit(1)
+		// Exit code only. This binary is a port and prints NOTHING for a usage
+		// error today — SilenceErrors is set and the error is discarded here —
+		// so classifying the status is additive, while starting to print a
+		// message would change behaviour a consumer may depend on.
+		os.Exit(output.ExitCodeFor(err))
 	}
 }

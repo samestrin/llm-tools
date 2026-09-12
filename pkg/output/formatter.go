@@ -352,7 +352,9 @@ func (f *Formatter) PrintError(err error) int {
 			fmt.Fprintf(w, "Error: %v\n", err)
 		}
 	}
-	return 1
+	// Classified rather than always 1: AXI requires a malformed invocation to
+	// exit 2, and this return value is what every CLI hands to os.Exit.
+	return ExitCodeFor(err)
 }
 
 // ErrorResult is a helper for creating error responses in handlers.
