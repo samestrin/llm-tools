@@ -29,6 +29,11 @@ go.sum
 # Planning and temporary files
 .planning/
 
+# atcr review artifacts and local reviewer config. The config names agents from
+# the user-level registry (~/.config/atcr/registry.yaml), so it is machine-local
+# and a review run writes a full artifact tree under here.
+.atcr/
+
 # Semantic index data. These are rebuilt by 'llm-semantic index' and are
 # derived from the source, so they do not belong in the repository.
 .index/
