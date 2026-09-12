@@ -61,6 +61,45 @@ func runStatusInEmptyDir(t *testing.T, jsonOutput bool) string {
 	})
 }
 
+// emitStdout is the wrapper 21 of the 23 converted sites call, and coverage
+// showed it at 0%: the behaviour tests reach emitJSON directly through
+// index-status's COMPACT branches, while its indented branch needs a real
+// index that no test creates. So the most-used path in the package was
+// untested. These two close that.
+
+func TestEmitStdoutWritesIndentedJSONByDefault(t *testing.T) {
+	got := captureStdout(t, func() {
+		if err := emitStdout(map[string]any{"a": 1, "b": "two"}); err != nil {
+			t.Fatalf("emitStdout: %v", err)
+		}
+	})
+	if !strings.Contains(got, "\n  ") {
+		t.Errorf("expected indented JSON, got %q", got)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(got), &payload); err != nil {
+		t.Fatalf("not valid JSON: %v (%q)", err, got)
+	}
+	if payload["b"] != "two" {
+		t.Errorf("b = %v, want two", payload["b"])
+	}
+}
+
+func TestEmitStdoutHonoursAXI(t *testing.T) {
+	withAXI(t)
+	got := captureStdout(t, func() {
+		if err := emitStdout(map[string]any{"a": 1, "b": "two"}); err != nil {
+			t.Fatalf("emitStdout: %v", err)
+		}
+	})
+	if strings.HasPrefix(strings.TrimSpace(got), "{") {
+		t.Errorf("--axi was ignored; JSON was emitted: %q", got)
+	}
+	if !strings.Contains(got, "b: two") {
+		t.Errorf("expected TOON key/value, got %q", got)
+	}
+}
+
 func TestIndexStatusHonoursAXIWithoutJSON(t *testing.T) {
 	// --axi ALONE, which is how a caller uses it. Routing every emit site
 	// through emitJSON was necessary and not sufficient: those sites sit behind
