@@ -116,6 +116,40 @@ func TestTOONParseCmd_ShapeTabularRefusesToDowngrade(t *testing.T) {
 	}
 }
 
+func TestTOONParseCmd_AMalformedTabularHeaderNeverDowngrades(t *testing.T) {
+	// The defect this exists to stop, found by running the guards through the
+	// BINARY rather than through Decode:
+	//
+	//   f[1|]{a|b|a}:  ->  exit 0, {"shape":"document","value":{"f":[{"a":3,"b":2}]}}
+	//
+	// A duplicate column is an error at the package level, and the unit test
+	// proves it. But auto-detection asked IsTabularHeader, which ran the FULL
+	// header parse, so a BROKEN tabular header looked identical to "not a
+	// tabular header" and the payload was quietly rerouted to the document
+	// branch. toon-go then kept one of the two `a` columns — last value wins,
+	// the 1 is gone — and the command exited 0.
+	//
+	// Silently dropping a column is the exact failure this reader was written
+	// to remove, so the detection must be STRUCTURAL: a line that looks like a
+	// tabular header stays on the tabular path and reports its real problem.
+	for name, payload := range map[string]string{
+		"duplicate field": "f[1|]{a|b|a}:\n  1|2|3\n",
+		"empty field":     "f[1|]{}:\n  x\n",
+		"bad row count":   "f[x|]{a}:\n  v\n",
+		"bad delimiter":   "f[1;]{a;b}:\n  1;2\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, _, err := execTOONCmd(t, "parse", writeAXI(t, payload))
+			if err == nil {
+				t.Fatalf("a malformed tabular payload was accepted:\n%s", out)
+			}
+			if strings.Contains(out, `"shape":"document"`) {
+				t.Errorf("it was downgraded to a document instead of reported:\n%s", out)
+			}
+		})
+	}
+}
+
 func TestTOONParseCmd_RejectsAnUnknownShape(t *testing.T) {
 	_, _, err := execTOONCmd(t, "parse", "--shape", "nonsense", writeAXI(t, atcrAXIGolden))
 	if err == nil {

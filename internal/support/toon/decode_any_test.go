@@ -19,10 +19,19 @@ func TestIsTabularHeader(t *testing.T) {
 		line string
 		want bool
 	}{
-		"atcr findings":   {`findings[2|]{severity|"file:line"}:`, true},
-		"empty form":      {"findings[0]:", true},
-		"length marker":   {"findings[#2]{a}:", true},
-		"comma declared":  {"rows[1,]{a,b}:", true},
+		"atcr findings":  {`findings[2|]{severity|"file:line"}:`, true},
+		"empty form":     {"findings[0]:", true},
+		"length marker":  {"findings[#2]{a}:", true},
+		"comma declared": {"rows[1,]{a,b}:", true},
+		// A MALFORMED tabular header is still a tabular header. This is the
+		// whole point: the test is structural, so Decode gets to report the
+		// real problem (a duplicate column, a bad row count) instead of the
+		// payload being quietly rerouted to the document branch and losing a
+		// column in silence.
+		"duplicate field": {"f[1|]{a|b|a}:", true},
+		"empty field":     {"f[1|]{}:", true},
+		"bad row count":   {"f[x|]{a}:", true},
+		"bad delimiter":   {"f[1;]{a;b}:", true},
 		"leading scalar":  {"path: /tmp/x", false},
 		"indented row":    {"  CRITICAL|x", false},
 		"no bracket":      {"findings:", false},
