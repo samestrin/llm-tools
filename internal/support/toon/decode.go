@@ -332,10 +332,18 @@ func DecodeAny(r io.Reader) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("toon: %w", err)
 	}
-	// toon-go returns (nil, nil) for an empty document. An empty success is the
-	// failure mode this package exists to remove.
-	if decoded == nil {
+	// toon-go reports an empty document as a non-nil, EMPTY map rather than as
+	// an error. Probed, not assumed: "" and "\n" both decode to
+	// map[string]any{} with a nil error, so a `decoded == nil` guard never
+	// fires. An empty success is the trap go-axi's Check exists to catch, and
+	// it must not reach a caller as a valid document.
+	switch v := decoded.(type) {
+	case nil:
 		return nil, fmt.Errorf("toon: empty document")
+	case map[string]any:
+		if len(v) == 0 {
+			return nil, fmt.Errorf("toon: empty document")
+		}
 	}
 	return decoded, nil
 }

@@ -121,6 +121,22 @@ func parseHeader(line string, lineNo int) (*header, error) {
 	return h, nil
 }
 
+// IsTabularHeader reports whether line opens a TOON tabular array.
+//
+// It is the dispatch point between Decode and DecodeAny, and the choice has to
+// be SYNTACTIC. Selecting the shape by trying the tabular path and falling back
+// when it errors would turn a garbled findings payload into a document full of
+// junk — silently, with exit 0 — which is the failure class this package exists
+// to remove.
+//
+// It also replaces the private header regexp parse_stream carries. Two
+// definitions of "is this TOON" in one binary drift apart, and that one is
+// already stricter about the array name than this package has ever been.
+func IsTabularHeader(line string) bool {
+	_, err := parseHeader(line, 0)
+	return err == nil
+}
+
 // splitFieldList splits a declared field list on the delimiter, honouring
 // quotes. It is deliberately much smaller than the value splitter it replaces:
 // it does not unescape, because a field NAME is an identifier rather than free
