@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -16,6 +17,7 @@ var (
 	// Global flags
 	jsonOutput  bool
 	minOutput   bool
+	axiOutput   bool
 	allowedDirs []string
 )
 
@@ -36,6 +38,14 @@ All commands support --json output for machine parsing.`,
 	// Global flags
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 	rootCmd.PersistentFlags().BoolVar(&minOutput, "min", false, "Minimal/token-optimized output")
+	rootCmd.PersistentFlags().BoolVar(&axiOutput, "axi", false, "Output as TOON (AXI token-dense format)")
+	// Published so a formatter built with output.New anywhere in this binary
+	// honours the flag too. No command here builds one today, so this is
+	// defensive rather than a live fix — but the day one does, the failure
+	// would be silent: --axi accepted, JSON emitted, exit 0.
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		output.SetDefaultAXI(axiOutput)
+	}
 	rootCmd.PersistentFlags().StringSliceVar(&allowedDirs, "allowed-dirs", nil,
 		"Directories the tool is allowed to access (comma-separated)")
 
@@ -66,8 +76,22 @@ func GetAllowedDirs() []string {
 	return expanded
 }
 
-// OutputResult outputs the result in JSON or text format
+// OutputResult outputs the result in AXI, JSON or text format
 func OutputResult(result interface{}, textFn func() string) {
+	// AXI first, and it wins when both flags are set: --json is the older,
+	// broader request and --axi the more specific one. Purely additive — with
+	// the flag absent, every existing path below is untouched.
+	if axiOutput {
+		if err := output.EncodeAXI(os.Stdout, result); err != nil {
+			// Reported, not os.Exit: exiting from inside a shared output helper
+			// skips every deferred cleanup in the calling command — a flock
+			// release, a file close, the backup restore in large-write-file and
+			// safe-edit. The command returns normally and its own error path
+			// decides the status.
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
+		return
+	}
 	if jsonOutput {
 		var jsonBytes []byte
 		var err error
@@ -88,8 +112,19 @@ func OutputResult(result interface{}, textFn func() string) {
 	}
 }
 
-// OutputError outputs an error in JSON or text format
+// OutputError outputs an error in AXI, JSON or text format
 func OutputError(err error) {
+	if axiOutput {
+		// Emitted on stdout like the JSON form, so a consumer reading one
+		// stream gets the failure in the same encoding as a success.
+		if encErr := output.EncodeAXI(os.Stdout, map[string]interface{}{
+			"error":   true,
+			"message": err.Error(),
+		}); encErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", encErr)
+		}
+		os.Exit(output.ExitCodeFor(err))
+	}
 	if jsonOutput {
 		if minOutput {
 			// Minimal JSON: abbreviated keys, single line
@@ -121,6 +156,10 @@ func OutputError(err error) {
 // Execute runs the root command
 func Execute() {
 	if err := RootCmd().Execute(); err != nil {
-		os.Exit(1)
+		// Exit code only. This binary is a port and prints NOTHING for a usage
+		// error today — SilenceErrors is set and the error is discarded here —
+		// so classifying the status is additive, while starting to print a
+		// message would change behaviour a consumer may depend on.
+		os.Exit(output.ExitCodeFor(err))
 	}
 }

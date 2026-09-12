@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -124,6 +125,15 @@ Output Formats:
 				}
 			}
 
+			// AXI first. Every branch below builds its JSON with Fprintf rather
+			// than a marshaller, so without this the command would accept --axi
+			// (a persistent root flag) and emit hand-formatted JSON.
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+					"context_file": contextFile,
+					"status":       status,
+				})
+			}
 			// Output based on format
 			if jsonOutput {
 				if minOutput {
@@ -234,6 +244,12 @@ Examples:
 				return fmt.Errorf("failed to write to context file: %w", err)
 			}
 
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+					"status": "ok",
+					"key":    key,
+				})
+			}
 			// Output based on format
 			if jsonOutput {
 				if minOutput {
@@ -385,6 +401,9 @@ Examples:
 				}
 			}
 
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]string{"key": key, "value": value})
+			}
 			// Output based on format
 			if jsonOutput {
 				if minOutput {
@@ -465,6 +484,9 @@ Examples:
 				return nil // Empty output for empty context
 			}
 
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), values)
+			}
 			if jsonOutput {
 				if minOutput {
 					// --json --min: values as JSON array
@@ -730,6 +752,13 @@ Examples:
 				keys = append(keys, pair.key)
 			}
 
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+					"status": "ok",
+					"keys":   keys,
+					"count":  len(keys),
+				})
+			}
 			// Output based on format
 			if jsonOutput {
 				if minOutput {
@@ -841,6 +870,9 @@ Examples:
 				results[key] = value
 			}
 
+			if GlobalAXIOutput {
+				return output.EncodeAXI(cmd.OutOrStdout(), results)
+			}
 			// Output based on format
 			if jsonOutput {
 				if minOutput {

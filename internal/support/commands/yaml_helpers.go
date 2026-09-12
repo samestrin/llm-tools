@@ -14,6 +14,7 @@ import (
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
 	"github.com/gofrs/flock"
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -1037,6 +1038,13 @@ type dryRunChange struct {
 
 // outputDryRunPreview outputs a single change preview
 func outputDryRunPreview(cmd *cobra.Command, filePath, key string, oldValue, newValue interface{}, jsonOutput, minOutput bool) error {
+	if GlobalAXIOutput {
+		return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+			"dry_run": true,
+			"file":    filePath,
+			"changes": []dryRunChange{{Key: key, OldValue: oldValue, NewValue: newValue}},
+		})
+	}
 	if jsonOutput {
 		return outputDryRunJSON(cmd, filePath, []dryRunChange{{
 			Key:      key,
@@ -1063,6 +1071,13 @@ func outputDryRunPreview(cmd *cobra.Command, filePath, key string, oldValue, new
 
 // outputMultiDryRunPreview outputs multiple change previews
 func outputMultiDryRunPreview(cmd *cobra.Command, filePath string, changes []dryRunChange, jsonOutput, minOutput bool) error {
+	if GlobalAXIOutput {
+		return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+			"dry_run": true,
+			"file":    filePath,
+			"changes": changes,
+		})
+	}
 	if jsonOutput {
 		return outputDryRunJSON(cmd, filePath, changes, minOutput)
 	}

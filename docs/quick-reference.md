@@ -706,6 +706,7 @@ llm-support args @.planning/plans/1.0_feature/
 | `--strip` | template, prompt | Strip whitespace from file values |
 | `--syntax` | template | Variable syntax: braces or brackets |
 | `--json` | detect, multigrep, analyze-deps | Output as JSON |
+| `--axi` | global | Output as TOON (AXI token-dense format) |
 | `--format` | global | Output format: text, json |
 | `-v, --verbose` | global | Enable verbose output |
 

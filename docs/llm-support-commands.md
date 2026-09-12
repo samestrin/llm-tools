@@ -2438,11 +2438,26 @@ These flags are available for all commands:
 
 | Flag | Description |
 |------|-------------|
+| `--json` | Output as JSON |
+| `--min` | Minimal/token-optimized output |
+| `--axi` | Output as TOON (AXI token-dense format) |
 | `--format` | Output format: text, json (default: text) |
 | `-v, --verbose` | Enable verbose output |
 | `--no-gitignore` | Disable .gitignore filtering |
 | `-h, --help` | Help for command |
 | `--version` | Version information |
+
+`--axi` emits the same data `--json` would, encoded as TOON, using the same field names. It takes precedence when both are given. `--min` is not applied on top of it: TOON is already the token-dense encoding, and abbreviating its keys as well would create a second column contract that nothing documents.
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | The command ran and failed |
+| `2` | The invocation was malformed: an unknown flag or subcommand, a missing required flag, or an unparseable flag value |
+
+The split between 1 and 2 exists so a caller that cannot read the message can still tell the two apart. Retrying an unchanged invocation that returned 2 will never succeed; retrying after a 1 may.
 
 ---
 
