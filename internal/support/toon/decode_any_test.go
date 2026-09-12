@@ -107,3 +107,29 @@ func TestAnUnsupportedDelimiterIsRejected(t *testing.T) {
 		t.Errorf("error %q does not explain the delimiter", err)
 	}
 }
+
+func TestAQuotedArrayNameDecodes(t *testing.T) {
+	// A space or a colon in an array name forces quoting, by exactly the rules
+	// that quote a field name. toon-go unquotes the key when it builds the
+	// document, so a reader that looks the array up by the RAW header text
+	// cannot find it — and a payload that decoded before stops decoding.
+	//
+	// Found by reviewing the diff, then confirmed against binaries built from
+	// main and from this branch: main emitted the rows (with the quotes wrongly
+	// kept in `name`), the branch failed with "array is missing from the
+	// decoded document".
+	doc, err := Decode(strings.NewReader("\"my array\"[1|]{a|b}:\n  1|2\n"))
+	if err != nil {
+		t.Fatalf("a quoted array name is valid TOON: %v", err)
+	}
+	if doc.Name != "my array" {
+		t.Errorf("Name = %q, want %q — the quotes are syntax, not part of the name",
+			doc.Name, "my array")
+	}
+	if len(doc.Rows) != 1 {
+		t.Fatalf("got %d rows, want 1", len(doc.Rows))
+	}
+	if doc.Rows[0]["b"] != "2" {
+		t.Errorf("Rows[0][b] = %q, want 2", doc.Rows[0]["b"])
+	}
+}
