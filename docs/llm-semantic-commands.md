@@ -20,6 +20,7 @@ go install github.com/samestrin/llm-tools/cmd/llm-semantic@latest
 | `--index-dir` | Directory for semantic index | `.llm-index` |
 | `--collection` | Qdrant collection name (see resolution below) | derived |
 | `--json` | Output as JSON (machine-parseable) | `false` |
+| `--axi` | Output as TOON (AXI token-dense format) | `false` |
 | `--min` | Minimal output (reduced verbosity) | `false` |
 
 **Environment Variables:**

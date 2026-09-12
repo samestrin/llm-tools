@@ -2,9 +2,7 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/samestrin/llm-tools/internal/semantic"
@@ -112,7 +110,7 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 		return fmt.Errorf("failed to check index lock: %w", err)
 	}
 	if !locked {
-		if !opts.jsonOutput {
+		if !opts.jsonOutput && !GlobalAXIOutput {
 			fmt.Println("Another index operation is in progress, skipping update")
 		}
 		return nil
@@ -171,7 +169,7 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 			// Fall back to full scan if we can't determine git root
 			useGit = false
 		} else {
-			if !opts.jsonOutput {
+			if !opts.jsonOutput && !GlobalAXIOutput {
 				fmt.Printf("Updating index for %s (git mode, since %s)...\n", absPath, opts.since)
 			}
 
@@ -186,7 +184,7 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 	}
 
 	// Full scan mode
-	if !opts.jsonOutput {
+	if !opts.jsonOutput && !GlobalAXIOutput {
 		fmt.Printf("Updating index for %s (full scan)...\n", absPath)
 	}
 
@@ -200,10 +198,8 @@ func runIndexUpdate(ctx context.Context, path string, opts updateOpts) error {
 }
 
 func reportUpdateResult(result *semantic.UpdateResult, jsonOutput bool) error {
-	if jsonOutput {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+	if jsonOutput || GlobalAXIOutput {
+		return emitStdout(result)
 	}
 
 	fmt.Printf("Updated %d files, removed %d files (%s mode)\n", result.FilesUpdated, result.FilesRemoved, result.Mode)

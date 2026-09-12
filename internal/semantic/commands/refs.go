@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -134,7 +133,7 @@ func openRefStorage(ctx context.Context) (semantic.RefStorage, func(), error) {
 }
 
 func formatCallers(w io.Writer, symbol string, edges []semantic.RefEdge, jsonOutput, minOutput bool) error {
-	if jsonOutput || minOutput {
+	if jsonOutput || minOutput || GlobalAXIOutput {
 		return writeCallersJSON(w, symbol, edges, minOutput)
 	}
 
@@ -165,13 +164,11 @@ func writeCallersJSON(w io.Writer, symbol string, edges []semantic.RefEdge, mini
 		callers = append(callers, entry)
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(map[string]interface{}{
+	return emitJSON(w, map[string]interface{}{
 		"symbol":  symbol,
 		"count":   len(callers),
 		"callers": callers,
-	})
+	}, true)
 }
 
 // collapseRefEdges reports each referenced name once. A method call records
@@ -200,7 +197,7 @@ func collapseRefEdges(edges []semantic.RefEdge) []semantic.RefEdge {
 func formatRefs(w io.Writer, symbol string, edges []semantic.RefEdge, jsonOutput, minOutput bool) error {
 	edges = collapseRefEdges(edges)
 
-	if jsonOutput || minOutput {
+	if jsonOutput || minOutput || GlobalAXIOutput {
 		return writeRefsJSON(w, symbol, edges, minOutput)
 	}
 
@@ -238,11 +235,9 @@ func writeRefsJSON(w io.Writer, symbol string, edges []semantic.RefEdge, minimal
 		refs = append(refs, entry)
 	}
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(map[string]interface{}{
+	return emitJSON(w, map[string]interface{}{
 		"symbol":     symbol,
 		"count":      len(refs),
 		"references": refs,
-	})
+	}, true)
 }

@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -237,7 +236,7 @@ func runSearch(ctx context.Context, query string, opts searchOpts) error {
 	}
 
 	// Output results
-	if opts.jsonOutput || opts.minOutput {
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
 		return outputJSON(results, opts.minOutput)
 	}
 	return outputText(results)
@@ -262,14 +261,10 @@ func outputJSON(results []semantic.SearchResult, minimal bool) error {
 				minResults[i]["pr"] = r.Preview
 			}
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(minResults)
+		return emitStdout(minResults)
 	}
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(results)
+	return emitStdout(results)
 }
 
 func outputText(results []semantic.SearchResult) error {

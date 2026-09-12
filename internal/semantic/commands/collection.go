@@ -2,9 +2,7 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 
 	_ "github.com/samestrin/llm-tools/internal/semantic"
 	"github.com/spf13/cobra"
@@ -127,16 +125,14 @@ func runCollectionDelete(ctx context.Context, opts collectionDeleteOpts) error {
 	}
 
 	// Output result
-	if opts.jsonOutput || opts.minOutput {
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
 		result := map[string]interface{}{
 			"status":  "deleted",
 			"domain":  opts.domain,
 			"deleted": count,
 			"count":   count,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(result)
+		return emitStdout(result)
 	}
 
 	if count == 0 {

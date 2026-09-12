@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -43,11 +42,14 @@ func indexStatusCmd() *cobra.Command {
 func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 	indexPath := findIndexPath()
 	if indexPath == "" && storageType != "qdrant" {
-		if jsonOutput {
-			return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+		if jsonOutput || GlobalAXIOutput {
+			// indent=false: this branch has always emitted COMPACT json,
+			// unlike the 21 sites that call SetIndent. Indenting it here would
+			// silently reformat --json output.
+			return emitJSON(os.Stdout, map[string]interface{}{
 				"error":   "index not found",
 				"indexed": false,
-			})
+			}, false)
 		}
 		fmt.Println("Semantic index not found.")
 		fmt.Println("Run 'llm-semantic index' to create one.")
@@ -76,14 +78,15 @@ func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 		// Report limited info instead
 		if embedderOffline {
 			collection := resolveCollectionName()
-			if jsonOutput {
-				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			if jsonOutput || GlobalAXIOutput {
+				// indent=false: compact here too, for the same reason.
+				return emitJSON(os.Stdout, map[string]interface{}{
 					"indexed":          "unknown",
 					"storage":          "qdrant",
 					"collection":       collection,
 					"embedder_offline": true,
 					"message":          "Embedder service unavailable. Cannot retrieve full index status.",
-				})
+				}, false)
 			}
 			fmt.Printf("Semantic Index Status (Limited - Embedder Offline)\n")
 			fmt.Printf("==================================================\n")
@@ -114,9 +117,7 @@ func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 		slog.Debug("calibration metadata not available", "error", calErr)
 	}
 
-	if jsonOutput {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
+	if jsonOutput || GlobalAXIOutput {
 		result := indexStatusJSON{
 			Indexed:      true,
 			Storage:      storageType,
@@ -130,7 +131,7 @@ func runIndexStatus(ctx context.Context, jsonOutput bool) error {
 		} else {
 			result.Path = indexPath
 		}
-		return enc.Encode(result)
+		return emitStdout(result)
 	}
 
 	fmt.Printf("Semantic Index Status\n")
