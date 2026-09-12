@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/samestrin/llm-tools/pkg/output"
 	"github.com/spf13/cobra"
 )
 
@@ -244,6 +245,15 @@ func getValidPlanTypes() []string {
 func outputPlanType(cmd *cobra.Command, info PlanTypeResult) {
 	out := cmd.OutOrStdout()
 
+	// AXI first: this helper prints JSON by hand, so it would otherwise accept
+	// --axi and silently emit JSON. The error is discarded exactly as the
+	// json.MarshalIndent below discards its own — this function returns
+	// nothing, and inventing an error path for one branch would be a wider
+	// change than the flag warrants.
+	if GlobalAXIOutput {
+		_ = output.EncodeAXI(out, info)
+		return
+	}
 	if planTypeJSON && planTypeMin {
 		// Compact JSON with only type
 		fmt.Fprintf(out, "{\"type\":%q}\n", info.Type)

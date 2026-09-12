@@ -17,6 +17,7 @@ var (
 	// Global flags
 	jsonOutput  bool
 	minOutput   bool
+	axiOutput   bool
 	allowedDirs []string
 )
 
@@ -37,6 +38,7 @@ All commands support --json output for machine parsing.`,
 	// Global flags
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 	rootCmd.PersistentFlags().BoolVar(&minOutput, "min", false, "Minimal/token-optimized output")
+	rootCmd.PersistentFlags().BoolVar(&axiOutput, "axi", false, "Output as TOON (AXI token-dense format)")
 	rootCmd.PersistentFlags().StringSliceVar(&allowedDirs, "allowed-dirs", nil,
 		"Directories the tool is allowed to access (comma-separated)")
 
@@ -67,8 +69,18 @@ func GetAllowedDirs() []string {
 	return expanded
 }
 
-// OutputResult outputs the result in JSON or text format
+// OutputResult outputs the result in AXI, JSON or text format
 func OutputResult(result interface{}, textFn func() string) {
+	// AXI first, and it wins when both flags are set: --json is the older,
+	// broader request and --axi the more specific one. Purely additive — with
+	// the flag absent, every existing path below is untouched.
+	if axiOutput {
+		if err := output.EncodeAXI(os.Stdout, result); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(int(output.ExitCodeFor(err)))
+		}
+		return
+	}
 	if jsonOutput {
 		var jsonBytes []byte
 		var err error
@@ -89,8 +101,17 @@ func OutputResult(result interface{}, textFn func() string) {
 	}
 }
 
-// OutputError outputs an error in JSON or text format
+// OutputError outputs an error in AXI, JSON or text format
 func OutputError(err error) {
+	if axiOutput {
+		// Emitted on stdout like the JSON form, so a consumer reading one
+		// stream gets the failure in the same encoding as a success.
+		_ = output.EncodeAXI(os.Stdout, map[string]interface{}{
+			"error":   true,
+			"message": err.Error(),
+		})
+		os.Exit(output.ExitCodeFor(err))
+	}
 	if jsonOutput {
 		if minOutput {
 			// Minimal JSON: abbreviated keys, single line
