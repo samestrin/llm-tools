@@ -157,9 +157,13 @@ func parseHeader(line string, lineNo int) (*header, error) {
 // The shape test cannot swallow a document: an inline array (`tags[2]: x,y`)
 // does not end in a colon, and a scalar or nested key has no bracket at all.
 //
-// It also replaces the private header regexp parse_stream carries. Two
-// definitions of "is this TOON" in one binary drift apart, and that one is
-// already stricter about the array name than this package has ever been.
+// NOT YET the single definition of "is this TOON" in this binary.
+// parse_stream.go:181 still carries its own `toonHeaderPattern` regexp, which
+// is stricter — it demands an identifier-shaped array name and plain digits, so
+// it rejects a quoted name and the `[#2]` length-marker form this package
+// accepts. Folding it in would change parse-stream's format auto-detection,
+// which is a behaviour change that belongs in its own review rather than riding
+// along here.
 func IsTabularHeader(line string) bool {
 	open := strings.IndexByte(line, '[')
 	if open < 0 {

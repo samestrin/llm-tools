@@ -1,9 +1,12 @@
 package commands
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -100,31 +103,47 @@ Example:
 }
 
 func runTOONParse(cmd *cobra.Command, path, shape string) error {
-	data, err := os.ReadFile(path)
+	// Streamed, not slurped. Reading the whole file only to inspect its first
+	// non-blank line made the command's peak memory the size of its input, and
+	// the tabular path then handed those same bytes back through a
+	// bytes.Reader — the DecodeFile this replaced streamed straight from the
+	// file handle. Only the lines up to the first non-blank one are held; the
+	// rest flows to the decoder as it reads.
+	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = f.Close() }()
+
+	br := bufio.NewReader(f)
+	first, consumed, err := peekFirstNonBlankLine(br)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	// The peeked bytes are put back in front of the remainder, rather than
+	// seeking, so a non-seekable source such as /dev/stdin still works.
+	body := io.MultiReader(bytes.NewReader(consumed), br)
 
 	switch shape {
 	case shapeAuto:
-		if !firstLineIsTabular(data) {
-			return emitTOONDocument(cmd, path, data)
+		if !toon.IsTabularHeader(first) {
+			return emitTOONDocument(cmd, path, body)
 		}
 	case shapeTabular:
 		// Checked BEFORE decoding, so the diagnostic names the real problem
 		// rather than whatever the tabular reader happens to trip over first.
-		if !firstLineIsTabular(data) {
+		if !toon.IsTabularHeader(first) {
 			return fmt.Errorf("%s: not a tabular array: %q does not open one "+
-				"(use --shape document, or auto)", path, firstNonBlankLine(data))
+				"(use --shape document, or auto)", path, first)
 		}
 	case shapeDocument:
-		return emitTOONDocument(cmd, path, data)
+		return emitTOONDocument(cmd, path, body)
 	default:
 		return fmt.Errorf("unknown --shape %q: want %s, %s or %s",
 			shape, shapeAuto, shapeTabular, shapeDocument)
 	}
 
-	doc, err := toon.Decode(bytes.NewReader(data))
+	doc, err := toon.Decode(body)
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
@@ -151,8 +170,8 @@ func runTOONParse(cmd *cobra.Command, path, shape string) error {
 	return emitTOONJSON(cmd, res)
 }
 
-func emitTOONDocument(cmd *cobra.Command, path string, data []byte) error {
-	value, err := toon.DecodeAny(bytes.NewReader(data))
+func emitTOONDocument(cmd *cobra.Command, path string, r io.Reader) error {
+	value, err := toon.DecodeAny(r)
 	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
@@ -172,22 +191,36 @@ func emitTOONJSON(cmd *cobra.Command, v any) error {
 	return nil
 }
 
-// firstNonBlankLine returns the line the shape decision is made on.
-func firstNonBlankLine(data []byte) string {
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) != "" {
-			return strings.TrimRight(line, "\r")
-		}
-	}
-	return ""
-}
+// maxPeekBytes bounds the search for the first non-blank line. A file of
+// nothing but blank lines would otherwise be read in full by the very code
+// added to stop reading files in full.
+const maxPeekBytes = 1 << 20
 
-// firstLineIsTabular decides the shape SYNTACTICALLY. Deciding it by attempting
+// peekFirstNonBlankLine reads just far enough to find the line the shape
+// decision is made on, and returns it alongside every byte consumed so the
+// caller can put them back in front of the remainder.
+//
+// The shape is decided SYNTACTICALLY from that line. Deciding it by attempting
 // a tabular decode and falling back when it fails would turn a garbled findings
 // payload into a document full of junk, silently and with exit 0 — the failure
 // class this whole reader exists to remove.
-func firstLineIsTabular(data []byte) bool {
-	return toon.IsTabularHeader(firstNonBlankLine(data))
+func peekFirstNonBlankLine(br *bufio.Reader) (string, []byte, error) {
+	var consumed []byte
+	for len(consumed) < maxPeekBytes {
+		line, rerr := br.ReadString('\n')
+		consumed = append(consumed, line...)
+		trimmed := strings.TrimRight(line, "\r\n")
+		if strings.TrimSpace(trimmed) != "" {
+			return trimmed, consumed, nil
+		}
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) {
+				return "", consumed, nil
+			}
+			return "", consumed, rerr
+		}
+	}
+	return "", consumed, nil
 }
 
 func init() {

@@ -86,6 +86,15 @@ type Document struct {
 // a silently truncated line.
 const maxLine = 8 * 1024 * 1024
 
+// MaxDocumentBytes bounds a whole document read by DecodeAny.
+//
+// toon-go's decoder takes a []byte, so the document has to be resident — but
+// "resident" is not "unbounded". DecodeAny accepts any io.Reader, including one
+// whose size cannot be checked first, and an uncapped read there is a way to
+// exhaust memory before a single byte is parsed. 64 MiB is far above any real
+// findings payload (hundreds of rows of KB-scale text) and far below trouble.
+const MaxDocumentBytes = 64 * 1024 * 1024
+
 // Decode reads one TOON tabular array from r.
 func Decode(r io.Reader) (*Document, error) {
 	sc := bufio.NewScanner(r)
@@ -104,7 +113,7 @@ func Decode(r io.Reader) (*Document, error) {
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("toon: line %d: %w", line+1, err)
 	}
 	if headerLine == "" {
 		return nil, fmt.Errorf("toon: no header found: expected a line like " +
@@ -132,6 +141,7 @@ func Decode(r io.Reader) (*Document, error) {
 	// than against the encoder's golden fixture.
 	var rows []string
 	for sc.Scan() {
+		line++
 		raw := sc.Text()
 		if strings.TrimSpace(raw) == "" {
 			// Today's reader skips a blank line between rows. Strict toon-go
@@ -142,9 +152,7 @@ func Decode(r io.Reader) (*Document, error) {
 			// End of this array's rows. A scalar `key: value` is sibling
 			// metadata worth keeping; anything else is a following block and
 			// not ours.
-			if k, v, ok := siblingKV(raw); ok {
-				doc.Meta[k] = v
-			}
+			collectSiblings(sc, raw, doc.Meta)
 			break
 		}
 		// Re-indented to exactly two spaces. toon-go requires the indent to be
@@ -154,7 +162,7 @@ func Decode(r io.Reader) (*Document, error) {
 		rows = append(rows, "  "+strings.TrimLeft(raw, " \t"))
 	}
 	if err := sc.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("toon: line %d: %w", line+1, err)
 	}
 
 	// The gate, in ONE direction only. More rows than the header declares is a
@@ -202,9 +210,14 @@ func Decode(r io.Reader) (*Document, error) {
 // fire on a disagreement this package has already decided to allow. The leading
 // blank lines put the header back on its original line number, because toon-go
 // reports errors by line and its error type is unexported — padding is the only
-// way to keep those numbers pointing at the caller's file. A blank line dropped
-// from between rows shifts everything after it by one; that is rare and pinned
-// by test rather than left to be discovered.
+// way to keep those numbers pointing at the caller's file.
+//
+// KNOWN LIMITATION, asserted rather than claimed fixed: a blank line dropped
+// from BETWEEN rows shifts every reported line after it by one. It cannot be
+// closed by forwarding the blank, because strict toon-go rejects a blank line
+// inside a tabular array outright while the old reader skipped them — so
+// forwarding would turn a payload that parses today into an error.
+// TestABlankLineBetweenRowsShiftsReportedLineNumbers pins the real behaviour.
 func synthesize(h *header, rows []string, headerAt int) string {
 	var b strings.Builder
 	for i := 1; i < headerAt; i++ {
@@ -280,6 +293,38 @@ func projectValue(v any) (string, error) {
 	}
 }
 
+// collectSiblings reads the `key: value` scalars that follow an array at column
+// 0, beginning with first.
+//
+// Every one of them, not just the first. Document.Meta is documented as holding
+// sibling LINES, and stopping after one dropped each later scalar in silence —
+// atcr emits a single `truncated` today, so nothing had lost data yet, but the
+// contract said otherwise. A line that is not a scalar key/value — a following
+// block header, say — ends collection and is left alone, as does a return to
+// indented content.
+func collectSiblings(sc *bufio.Scanner, first string, meta map[string]string) {
+	raw := first
+	for {
+		k, v, ok := siblingKV(raw)
+		if !ok {
+			return
+		}
+		meta[k] = v
+		for {
+			if !sc.Scan() {
+				return
+			}
+			raw = sc.Text()
+			if strings.TrimSpace(raw) != "" {
+				break
+			}
+		}
+		if raw[0] == ' ' || raw[0] == '\t' {
+			return
+		}
+	}
+}
+
 // siblingKV reads a `key: value` metadata line that follows an array at column
 // 0. atcr emits exactly one today, `truncated: <bool>`, deliberately as a bare
 // TOON scalar rather than an array row. A line that is not scalar `key: value`
@@ -324,23 +369,34 @@ func DecodeFile(path string) (*Document, error) {
 // point with no existing consumers, and a size that stays a number is more
 // useful than one that becomes text.
 func DecodeAny(r io.Reader) (any, error) {
-	data, err := io.ReadAll(r)
+	// One byte past the ceiling is read deliberately, so a document exactly at
+	// the limit still decodes and anything larger is reported rather than
+	// silently truncated into a payload that parses.
+	data, err := io.ReadAll(io.LimitReader(r, MaxDocumentBytes+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(data) > MaxDocumentBytes {
+		return nil, fmt.Errorf("toon: document is too large: over %d bytes", MaxDocumentBytes)
 	}
 	decoded, err := gotoon.Decode(data)
 	if err != nil {
 		return nil, fmt.Errorf("toon: %w", err)
 	}
-	// toon-go reports an empty document as a non-nil, EMPTY map rather than as
-	// an error. Probed, not assumed: "" and "\n" both decode to
-	// map[string]any{} with a nil error, so a `decoded == nil` guard never
-	// fires. An empty success is the trap go-axi's Check exists to catch, and
-	// it must not reach a caller as a valid document.
+	// toon-go reports an empty document as a non-nil, EMPTY container rather
+	// than as an error. Probed, not assumed: "" and "\n" decode to
+	// map[string]any{}, and `[0]:` decodes to a top-level []any{} — so neither
+	// a `decoded == nil` guard nor a map-only guard ever fires for it. An empty
+	// success is the trap go-axi's Check exists to catch, and it must not reach
+	// a caller as a valid document.
 	switch v := decoded.(type) {
 	case nil:
 		return nil, fmt.Errorf("toon: empty document")
 	case map[string]any:
+		if len(v) == 0 {
+			return nil, fmt.Errorf("toon: empty document")
+		}
+	case []any:
 		if len(v) == 0 {
 			return nil, fmt.Errorf("toon: empty document")
 		}
