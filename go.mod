@@ -15,6 +15,7 @@ require (
 	github.com/odvcencio/gotreesitter v0.13.4
 	github.com/qdrant/go-client v1.16.2
 	github.com/sabhiram/go-gitignore v0.0.0-20210923224102-525f6e181f06
+	github.com/samestrin/go-axi v0.1.2
 	github.com/sergi/go-diff v1.3.1
 	github.com/spf13/cobra v1.8.0
 	github.com/tidwall/gjson v1.17.0
