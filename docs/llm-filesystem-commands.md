@@ -13,6 +13,7 @@ go install github.com/samestrin/llm-tools/cmd/llm-filesystem@latest
 | Flag | Description |
 |------|-------------|
 | `--json` | Output as JSON (machine-parseable) |
+| `--axi` | Output as TOON (AXI token-dense format) |
 | `--allowed-dirs` | Directories the tool is allowed to access |
 
 ## Commands
