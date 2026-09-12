@@ -135,20 +135,41 @@ func parseHeader(line string, lineNo int) (*header, error) {
 	return h, nil
 }
 
-// IsTabularHeader reports whether line opens a TOON tabular array.
+// IsTabularHeader reports whether line has the SHAPE of a TOON tabular array
+// header: a name, a bracketed count, and a trailing colon.
 //
-// It is the dispatch point between Decode and DecodeAny, and the choice has to
-// be SYNTACTIC. Selecting the shape by trying the tabular path and falling back
-// when it errors would turn a garbled findings payload into a document full of
-// junk — silently, with exit 0 — which is the failure class this package exists
-// to remove.
+// It is the dispatch point between Decode and DecodeAny, and it deliberately
+// does NOT validate. Asking parseHeader instead — "does this header parse" —
+// makes a BROKEN tabular header indistinguishable from a line that was never a
+// tabular header, and the caller then reroutes it to the document reader.
+// Observed, through the binary rather than the package:
+//
+//	$ llm-support toon parse f.axi          # f[1|]{a|b|a}: / 1|2|3
+//	{"shape":"document","value":{"f":[{"a":3,"b":2}]}}          exit 0
+//
+// A duplicate column is an error at the package level and there is a test
+// proving it, but the payload never reached that error. toon-go kept one of
+// the two `a` columns, last value wins, the 1 was gone, and the command
+// reported success. Dropping a column in silence is the precise failure this
+// reader exists to remove, so a line that LOOKS tabular stays on the tabular
+// path and gets to report its real problem.
+//
+// The shape test cannot swallow a document: an inline array (`tags[2]: x,y`)
+// does not end in a colon, and a scalar or nested key has no bracket at all.
 //
 // It also replaces the private header regexp parse_stream carries. Two
 // definitions of "is this TOON" in one binary drift apart, and that one is
 // already stricter about the array name than this package has ever been.
 func IsTabularHeader(line string) bool {
-	_, err := parseHeader(line, 0)
-	return err == nil
+	open := strings.IndexByte(line, '[')
+	if open < 0 {
+		return false
+	}
+	shut := strings.IndexByte(line[open:], ']')
+	if shut < 0 {
+		return false
+	}
+	return strings.HasSuffix(strings.TrimRight(line[open+shut+1:], " \t"), ":")
 }
 
 // splitFieldList splits a declared field list on the delimiter, honouring
