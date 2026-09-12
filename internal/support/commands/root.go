@@ -23,6 +23,30 @@ var (
 	GlobalAXIOutput bool
 )
 
+// ResetOutputModes clears the global output flags and republishes the package
+// default.
+//
+// It exists because RootCmd is a package-level singleton and pflag leaves a
+// bound variable UNTOUCHED when its flag is absent. So a second in-process
+// invocation inherits the first one's modes: running with --axi and then with
+// --json emitted TOON for the second, and the same is true of --json and --min.
+//
+// A shipped binary cannot hit this — it runs Execute once per process, and both
+// MCP servers exec a fresh binary per tool call. The exposure is in-process
+// reuse: a test binary today, and any future caller that drives the command
+// tree twice.
+//
+// Execute calls this. A caller that drives RootCmd.Execute() directly must call
+// it itself; llm-filesystem and llm-semantic have no such requirement because
+// they build a fresh command tree per invocation, which is the structural fix
+// this package does not have.
+func ResetOutputModes() {
+	GlobalJSONOutput = false
+	GlobalMinOutput = false
+	GlobalAXIOutput = false
+	output.SetDefaultAXI(false)
+}
+
 // RootCmd is the base command when called without any subcommands
 var RootCmd = &cobra.Command{
 	Use:   "llm-support",
@@ -43,18 +67,27 @@ distribution, and integration with Claude, Gemini, and Qwen prompts.`,
 		if f := cmd.Flag("min"); f != nil && f.Changed {
 			GlobalMinOutput = true
 		}
-		if f := cmd.Flag("axi"); f != nil && f.Changed {
-			GlobalAXIOutput = true
-		}
-		// Published once, here, because this is the single point where flags
-		// are known to be parsed. Every output.New call in every command reads
-		// it from there.
+		// Published UNCONDITIONALLY, including when the flag is false. An
+		// earlier version only ever assigned true, with no else branch, so the
+		// package default kept the previous run's setting: running with --axi
+		// and then with --json in the same process emitted TOON for the second
+		// one. cobra does not reset a bound flag variable between Execute
+		// calls, so nothing else would have cleared it.
+		//
+		// The MCP servers are unaffected either way — both exec a fresh binary
+		// per tool call — so the real exposure was in-process reuse, including
+		// every test binary.
 		output.SetDefaultAXI(GlobalAXIOutput)
 	},
 }
 
 // Execute runs the root command
 func Execute() {
+	// Cleared before parse, because pflag only writes a bound variable when it
+	// actually sees the flag. A no-op for the shipped binary, which runs this
+	// once; load-bearing for anything that runs the command tree more than once
+	// in a process.
+	ResetOutputModes()
 	if err := RootCmd.Execute(); err != nil {
 		f := output.New(GlobalJSONOutput, GlobalMinOutput, os.Stdout)
 		os.Exit(f.PrintError(err))

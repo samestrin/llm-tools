@@ -194,7 +194,13 @@ func outputGitChanges(cmd *cobra.Command, result GitChangesResult) {
 		if result.Files == nil {
 			result.Files = []string{}
 		}
-		_ = output.EncodeAXI(out, result)
+		// Reported rather than discarded: an encode failure that printed
+		// nothing and still exited 0 is the silent-empty-success trap this
+		// whole change exists to close. This helper returns nothing, so stderr
+		// is the only channel available without reshaping its callers.
+		if err := output.EncodeAXI(out, result); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Error: %v\n", err)
+		}
 		return
 	}
 	if gitChangesJSON && gitChangesMin {

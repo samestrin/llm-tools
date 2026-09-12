@@ -823,7 +823,19 @@ Examples:
 				if m, ok := value.(map[string]interface{}); ok {
 					data = m
 				} else {
-					// Single value, output directly
+					// Single value, output directly.
+					//
+					// This early return sits BEFORE every format branch, so it
+					// ignored --axi. Note it ignores --json the same way — a
+					// scalar prefix prints `key=value` even with --json. That is
+					// a pre-existing bug and it is deliberately NOT fixed here:
+					// correcting it would change --json's output, which this
+					// change guarantees it does not touch.
+					if GlobalAXIOutput {
+						return output.EncodeAXI(cmd.OutOrStdout(), map[string]interface{}{
+							prefix: value,
+						})
+					}
 					fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", prefix, formatValue(value))
 					return nil
 				}

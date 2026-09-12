@@ -39,6 +39,13 @@ All commands support --json output for machine parsing.`,
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output as JSON")
 	rootCmd.PersistentFlags().BoolVar(&minOutput, "min", false, "Minimal/token-optimized output")
 	rootCmd.PersistentFlags().BoolVar(&axiOutput, "axi", false, "Output as TOON (AXI token-dense format)")
+	// Published so a formatter built with output.New anywhere in this binary
+	// honours the flag too. No command here builds one today, so this is
+	// defensive rather than a live fix — but the day one does, the failure
+	// would be silent: --axi accepted, JSON emitted, exit 0.
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		output.SetDefaultAXI(axiOutput)
+	}
 	rootCmd.PersistentFlags().StringSliceVar(&allowedDirs, "allowed-dirs", nil,
 		"Directories the tool is allowed to access (comma-separated)")
 
@@ -76,8 +83,12 @@ func OutputResult(result interface{}, textFn func() string) {
 	// the flag absent, every existing path below is untouched.
 	if axiOutput {
 		if err := output.EncodeAXI(os.Stdout, result); err != nil {
+			// Reported, not os.Exit: exiting from inside a shared output helper
+			// skips every deferred cleanup in the calling command — a flock
+			// release, a file close, the backup restore in large-write-file and
+			// safe-edit. The command returns normally and its own error path
+			// decides the status.
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(int(output.ExitCodeFor(err)))
 		}
 		return
 	}
@@ -106,10 +117,12 @@ func OutputError(err error) {
 	if axiOutput {
 		// Emitted on stdout like the JSON form, so a consumer reading one
 		// stream gets the failure in the same encoding as a success.
-		_ = output.EncodeAXI(os.Stdout, map[string]interface{}{
+		if encErr := output.EncodeAXI(os.Stdout, map[string]interface{}{
 			"error":   true,
 			"message": err.Error(),
-		})
+		}); encErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", encErr)
+		}
 		os.Exit(output.ExitCodeFor(err))
 	}
 	if jsonOutput {

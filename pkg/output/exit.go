@@ -27,13 +27,19 @@ import (
 // They are matched as substrings rather than prefixes because a command may
 // wrap the error on its way out; the fragments are distinctive enough that
 // ordinary prose does not contain them.
-var usageMarkers = []string{
-	"unknown flag: ",
-	"unknown shorthand flag: ",
-	`unknown command "`,
-	"flag needs an argument: ",
-	`invalid argument "`,
-	`required flag(s) "`,
+// Each entry is the set of fragments that must ALL appear. The multi-part ones
+// exist because their leading fragment alone occurs in ordinary runtime
+// failures — `fatal: invalid argument "HEAD~1" in rev-parse` from git, a nested
+// CLI's stderr, or a path that happens to contain the phrase. Classifying those
+// as exit 2 tells the caller its invocation was malformed and that retrying is
+// pointless, when the truth is a transient failure worth retrying.
+var usageMarkers = [][]string{
+	{"unknown flag: --"},
+	{"unknown shorthand flag: "},
+	{`unknown command "`, ` for "`},
+	{"flag needs an argument: "},
+	{`invalid argument "`, ` for "`, " flag"},
+	{`required flag(s) "`, " not set"},
 }
 
 // ExitCodeFor classifies err into the process status the AXI contract expects.
@@ -48,8 +54,15 @@ func ExitCodeFor(err error) int {
 		return int(goaxi.ExitOK)
 	}
 	msg := err.Error()
-	for _, marker := range usageMarkers {
-		if strings.Contains(msg, marker) {
+	for _, fragments := range usageMarkers {
+		matched := true
+		for _, fragment := range fragments {
+			if !strings.Contains(msg, fragment) {
+				matched = false
+				break
+			}
+		}
+		if matched {
 			return int(goaxi.ExitUsage)
 		}
 	}

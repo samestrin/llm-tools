@@ -251,7 +251,11 @@ func outputPlanType(cmd *cobra.Command, info PlanTypeResult) {
 	// nothing, and inventing an error path for one branch would be a wider
 	// change than the flag warrants.
 	if GlobalAXIOutput {
-		_ = output.EncodeAXI(out, info)
+		// See git_changes.go: an encode failure must not print nothing and exit
+		// 0. stderr is the only channel a void helper has.
+		if err := output.EncodeAXI(out, info); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Error: %v\n", err)
+		}
 		return
 	}
 	if planTypeJSON && planTypeMin {
