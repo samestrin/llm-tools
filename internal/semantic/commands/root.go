@@ -134,6 +134,16 @@ Supports any OpenAI-compatible embedding API (TEI, Ollama, vLLM, OpenAI, Azure, 
 	rootCmd.PersistentFlags().StringVar(&profile, "profile", "", "Profile name: code (default), docs, memory, sprints")
 	rootCmd.PersistentFlags().BoolVar(&GlobalJSONOutput, "json", false, "Output as JSON")
 	rootCmd.PersistentFlags().BoolVar(&GlobalMinOutput, "min", false, "Minimal/token-optimized output")
+	// Registered only now that every emit site routes through emitJSON. A
+	// persistent flag is accepted by every command, so registering it earlier
+	// would have meant commands that silently ignored it — printing ordinary
+	// output and exiting 0 while a consumer parsed TOON.
+	//
+	// No PersistentPreRunE sync block, unlike --json and --min: that block
+	// exists to promote a subcommand's LOCAL flag to the global, and no
+	// subcommand declares a local --axi. It also only ever assigns true, which
+	// is the exact shape that leaked modes between invocations in llm-support.
+	rootCmd.PersistentFlags().BoolVar(&GlobalAXIOutput, "axi", false, "Output as TOON (AXI token-dense format)")
 
 	// Add subcommands
 	rootCmd.AddCommand(searchCmd())
@@ -455,6 +465,7 @@ func ResetGlobalsForTesting() {
 	loadedConfig = nil
 	GlobalJSONOutput = false
 	GlobalMinOutput = false
+	GlobalAXIOutput = false
 }
 
 // searchComponents holds initialized components needed for search operations.

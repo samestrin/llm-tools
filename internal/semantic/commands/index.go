@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -174,7 +173,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 	// For Qdrant, we need to probe the embedder to get dimensions
 	embeddingDim := 0
 	if storageType == "qdrant" {
-		if !opts.jsonOutput {
+		if !opts.jsonOutput && !GlobalAXIOutput {
 			fmt.Println("Probing embedding model for dimensions...")
 		}
 		testEmbed, err := embedder.Embed(ctx, "test")
@@ -185,7 +184,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 		if embeddingDim == 0 {
 			return fmt.Errorf("embedder returned zero-dimension embedding, check embedding model configuration")
 		}
-		if !opts.jsonOutput {
+		if !opts.jsonOutput && !GlobalAXIOutput {
 			fmt.Printf("Detected embedding dimension: %d\n", embeddingDim)
 		}
 	}
@@ -205,7 +204,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 	mgr := semantic.NewIndexManager(storage, embedder, factory)
 
 	// Run indexing
-	if !opts.jsonOutput {
+	if !opts.jsonOutput && !GlobalAXIOutput {
 		fmt.Printf("Indexing %s...\n", absPath)
 	}
 
@@ -214,7 +213,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 	var uploadProgressCallback semantic.UploadProgressCallback
 	var isTTY bool
 	var verboseStartTime time.Time
-	if !opts.jsonOutput {
+	if !opts.jsonOutput && !GlobalAXIOutput {
 		lastReported := 0
 		isTTY = term.IsTerminal(int(os.Stdout.Fd()))
 		if opts.verbose {
@@ -362,7 +361,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 	})
 
 	// Print final newline after TTY progress
-	if !opts.jsonOutput && isTTY {
+	if !opts.jsonOutput && !GlobalAXIOutput && isTTY {
 		fmt.Println()
 	}
 
@@ -378,7 +377,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 	}
 
 	// Output results
-	if opts.jsonOutput {
+	if opts.jsonOutput || GlobalAXIOutput {
 		type jsonResult struct {
 			*semantic.IndexResult
 			Calibration *semantic.CalibrationMetadata `json:"calibration,omitempty"`
@@ -387,9 +386,7 @@ func runIndex(ctx context.Context, path string, opts indexOpts) error {
 			IndexResult: result,
 			Calibration: calibrationMeta,
 		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(out)
+		return emitStdout(out)
 	}
 
 	fmt.Printf("Indexed %d files, created %d chunks\n", result.FilesProcessed, result.ChunksCreated)
@@ -433,7 +430,7 @@ func runCalibration(ctx context.Context, storage semantic.Storage, embedder sema
 
 	// Skip if calibration exists and not forcing recalibration
 	if existing != nil && !forceRecalibrate {
-		if !jsonOutput {
+		if !jsonOutput && !GlobalAXIOutput {
 			fmt.Printf("\nUsing existing calibration (model=%s, date=%s)\n",
 				existing.EmbeddingModel,
 				existing.CalibrationDate.Format("2006-01-02"))
@@ -441,7 +438,7 @@ func runCalibration(ctx context.Context, storage semantic.Storage, embedder sema
 		return existing, nil
 	}
 
-	if !jsonOutput {
+	if !jsonOutput && !GlobalAXIOutput {
 		if forceRecalibrate {
 			fmt.Println("\nRecalibrating score thresholds...")
 		} else {

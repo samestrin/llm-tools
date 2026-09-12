@@ -2,9 +2,7 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/samestrin/llm-tools/internal/semantic"
@@ -140,7 +138,7 @@ func runMultisearch(ctx context.Context, queries []string, opts multisearchOpts)
 	}
 
 	// Output results
-	if opts.jsonOutput || opts.minOutput {
+	if opts.jsonOutput || opts.minOutput || GlobalAXIOutput {
 		return outputMultisearchJSON(result, opts.minOutput)
 	}
 	return outputMultisearchText(result)
@@ -206,14 +204,10 @@ func outputMultisearchJSON(result *semantic.MultisearchResult, minimal bool) err
 			minResult["by_collection"] = minByCollection
 		}
 
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(minResult)
+		return emitStdout(minResult)
 	}
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(result)
+	return emitStdout(result)
 }
 
 func outputMultisearchText(result *semantic.MultisearchResult) error {
