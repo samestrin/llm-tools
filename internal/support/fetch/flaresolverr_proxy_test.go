@@ -34,8 +34,51 @@ func TestFlareSolverrUsesProxyWhenConfigured(t *testing.T) {
 	if got.Proxy == nil {
 		t.Fatal("expected proxy in FlareSolverr payload, got none")
 	}
-	if got.Proxy.URL != cfg.ProxyURL {
-		t.Errorf("proxy url = %q, want %q", got.Proxy.URL, cfg.ProxyURL)
+	// Chrome rejects credentials inside a proxy URL (ERR_NO_SUPPORTED_PROXIES),
+	// so they must travel in FlareSolverr's separate username/password fields.
+	if got.Proxy.URL != "http://proxy:80" {
+		t.Errorf("proxy url = %q, want %q", got.Proxy.URL, "http://proxy:80")
+	}
+	if got.Proxy.Username != "user" || got.Proxy.Password != "pass" {
+		t.Errorf("proxy credentials = %q/%q, want user/pass", got.Proxy.Username, got.Proxy.Password)
+	}
+}
+
+// A proxy without credentials keeps its URL and sends no credential fields.
+func TestFlareSolverrProxyWithoutCredentials(t *testing.T) {
+	var got flareRequest
+	flare := capturingFlareStub(t, &got)
+	defer flare.Close()
+
+	cfg := testConfig()
+	cfg.FlareSolverrURL = flare.URL
+	cfg.FlareSolverrProxyURL = "http://relay:8899"
+	New(cfg).Fetch("https://target/", ViaFlareSolverr)
+
+	if got.Proxy == nil || got.Proxy.URL != "http://relay:8899" {
+		t.Fatalf("proxy = %+v, want url http://relay:8899", got.Proxy)
+	}
+	if got.Proxy.Username != "" || got.Proxy.Password != "" {
+		t.Errorf("expected no credentials, got %q/%q", got.Proxy.Username, got.Proxy.Password)
+	}
+}
+
+// A schemeless proxy (user:pass@host:port) is treated as http and split the same way.
+func TestFlareSolverrSchemelessProxyCredentials(t *testing.T) {
+	var got flareRequest
+	flare := capturingFlareStub(t, &got)
+	defer flare.Close()
+
+	cfg := testConfig()
+	cfg.FlareSolverrURL = flare.URL
+	cfg.ProxyURL = "user:p%40ss@proxy:80"
+	New(cfg).Fetch("https://target/", ViaFlareSolverr)
+
+	if got.Proxy == nil || got.Proxy.URL != "http://proxy:80" {
+		t.Fatalf("proxy = %+v, want url http://proxy:80", got.Proxy)
+	}
+	if got.Proxy.Username != "user" || got.Proxy.Password != "p@ss" {
+		t.Errorf("proxy credentials = %q/%q, want user/p@ss", got.Proxy.Username, got.Proxy.Password)
 	}
 }
 
