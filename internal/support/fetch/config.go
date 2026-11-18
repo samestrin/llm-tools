@@ -42,7 +42,7 @@ type Config struct {
 //	FETCH_TIMEOUT           Per-attempt timeout in seconds (default 30)
 //	FETCH_MAX_RETRIES       Retries within a tier (default 2)
 //	FETCH_USER_AGENT        Override the request User-Agent
-//	FETCH_FLARESOLVERR_PROXY_URL  Proxy for the FlareSolverr render (no-auth relay)
+//	FETCH_FLARESOLVERR_PROXY_URL  Proxy for the FlareSolverr render only
 //	FETCH_FLARESOLVERR_NO_PROXY   Keep the FlareSolverr render direct (1/true/yes)
 func LoadConfig() *Config {
 	return &Config{

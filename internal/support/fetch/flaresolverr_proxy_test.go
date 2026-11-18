@@ -113,3 +113,15 @@ func TestFlareSolverrNoProxyWhenUnset(t *testing.T) {
 		t.Errorf("expected no proxy field, got %q", got.Proxy.URL)
 	}
 }
+
+// An unparseable proxy URL passes through unchanged with no credentials.
+// url.Parse returns a nil *url.URL on error, so without the err guard this
+// panics on parsed.User instead of handing FlareSolverr the raw URL.
+func TestNewFlareProxyUnparseableURL(t *testing.T) {
+	for _, raw := range []string{"http://%zz", "http://user:pass@%zz"} {
+		got := newFlareProxy(raw)
+		if got.URL != raw || got.Username != "" || got.Password != "" {
+			t.Errorf("newFlareProxy(%q) = %+v, want raw URL and no credentials", raw, got)
+		}
+	}
+}

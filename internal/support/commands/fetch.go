@@ -90,7 +90,7 @@ Examples:
 	cmd.Flags().StringVar(&fetchFormat, "format", fetch.FormatRaw, "Output format: raw, text, or markdown (HTML only)")
 	cmd.Flags().StringVar(&fetchFlareSolverr, "flaresolverr", "", "FlareSolverr endpoint (overrides FETCH_FLARESOLVERR_URL)")
 	cmd.Flags().StringVar(&fetchProxy, "proxy", "", "Rotating proxy URL (overrides FETCH_PROXY_URL)")
-	cmd.Flags().StringVar(&fetchFlareSolverrProxy, "flaresolverr-proxy", "", "Proxy for the FlareSolverr render only, e.g. a no-auth relay (overrides FETCH_FLARESOLVERR_PROXY_URL)")
+	cmd.Flags().StringVar(&fetchFlareSolverrProxy, "flaresolverr-proxy", "", "Proxy for the FlareSolverr render only; credentials in the URL are forwarded to FlareSolverr (overrides FETCH_FLARESOLVERR_PROXY_URL)")
 	cmd.Flags().IntVar(&fetchTimeout, "timeout", fetch.DefaultTimeout, "Per-attempt timeout in seconds")
 	cmd.Flags().IntVar(&fetchRetries, "retries", fetch.DefaultMaxRetries, "Retries within a tier")
 	cmd.Flags().StringVar(&fetchVia, "via", fetch.ViaAuto, "Routing: auto, direct, proxy, or flaresolverr")

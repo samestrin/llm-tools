@@ -1850,7 +1850,7 @@ func GetToolDefinitions() []ToolDefinition {
 							"output": {"type": "string", "description": "Write the body to this file instead of returning it inline"},
 							"flaresolverr": {"type": "string", "description": "FlareSolverr endpoint (overrides FETCH_FLARESOLVERR_URL)"},
 							"proxy": {"type": "string", "description": "Rotating proxy URL (overrides FETCH_PROXY_URL)"},
-							"flaresolverr_proxy": {"type": "string", "description": "Proxy for the FlareSolverr render only, e.g. a no-auth relay (overrides FETCH_FLARESOLVERR_PROXY_URL)"},
+							"flaresolverr_proxy": {"type": "string", "description": "Proxy for the FlareSolverr render only; credentials in the URL are forwarded to FlareSolverr (overrides FETCH_FLARESOLVERR_PROXY_URL)"},
 							"timeout": {"type": "integer", "description": "Per-attempt timeout in seconds (default 30)"},
 							"retries": {"type": "integer", "description": "Retries within a tier (default 2)"},
 							"via": {"type": "string", "enum": ["auto", "direct", "proxy", "flaresolverr"], "description": "Routing: auto=full fallback ladder (default), or force a single tier (direct/proxy/flaresolverr)"},

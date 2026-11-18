@@ -59,8 +59,7 @@ type flareResponse struct {
 const flareOverhead = 30 * time.Second
 
 // renderFailureMarkers flag a FlareSolverr-rendered body that is itself an error
-// or block page — a Chrome proxy error (FlareSolverr's authenticated-proxy path
-// is flaky and intermittently fails), an unreachable page, or a residual block.
+// or block page — a Chrome proxy error, an unreachable page, or a residual block.
 // Such a render is worth one more attempt on a freshly rotated proxy IP.
 var renderFailureMarkers = []string{
 	"err_no_supported_proxies",
@@ -72,8 +71,7 @@ var renderFailureMarkers = []string{
 }
 
 // flareProxyURL is the proxy the FlareSolverr render should egress through: a
-// dedicated FlareSolverr proxy (e.g. a no-auth relay that sidesteps Chrome's
-// inability to authenticate proxies) when set, otherwise the shared proxy.
+// dedicated FlareSolverr proxy when set, otherwise the shared proxy.
 func (f *Fetcher) flareProxyURL() string {
 	if f.cfg.FlareSolverrNoProxy {
 		return ""
