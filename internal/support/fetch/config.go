@@ -26,10 +26,9 @@ type Config struct {
 	Timeout         int
 	MaxRetries      int
 	UserAgent       string
-	// FlareSolverrProxyURL is a proxy used only for the FlareSolverr render. Set
-	// it to a no-auth relay: Chrome cannot authenticate proxies, so FlareSolverr's
-	// authenticated-proxy path is flaky (ERR_NO_SUPPORTED_PROXIES). When empty the
-	// render falls back to ProxyURL.
+	// FlareSolverrProxyURL is a proxy used only for the FlareSolverr render. When
+	// empty the render falls back to ProxyURL. Credentials in either URL are sent
+	// to FlareSolverr as separate username/password fields (see newFlareProxy).
 	FlareSolverrProxyURL string
 	// FlareSolverrNoProxy keeps the FlareSolverr render direct even when a proxy
 	// is configured (saves metered proxy bandwidth on sites that don't block it).
@@ -43,7 +42,7 @@ type Config struct {
 //	FETCH_TIMEOUT           Per-attempt timeout in seconds (default 30)
 //	FETCH_MAX_RETRIES       Retries within a tier (default 2)
 //	FETCH_USER_AGENT        Override the request User-Agent
-//	FETCH_FLARESOLVERR_PROXY_URL  Proxy for the FlareSolverr render (no-auth relay)
+//	FETCH_FLARESOLVERR_PROXY_URL  Proxy for the FlareSolverr render only
 //	FETCH_FLARESOLVERR_NO_PROXY   Keep the FlareSolverr render direct (1/true/yes)
 func LoadConfig() *Config {
 	return &Config{

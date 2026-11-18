@@ -6,13 +6,33 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
 
 // flareProxy routes the FlareSolverr browser's egress through an HTTP proxy.
+// Credentials go in Username/Password, never inside URL: Chrome rejects a
+// proxy URL that carries user:pass (ERR_NO_SUPPORTED_PROXIES), while
+// FlareSolverr answers the proxy's auth challenge itself from these fields.
 type flareProxy struct {
-	URL string `json:"url"`
+	URL      string `json:"url"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+}
+
+// newFlareProxy splits any user:pass out of rawURL into the separate fields.
+// An unparseable URL is passed through unchanged.
+func newFlareProxy(rawURL string) *flareProxy {
+	parsed, err := url.Parse(normalizeProxyURL(rawURL))
+	if err != nil || parsed.User == nil {
+		return &flareProxy{URL: rawURL}
+	}
+	p := &flareProxy{Username: parsed.User.Username()}
+	p.Password, _ = parsed.User.Password()
+	parsed.User = nil
+	p.URL = parsed.String()
+	return p
 }
 
 // flareRequest is a FlareSolverr v1 request.get payload.
@@ -39,8 +59,7 @@ type flareResponse struct {
 const flareOverhead = 30 * time.Second
 
 // renderFailureMarkers flag a FlareSolverr-rendered body that is itself an error
-// or block page — a Chrome proxy error (FlareSolverr's authenticated-proxy path
-// is flaky and intermittently fails), an unreachable page, or a residual block.
+// or block page — a Chrome proxy error, an unreachable page, or a residual block.
 // Such a render is worth one more attempt on a freshly rotated proxy IP.
 var renderFailureMarkers = []string{
 	"err_no_supported_proxies",
@@ -52,8 +71,7 @@ var renderFailureMarkers = []string{
 }
 
 // flareProxyURL is the proxy the FlareSolverr render should egress through: a
-// dedicated FlareSolverr proxy (e.g. a no-auth relay that sidesteps Chrome's
-// inability to authenticate proxies) when set, otherwise the shared proxy.
+// dedicated FlareSolverr proxy when set, otherwise the shared proxy.
 func (f *Fetcher) flareProxyURL() string {
 	if f.cfg.FlareSolverrNoProxy {
 		return ""
@@ -101,7 +119,7 @@ func (f *Fetcher) attemptFlareSolverr(rawURL string) *Result {
 	// Route the headless browser through the proxy too: some sites (e.g. Reddit)
 	// block FlareSolverr's own datacenter IP, so a direct render still fails.
 	if proxy := f.flareProxyURL(); proxy != "" {
-		reqBody.Proxy = &flareProxy{URL: proxy}
+		reqBody.Proxy = newFlareProxy(proxy)
 	}
 
 	payload, err := json.Marshal(reqBody)
